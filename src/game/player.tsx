@@ -2,7 +2,7 @@ import Rapier from '@dimforge/rapier3d-compat'
 import { KeyboardControls, PerspectiveCamera, PointerLockControls, useKeyboardControls, useGLTF, useAnimations } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import { CapsuleCollider, RigidBody, RigidBodyProps, useBeforePhysicsStep, useRapier } from '@react-three/rapier'
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo, forwardRef } from 'react'
 import { useGamepad } from '../common/hooks/use-gamepad'
 import { useControls } from 'leva'
 import * as THREE from 'three'
@@ -46,7 +46,7 @@ type PlayerProps = RigidBodyProps & {
     jumpForce?: number
 }
 
-export const Player = ({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, ...props }: PlayerProps) => {
+export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, ...props }, ref) => {
     const playerRef = useRef<EntityType>(null!)
     const gltf = useGLTF('/fps.glb')
     const { actions } = useAnimations(gltf.animations, gltf.scene)
@@ -270,6 +270,14 @@ export const Player = ({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0
         }
     }, [isWalking, isRunning, actions])
 
+    // Expose the ref
+    useEffect(() => {
+        if (ref) {
+            // @ts-ignore - TypeScript doesn't handle this pattern well
+            ref.current = playerRef.current;
+        }
+    }, [ref]);
+
     return (
         <>
             <Entity isPlayer ref={playerRef}>
@@ -295,7 +303,7 @@ export const Player = ({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0
             />
         </>
     )
-}
+})
 
 type KeyControls = {
     forward: boolean

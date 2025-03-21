@@ -9,14 +9,15 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
 import { useControls, folder } from 'leva'
 import { useTexture } from '@react-three/drei'
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { Player, PlayerControls } from './game/player'
 import { Ball } from './game/ball'
 import { SphereTool } from './game/sphere-tool'
 import { Platforms } from './game/platforms'
+import { MultiplayerManager } from './network/MultiplayerManager'
 
-const Scene = () => {
+const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     const texture = useTexture('/final-texture.png')
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping
     
@@ -83,6 +84,29 @@ const Scene = () => {
 export function App() {
     const loading = useLoadingAssets()
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
+    
+    // Move playerRef to App component scope
+    const playerRef = useRef<any>(null);
+    // Add a state to track if playerRef is ready
+    const [playerRefReady, setPlayerRefReady] = useState(false);
+    
+    // Use an effect to track when the playerRef becomes available
+    useEffect(() => {
+        if (playerRef.current && !playerRefReady) {
+            setPlayerRefReady(true);
+        }
+    }, [playerRef.current, playerRefReady]);
+    
+    // Add multiplayer controls to Leva panel
+    const { enableMultiplayer } = useControls('Multiplayer', {
+        enableMultiplayer: {
+            value: true,
+            label: 'Enable Multiplayer'
+        }
+    }, {
+        collapsed: false,
+        order: 997
+    });
 
     const { 
         walkSpeed,
@@ -235,6 +259,7 @@ export function App() {
                 >
                     <PlayerControls>
                         <Player 
+                            ref={playerRef}
                             position={[0, 7, 10]}
                             walkSpeed={walkSpeed}
                             runSpeed={runSpeed}
@@ -253,8 +278,13 @@ export function App() {
                     <Platforms />
                     <Ball />
 
-                    <Scene />
+                    <Scene playerRef={playerRef} />
                     <SphereTool />
+
+                    {/* Use playerRefReady instead of playerRef.current */}
+                    {enableMultiplayer && playerRefReady && (
+                        <MultiplayerManager localPlayerRef={playerRef} />
+                    )}
                 </Physics>
 
                 <PerspectiveCamera 
