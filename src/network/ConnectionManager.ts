@@ -18,7 +18,7 @@ export class ConnectionManager extends EventEmitter {
   private gameState: GameState = { players: {} };
   private reconnectTimeout: number | null = null;
   
-  constructor(private serverUrl: string = 'ws://localhost:8080') {
+  constructor(private serverUrl: string = 'ws://localhost:8081') {
     super();
   }
   

@@ -6,7 +6,7 @@ const useNetworkMode = args.includes('--network');
 
 // Configure the server options
 const serverOptions = {
-    port: 8080
+    port: 8081
 };
 
 // If network mode is enabled, listen on all interfaces
