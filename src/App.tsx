@@ -97,7 +97,7 @@ export function App() {
         }
     }, [playerRef.current, playerRefReady]);
     
-    // Add multiplayer controls to Leva panel
+    // Add multiplayer controls to Leva panel and track its state change
     const { enableMultiplayer } = useControls('Multiplayer', {
         enableMultiplayer: {
             value: true,
@@ -107,6 +107,34 @@ export function App() {
         collapsed: false,
         order: 997
     });
+
+    // Add a state to properly handle mounting/unmounting of MultiplayerManager
+    const [showMultiplayer, setShowMultiplayer] = useState(enableMultiplayer);
+    
+    // Use an effect to properly handle multiplayer enabling/disabling with proper cleanup timing
+    useEffect(() => {
+        let timeoutId: number | null = null;
+        
+        if (enableMultiplayer) {
+            // When enabling, set immediately
+            setShowMultiplayer(true);
+            console.log('Multiplayer enabled');
+        } else {
+            // When disabling, add a delay to allow for cleanup
+            console.log('Disabling multiplayer with cleanup delay...');
+            timeoutId = window.setTimeout(() => {
+                setShowMultiplayer(false);
+                console.log('Multiplayer disabled after cleanup');
+            }, 500); // Half-second delay for proper cleanup
+        }
+        
+        // Cleanup function to clear the timeout
+        return () => {
+            if (timeoutId) {
+                window.clearTimeout(timeoutId);
+            }
+        };
+    }, [enableMultiplayer]);
 
     const { 
         walkSpeed,
@@ -281,8 +309,8 @@ export function App() {
                     <Scene playerRef={playerRef} />
                     <SphereTool />
 
-                    {/* Use playerRefReady instead of playerRef.current */}
-                    {enableMultiplayer && playerRefReady && (
+                    {/* Use showMultiplayer instead of enableMultiplayer for conditional rendering */}
+                    {showMultiplayer && playerRefReady && (
                         <MultiplayerManager localPlayerRef={playerRef} />
                     )}
                 </Physics>

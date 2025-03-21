@@ -121,15 +121,21 @@ export const MultiplayerManager = ({
     connectionManager.connect();
     
     return () => {
-      // Clean up on unmount
+      console.log('Cleaning up multiplayer connection...');
+      // Ensure we disconnect properly when component unmounts
       connectionManager.disconnect();
+      // Reset states on unmount
+      setIsConnected(false);
+      setPlayerId(null);
+      setRemotePlayers({});
     };
   }, []);
   
-  // Send regular position updates
+  // Send regular position updates with better cleanup
   useEffect(() => {
     if (!isConnected || !localPlayerRef.current?.rigidBody) return;
     
+    console.log('Starting position update interval');
     const updateInterval = setInterval(() => {
       if (localPlayerRef.current?.rigidBody) {
         const position = localPlayerRef.current.rigidBody.translation();
@@ -142,27 +148,45 @@ export const MultiplayerManager = ({
       }
     }, 100); // 10 updates per second
     
-    return () => clearInterval(updateInterval);
+    return () => {
+      console.log('Clearing position update interval');
+      clearInterval(updateInterval);
+    };
   }, [isConnected, localPlayerRef, camera]);
   
-  // Register shoot events
+  // Register shoot events with better cleanup
   useEffect(() => {
-    const handleShoot = () => {
-      if (!isConnected || !document.pointerLockElement) return;
+    if (!isConnected) return;
+    
+    console.log('Setting up shoot event handler');
+    const handleShoot = (event: MouseEvent) => {
+      // Only process shoot events when pointer is locked and we're connected
+      if (!isConnected) return;
+      if (!document.pointerLockElement) {
+        console.log('Pointer not locked, ignoring shoot event');
+        return;
+      }
       
-      // Get current camera position and direction
-      const position = camera.position.toArray();
-      const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).toArray();
-      
-      connectionManager.sendShootEvent(
-        position as [number, number, number], 
-        direction as [number, number, number]
-      );
+      try {
+        // Get current camera position and direction
+        const position = camera.position.toArray();
+        const direction = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion).toArray();
+        
+        connectionManager.sendShootEvent(
+          position as [number, number, number], 
+          direction as [number, number, number]
+        );
+      } catch (error) {
+        console.error('Error processing shoot event:', error);
+      }
     };
     
     window.addEventListener('pointerdown', handleShoot);
     
-    return () => window.removeEventListener('pointerdown', handleShoot);
+    return () => {
+      console.log('Removing shoot event handler');
+      window.removeEventListener('pointerdown', handleShoot);
+    };
   }, [isConnected, camera]);
   
   // Handle ref updates for remote players
