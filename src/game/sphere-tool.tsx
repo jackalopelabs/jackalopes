@@ -21,11 +21,20 @@ const SPHERE_OFFSET = {
     z: -1.7  // Offset even further back
 }
 
+// Extended type to include player ID for multiplayer
 type SphereProps = {
     position: [number, number, number]
     direction: [number, number, number]
     color: string
     radius: number
+    playerId?: string  // The ID of the player who shot this sphere
+}
+
+// Type for remote player shots
+export type RemoteShot = {
+    id: string
+    origin: [number, number, number]
+    direction: [number, number, number]
 }
 
 const Sphere = ({ position, direction, color, radius }: SphereProps) => {
@@ -49,7 +58,13 @@ const Sphere = ({ position, direction, color, radius }: SphereProps) => {
     )
 }
 
-export const SphereTool = () => {
+export const SphereTool = ({ 
+    onShoot,
+    remoteShots = []
+}: { 
+    onShoot?: (origin: [number, number, number], direction: [number, number, number]) => void,
+    remoteShots?: RemoteShot[]
+}) => {
     const sphereRadius = 0.11
     const MAX_AMMO = 50
 
@@ -60,6 +75,58 @@ export const SphereTool = () => {
     const shootingInterval = useRef<number>()
     const isPointerDown = useRef(false)
     const gamepadState = useGamepad()
+    
+    // Keep track of processed remote shots to avoid duplicates
+    const processedRemoteShots = useRef<Set<string>>(new Set());
+    
+    // Process remote shots
+    useEffect(() => {
+        if (!remoteShots || remoteShots.length === 0) return;
+        
+        console.log('Processing remote shots:', remoteShots);
+        
+        // Get shots that haven't been processed yet
+        const newShots = remoteShots.filter(shot => {
+            const shotId = `${shot.id}-${shot.origin.join(',')}-${shot.direction.join(',')}`;
+            return !processedRemoteShots.current.has(shotId);
+        });
+        
+        if (newShots.length === 0) {
+            console.log('No new shots to process');
+            return;
+        }
+        
+        console.log('Adding new remote shots:', newShots.length);
+        
+        // Process new shots
+        newShots.forEach(shot => {
+            // Create a unique ID for this shot to avoid duplicates
+            const shotId = `${shot.id}-${shot.origin.join(',')}-${shot.direction.join(',')}`;
+            
+            // Mark as processed
+            processedRemoteShots.current.add(shotId);
+            console.log('Adding new remote shot from player:', shot.id);
+            
+            // Add remote player's shot
+            const randomColor = RAINBOW_COLORS[Math.floor(Math.random() * RAINBOW_COLORS.length)];
+            
+            setSpheres(prev => [...prev, {
+                position: shot.origin,
+                direction: shot.direction,
+                color: randomColor,
+                radius: sphereRadius,
+                playerId: shot.id
+            }]);
+        });
+        
+        // Limit the size of our processed shots set to avoid memory leaks
+        if (processedRemoteShots.current.size > 100) {
+            // Keep only the last 50 shots
+            processedRemoteShots.current = new Set(
+                Array.from(processedRemoteShots.current).slice(-50)
+            );
+        }
+    }, [remoteShots, sphereRadius]);
 
     const reload = () => {
         if (isReloading) return
@@ -103,6 +170,18 @@ export const SphereTool = () => {
             color: randomColor,
             radius: sphereRadius
         }])
+        
+        // Notify multiplayer system of the shot
+        if (onShoot) {
+            console.log('Sending shot to multiplayer:', {
+                position: position.toArray(),
+                direction: direction.toArray()
+            });
+            onShoot(
+                position.toArray() as [number, number, number],
+                direction.toArray() as [number, number, number]
+            );
+        }
     }
 
     const startShooting = () => {

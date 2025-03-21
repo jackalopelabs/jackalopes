@@ -23,7 +23,7 @@ export class ConnectionManager extends EventEmitter {
   private pingStartTime: number = 0;
   private latency: number = 0;
   
-  constructor(private serverUrl: string = 'ws://localhost:8081') {
+  constructor(private serverUrl: string = 'ws://localhost:8082') {
     super();
   }
   
@@ -154,6 +154,8 @@ export class ConnectionManager extends EventEmitter {
   sendShootEvent(origin: [number, number, number], direction: [number, number, number]): void {
     if (!this.isConnected) return;
     
+    console.log('ConnectionManager sending shoot event to server:', { origin, direction });
+    
     this.send({
       type: 'shoot',
       origin,
@@ -201,6 +203,7 @@ export class ConnectionManager extends EventEmitter {
         break;
         
       case 'shoot':
+        console.log('Received shot event:', message);
         this.emit('player_shoot', {
           id: message.id,
           origin: message.origin,

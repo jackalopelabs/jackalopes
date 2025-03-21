@@ -15,7 +15,7 @@ import { Player, PlayerControls } from './game/player'
 import { Ball } from './game/ball'
 import { SphereTool } from './game/sphere-tool'
 import { Platforms } from './game/platforms'
-import { MultiplayerManager } from './network/MultiplayerManager'
+import { MultiplayerManager, useRemoteShots } from './network/MultiplayerManager'
 import { NetworkStats } from './network/NetworkStats'
 import { ConnectionManager } from './network/ConnectionManager'
 
@@ -214,6 +214,18 @@ export function App() {
         hidden: true
     })
 
+    // Get remote shots from the connection manager (always call the hook to maintain hook order)
+    const allRemoteShots = useRemoteShots(connectionManager);
+    // Only use the shots when multiplayer is enabled
+    const remoteShots = showMultiplayer ? allRemoteShots : [];
+    
+    // Debug logging for remote shots
+    useEffect(() => {
+        if (remoteShots.length > 0) {
+            console.log('Remote shots in App:', remoteShots);
+        }
+    }, [remoteShots]);
+
     return (
         <>
             <div style={{
@@ -311,7 +323,18 @@ export function App() {
                     <Ball />
 
                     <Scene playerRef={playerRef} />
-                    <SphereTool />
+                    
+                    {/* Show SphereTool - always render it but pass remote shots when multiplayer is enabled */}
+                    <SphereTool 
+                        onShoot={showMultiplayer && playerRefReady ? 
+                            (origin, direction) => {
+                                console.log('App: onShoot called with', { origin, direction });
+                                connectionManager.sendShootEvent(origin, direction);
+                            } 
+                            : undefined
+                        }
+                        remoteShots={remoteShots} 
+                    />
 
                     {/* Use showMultiplayer instead of enableMultiplayer for conditional rendering */}
                     {showMultiplayer && playerRefReady && (
