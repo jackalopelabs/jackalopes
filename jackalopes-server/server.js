@@ -134,6 +134,14 @@ server.on('connection', (socket) => {
             }
           }
           break;
+          
+        case 'ping':
+          // Response immediately with pong, sending back the client's timestamp
+          sendWithNetworkConditions(socket, {
+            type: 'pong',
+            timestamp: data.timestamp
+          });
+          break;
       }
     } catch (err) {
       console.error('Error processing message:', err);

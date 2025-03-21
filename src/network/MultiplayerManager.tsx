@@ -4,6 +4,13 @@ import { ConnectionManager } from './ConnectionManager';
 import { RemotePlayer } from '../game/RemotePlayer';
 import * as THREE from 'three';
 
+// Add these new interfaces for state prediction
+interface PredictedState {
+  position: [number, number, number];
+  rotation: [number, number, number, number];
+  timestamp: number;
+}
+
 type RemotePlayerData = {
   position: [number, number, number];
   rotation: [number, number, number, number];
@@ -26,17 +33,29 @@ type InitializedData = {
 };
 
 export const MultiplayerManager = ({ 
-  localPlayerRef 
+  localPlayerRef,
+  connectionManager: externalConnectionManager
 }: { 
-  localPlayerRef: React.MutableRefObject<any> 
+  localPlayerRef: React.MutableRefObject<any>,
+  connectionManager?: ConnectionManager
 }) => {
-  const [connectionManager] = useState(() => new ConnectionManager());
+  const [connectionManager] = useState(() => externalConnectionManager || new ConnectionManager());
   const [remotePlayers, setRemotePlayers] = useState<Record<string, RemotePlayerData>>({});
   const [isConnected, setIsConnected] = useState(false);
   const [playerId, setPlayerId] = useState<string | null>(null);
   
+  // Add state prediction buffer
+  const stateBuffer = useRef<PredictedState[]>([]);
+  const lastServerUpdateTime = useRef<number>(0);
+  const serverTimeOffset = useRef<number>(0);
+
   const remotePlayerRefs = useRef<Record<string, RemotePlayerData>>({});
   const { camera } = useThree();
+  
+  // Get server time with offset
+  const getServerTime = () => {
+    return Date.now() + serverTimeOffset.current;
+  };
   
   // Set up connection and event handlers
   useEffect(() => {
@@ -67,6 +86,13 @@ export const MultiplayerManager = ({
           };
         }
       });
+      
+      // Reset state buffer on initialization
+      stateBuffer.current = [];
+      lastServerUpdateTime.current = Date.now();
+      
+      // Estimate server time offset (assume minimal latency for simplicity)
+      serverTimeOffset.current = 0;
       
       setRemotePlayers(initialPlayers);
     });
@@ -140,6 +166,19 @@ export const MultiplayerManager = ({
       if (localPlayerRef.current?.rigidBody) {
         const position = localPlayerRef.current.rigidBody.translation();
         const cameraQuat = camera.quaternion.toArray() as [number, number, number, number];
+        
+        // Store predicted state in buffer
+        const currentState: PredictedState = {
+          position: [position.x, position.y, position.z],
+          rotation: cameraQuat,
+          timestamp: getServerTime()
+        };
+        
+        // Add to state buffer (keep last 60 states max, ~1 second at 60fps)
+        stateBuffer.current.push(currentState);
+        if (stateBuffer.current.length > 60) {
+          stateBuffer.current.shift();
+        }
         
         connectionManager.sendPlayerUpdate(
           [position.x, position.y, position.z], 

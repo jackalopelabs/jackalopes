@@ -16,6 +16,8 @@ import { Ball } from './game/ball'
 import { SphereTool } from './game/sphere-tool'
 import { Platforms } from './game/platforms'
 import { MultiplayerManager } from './network/MultiplayerManager'
+import { NetworkStats } from './network/NetworkStats'
+import { ConnectionManager } from './network/ConnectionManager'
 
 const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     const texture = useTexture('/final-texture.png')
@@ -89,6 +91,8 @@ export function App() {
     const playerRef = useRef<any>(null);
     // Add a state to track if playerRef is ready
     const [playerRefReady, setPlayerRefReady] = useState(false);
+    // Create a shared ConnectionManager instance
+    const [connectionManager] = useState(() => new ConnectionManager());
     
     // Use an effect to track when the playerRef becomes available
     useEffect(() => {
@@ -311,7 +315,10 @@ export function App() {
 
                     {/* Use showMultiplayer instead of enableMultiplayer for conditional rendering */}
                     {showMultiplayer && playerRefReady && (
-                        <MultiplayerManager localPlayerRef={playerRef} />
+                        <MultiplayerManager 
+                            localPlayerRef={playerRef} 
+                            connectionManager={connectionManager}
+                        />
                     )}
                 </Physics>
 
@@ -356,6 +363,11 @@ export function App() {
             </Canvas>
 
             <Crosshair />
+            
+            {/* Add NetworkStats component */}
+            {showMultiplayer && (
+                <NetworkStats connectionManager={connectionManager} visible={true} />
+            )}
         </>
     )
 }

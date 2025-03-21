@@ -18,6 +18,11 @@ export class ConnectionManager extends EventEmitter {
   private gameState: GameState = { players: {} };
   private reconnectTimeout: number | null = null;
   
+  // Add latency tracking properties
+  private pingInterval: number | null = null;
+  private pingStartTime: number = 0;
+  private latency: number = 0;
+  
   constructor(private serverUrl: string = 'ws://localhost:8081') {
     super();
   }
@@ -38,6 +43,9 @@ export class ConnectionManager extends EventEmitter {
         this.isConnected = true;
         this.reconnectAttempts = 0; // Reset reconnect counter on successful connection
         this.emit('connected');
+        
+        // Start ping interval after connection
+        this.startPingInterval();
       };
       
       this.socket.onclose = () => {
@@ -68,6 +76,9 @@ export class ConnectionManager extends EventEmitter {
     // Clear any pending reconnection attempts
     this.clearReconnectTimeout();
     
+    // Stop ping interval
+    this.stopPingInterval();
+    
     if (this.socket) {
       // Remove event listeners to prevent any callbacks after disconnect
       this.socket.onopen = null;
@@ -85,6 +96,49 @@ export class ConnectionManager extends EventEmitter {
     this.isConnected = false;
     this.emit('disconnected');
     console.log('Disconnected from server');
+  }
+  
+  // Start measuring ping every 2 seconds
+  private startPingInterval(): void {
+    this.stopPingInterval();
+    
+    this.pingInterval = window.setInterval(() => {
+      if (this.isConnected) {
+        this.sendPing();
+      }
+    }, 2000); // Ping every 2 seconds
+  }
+  
+  // Stop the ping interval
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+  
+  // Send a ping message to measure latency
+  private sendPing(): void {
+    this.pingStartTime = Date.now();
+    this.send({
+      type: 'ping',
+      timestamp: this.pingStartTime
+    });
+  }
+  
+  // Handle a pong message from server
+  private handlePong(message: any): void {
+    const now = Date.now();
+    const roundTripTime = now - message.timestamp;
+    
+    // Calculate latency (half of round trip)
+    this.latency = Math.round(roundTripTime / 2);
+    this.emit('latency_update', this.latency);
+  }
+  
+  // Get the current latency estimate
+  getLatency(): number {
+    return this.latency;
   }
   
   sendPlayerUpdate(position: [number, number, number], rotation: [number, number, number, number]): void {
@@ -110,10 +164,13 @@ export class ConnectionManager extends EventEmitter {
   private send(data: any): void {
     if (this.socket && this.isConnected) {
       this.socket.send(JSON.stringify(data));
+      this.emit('message_sent', data);
     }
   }
   
   private handleMessage(message: any): void {
+    this.emit('message_received', message);
+    
     switch (message.type) {
       case 'connection':
         this.playerId = message.id;
@@ -150,6 +207,10 @@ export class ConnectionManager extends EventEmitter {
           direction: message.direction
         });
         break;
+        
+      case 'pong':
+        this.handlePong(message);
+        break;
     }
   }
   
@@ -157,6 +218,9 @@ export class ConnectionManager extends EventEmitter {
     console.log('Disconnected from server');
     this.isConnected = false;
     this.emit('disconnected');
+    
+    // Stop ping interval
+    this.stopPingInterval();
     
     // Try to reconnect
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
@@ -198,6 +262,9 @@ export class ConnectionManager extends EventEmitter {
     this.isConnected = false;
     this.emit('disconnected');
     console.log('Disconnected from server');
+    
+    // Stop ping interval
+    this.stopPingInterval();
     
     // Clear any existing reconnect timeout
     this.clearReconnectTimeout();
