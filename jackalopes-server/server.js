@@ -108,6 +108,9 @@ server.on('connection', (socket) => {
           if (data.position) gameState.players[id].position = data.position;
           if (data.rotation) gameState.players[id].rotation = data.rotation;
           
+          // Extract sequence number if present for client prediction
+          const sequence = data.sequence !== undefined ? data.sequence : 0;
+          
           // Broadcast to all other clients
           for (const [clientId, client] of clients.entries()) {
             if (clientId !== id && client.readyState === WebSocket.OPEN) {
@@ -119,6 +122,17 @@ server.on('connection', (socket) => {
               });
             }
           }
+          
+          // Send an authoritative update back to the sender with sequence number
+          // This helps with client-side prediction reconciliation
+          sendWithNetworkConditions(socket, {
+            type: 'player_update',
+            id: id,
+            position: gameState.players[id].position,
+            rotation: gameState.players[id].rotation,
+            sequence: sequence,
+            timestamp: Date.now()
+          });
           break;
           
         case 'shoot':

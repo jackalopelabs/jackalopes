@@ -5,32 +5,47 @@ import { RemotePlayer } from '../game/RemotePlayer';
 import { RemoteShot } from '../game/sphere-tool';
 import * as THREE from 'three';
 
-// Add these new interfaces for state prediction
-interface PredictedState {
-  position: [number, number, number];
-  rotation: [number, number, number, number];
-  timestamp: number;
-}
-
-type RemotePlayerData = {
+// Types for multiplayer system
+interface RemotePlayerData {
   position: [number, number, number];
   rotation: [number, number, number, number];
   updateRef?: {
     updateTransform: (position: [number, number, number], rotation: [number, number, number, number]) => void;
   };
-};
+}
+
+// Type definition for remote shot events in the network layer
+interface NetworkRemoteShot extends RemoteShot {
+  shotId: string;
+  timestamp: number;
+}
+
+interface InitializedData {
+  id: string;
+  gameState: {
+    players: Record<string, PlayerData>;
+  };
+}
+
+// Types for prediction and reconciliation
+interface PredictedState {
+  timestamp: number;
+  position: THREE.Vector3;
+  velocity: THREE.Vector3;
+  sequence: number;
+  processed: boolean;
+}
+
+interface ServerState {
+  position: [number, number, number];
+  timestamp: number;
+  sequence: number;
+}
 
 type PlayerData = {
   position: [number, number, number];
   rotation: [number, number, number, number];
   health: number;
-};
-
-type InitializedData = {
-  id: string;
-  gameState: {
-    players: Record<string, PlayerData>;
-  };
 };
 
 // Create a hook for the multiplayer logic
@@ -46,6 +61,7 @@ export const useMultiplayer = (
   const stateBuffer = useRef<PredictedState[]>([]);
   const lastServerUpdateTime = useRef<number>(0);
   const serverTimeOffset = useRef<number>(0);
+  const sequenceNumber = useRef<number>(0);
 
   const remotePlayerRefs = useRef<Record<string, RemotePlayerData>>({});
   const { camera } = useThree();
@@ -53,6 +69,85 @@ export const useMultiplayer = (
   // Get server time with offset
   const getServerTime = () => {
     return Date.now() + serverTimeOffset.current;
+  };
+  
+  // Add function to send player position with prediction
+  const sendPlayerPosition = (position: THREE.Vector3, rotation: THREE.Quaternion) => {
+    if (!isConnected || !localPlayerRef.current) return;
+    
+    // Convert to arrays for network transmission
+    const positionArray: [number, number, number] = [position.x, position.y, position.z];
+    const rotationArray: [number, number, number, number] = [
+      rotation.x, rotation.y, rotation.z, rotation.w
+    ];
+
+    // Store predicted state in buffer with sequence number
+    const currentState: PredictedState = {
+      position: new THREE.Vector3(position.x, position.y, position.z),
+      velocity: new THREE.Vector3(0, 0, 0), // We'll track velocity later
+      sequence: sequenceNumber.current,
+      timestamp: getServerTime(),
+      processed: false
+    };
+    
+    // Add to prediction buffer
+    stateBuffer.current.push(currentState);
+    
+    // Limit buffer size to prevent memory issues
+    if (stateBuffer.current.length > 100) {
+      stateBuffer.current = stateBuffer.current.slice(-100);
+    }
+
+    // Send to server with sequence number for reconciliation
+    connectionManager.sendPlayerUpdate(
+      positionArray, 
+      rotationArray,
+      sequenceNumber.current
+    );
+    
+    // Increment sequence number for next update
+    sequenceNumber.current++;
+  };
+
+  // Handle server reconciliation when we receive updates
+  const handleServerReconciliation = (serverState: ServerState) => {
+    // Find the matching prediction in our buffer
+    const matchingPrediction = stateBuffer.current.find(
+      state => state.sequence === serverState.sequence
+    );
+    
+    if (matchingPrediction) {
+      // Mark as processed
+      matchingPrediction.processed = true;
+      
+      // Calculate position error between our prediction and server state
+      const serverPosition = new THREE.Vector3(
+        serverState.position[0],
+        serverState.position[1],
+        serverState.position[2]
+      );
+      
+      const positionError = serverPosition.distanceTo(matchingPrediction.position);
+      
+      // If error is significant, reconcile
+      if (positionError > 0.1) { // Threshold in world units
+        console.log(`Reconciling position error of ${positionError} units`);
+        
+        // If player reference exists, correct position
+        if (localPlayerRef.current?.rigidBody) {
+          // Smoothly lerp to correct position in next frame
+          // This would be applied in useFrame
+          
+          // Update timestamp for synchronization
+          lastServerUpdateTime.current = serverState.timestamp;
+        }
+      }
+    }
+    
+    // Clean up old entries that have been processed
+    stateBuffer.current = stateBuffer.current.filter(
+      state => !state.processed || state.sequence > serverState.sequence
+    );
   };
   
   // Set up connection and event handlers
@@ -79,20 +174,27 @@ export const useMultiplayer = (
       Object.entries(data.gameState.players).forEach(([id, playerData]) => {
         if (id !== data.id) { // Skip local player
           initialPlayers[id] = {
-            position: playerData.position,
-            rotation: playerData.rotation
+            position: playerData.position as [number, number, number],
+            rotation: playerData.rotation as [number, number, number, number]
           };
         }
       });
       
       // Reset state buffer on initialization
       stateBuffer.current = [];
+      sequenceNumber.current = 0;
       lastServerUpdateTime.current = Date.now();
       
       // Estimate server time offset (assume minimal latency for simplicity)
       serverTimeOffset.current = 0;
       
       setRemotePlayers(initialPlayers);
+    });
+    
+    // Add server state update handler
+    connectionManager.on('server_state_update', (data: ServerState) => {
+      // Process server reconciliation
+      handleServerReconciliation(data);
     });
     
     // Player events
@@ -162,9 +264,11 @@ export const useMultiplayer = (
         
         // Store predicted state in buffer
         const currentState: PredictedState = {
-          position: [position.x, position.y, position.z],
-          rotation: cameraQuat,
-          timestamp: getServerTime()
+          position: new THREE.Vector3(position.x, position.y, position.z),
+          velocity: new THREE.Vector3(0, 0, 0), // Assuming no velocity for now
+          sequence: 0, // Assuming sequence number 0 for now
+          timestamp: getServerTime(),
+          processed: false
         };
         
         // Add to state buffer (keep last 60 states max, ~1 second at 60fps)
@@ -210,7 +314,8 @@ export const useMultiplayer = (
     },
     updatePlayerRef,
     isConnected,
-    playerId
+    playerId,
+    sendPlayerPosition
   };
 };
 
@@ -298,7 +403,9 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
       const newShot: RemoteShot = {
         id: data.id,
         origin: data.origin,
-        direction: data.direction
+        direction: data.direction,
+        shotId: shotId,
+        timestamp: Date.now()
       };
       
       // Use functional update to ensure we're working with the latest state

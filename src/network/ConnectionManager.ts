@@ -141,13 +141,18 @@ export class ConnectionManager extends EventEmitter {
     return this.latency;
   }
   
-  sendPlayerUpdate(position: [number, number, number], rotation: [number, number, number, number]): void {
-    if (!this.isConnected) return;
+  // Update sendPlayerUpdate to include sequence number
+  sendPlayerUpdate(position: [number, number, number], rotation: [number, number, number, number], sequence?: number): void {
+    if (!this.isConnected) {
+      console.log('Cannot send player update: not connected to server');
+      return;
+    }
     
     this.send({
       type: 'player_update',
       position,
-      rotation
+      rotation,
+      sequence: sequence || 0 // Include sequence number for reconciliation
     });
   }
   
@@ -218,11 +223,22 @@ export class ConnectionManager extends EventEmitter {
         if (this.gameState.players[message.id]) {
           this.gameState.players[message.id].position = message.position;
           this.gameState.players[message.id].rotation = message.rotation;
-          this.emit('player_update', { 
-            id: message.id, 
-            position: message.position, 
-            rotation: message.rotation 
-          });
+          
+          // If message is for local player, emit server_state_update for reconciliation
+          if (message.id === this.playerId && message.sequence !== undefined) {
+            this.emit('server_state_update', {
+              position: message.position,
+              timestamp: Date.now(), // Use current time as we don't have server timestamp
+              sequence: message.sequence
+            });
+          } else {
+            // Normal update for remote players
+            this.emit('player_update', { 
+              id: message.id, 
+              position: message.position, 
+              rotation: message.rotation 
+            });
+          }
         }
         break;
         

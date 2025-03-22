@@ -8,6 +8,10 @@ import { useControls } from 'leva'
 import * as THREE from 'three'
 import { Component, Entity, EntityType } from './ecs'
 
+// Update import to use MultiplayerManager
+import { ConnectionManager } from '../network/ConnectionManager'
+import { useMultiplayer } from '../network/MultiplayerManager'
+
 const _direction = new THREE.Vector3()
 const _frontVector = new THREE.Vector3()
 const _sideVector = new THREE.Vector3()
@@ -39,17 +43,24 @@ export type PlayerControls = {
     children: React.ReactNode
 }
 
-type PlayerProps = RigidBodyProps & {
+export type PlayerProps = RigidBodyProps & {
     onMove?: (position: THREE.Vector3) => void
     walkSpeed?: number
     runSpeed?: number
     jumpForce?: number
+    connectionManager?: ConnectionManager // Add optional ConnectionManager for multiplayer
 }
 
-export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, ...props }, ref) => {
+export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, connectionManager, ...props }, ref) => {
     const playerRef = useRef<EntityType>(null!)
     const gltf = useGLTF('/fps.glb')
     const { actions } = useAnimations(gltf.animations, gltf.scene)
+    
+    // For client-side prediction
+    const lastStateTime = useRef(0)
+    const pendingReconciliation = useRef(false)
+    const serverPosition = useRef(new THREE.Vector3())
+    const movementIntent = useRef({ forward: false, backward: false, left: false, right: false, jump: false, sprint: false })
     
     const { x, y, z } = useControls('Arms Position', {
         x: { value: 0.1, min: -1, max: 1, step: 0.1 },
@@ -131,6 +142,16 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         const isJumping = jump || gamepadState.buttons.jump
         const isSprinting = sprint || gamepadState.buttons.leftStickPress
 
+        // Store movement intent for prediction/reconciliation
+        movementIntent.current = {
+            forward: moveForward,
+            backward: moveBackward,
+            left: moveLeft, 
+            right: moveRight,
+            jump: isJumping,
+            sprint: isSprinting
+        }
+
         const speed = walkSpeed * (isSprinting ? runSpeed / walkSpeed : 1)
         
         // Update movement state for animations
@@ -205,6 +226,13 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         const movement = characterController.current.computedMovement()
         newPosition.add(movement)
 
+        // If we need to reconcile with server position
+        if (pendingReconciliation.current) {
+            // Blend between our predicted position and server position
+            newPosition.lerp(serverPosition.current, 0.3); // Adjust lerp factor as needed
+            pendingReconciliation.current = false;
+        }
+
         characterRigidBody.setNextKinematicTranslation(newPosition)
     })
 
@@ -251,6 +279,25 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             camera.fov = THREE.MathUtils.lerp(camera.fov, isSprinting && currentSpeed > 0.1 ? sprintFov : normalFov, 10 * delta)
             camera.updateProjectionMatrix()
         }
+
+        // Send position updates to the server for multiplayer
+        if (connectionManager && (Date.now() - lastStateTime.current > 50)) { // 20 updates per second
+            lastStateTime.current = Date.now();
+            
+            // Get current position and rotation
+            const position = characterRigidBody.translation() as THREE.Vector3;
+            const rotation = camera.quaternion;
+            
+            // Generate a sequence number locally
+            const sequence = Date.now(); // Simple sequence based on timestamp
+            
+            // Basic multiplayer update with standard ConnectionManager
+            connectionManager.sendPlayerUpdate(
+                [position.x, position.y, position.z],
+                [rotation.x, rotation.y, rotation.z, rotation.w],
+                sequence
+            );
+        }
     })
     
     // Handle movement animations
@@ -269,6 +316,30 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             runAction?.stop()
         }
     }, [isWalking, isRunning, actions])
+
+    // Set up reconciliation handler if connection manager is provided
+    useEffect(() => {
+        if (connectionManager) {
+            // Listen for server state updates to reconcile
+            const handleServerState = (state: any) => {
+                // We got an authoritative update from server
+                serverPosition.current.set(
+                    state.position[0],
+                    state.position[1],
+                    state.position[2]
+                );
+                
+                // Flag that we need to reconcile
+                pendingReconciliation.current = true;
+            };
+            
+            connectionManager.on('server_state_update', handleServerState);
+            
+            return () => {
+                connectionManager.off('server_state_update', handleServerState);
+            };
+        }
+    }, [connectionManager]);
 
     // Expose the ref
     useEffect(() => {

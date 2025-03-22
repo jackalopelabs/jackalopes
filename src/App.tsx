@@ -308,6 +308,7 @@ export function App() {
                             walkSpeed={walkSpeed}
                             runSpeed={runSpeed}
                             jumpForce={jumpForce}
+                            connectionManager={showMultiplayer ? connectionManager : undefined}
                             onMove={(position) => {
                                 if (directionalLightRef.current) {
                                     const light = directionalLightRef.current
