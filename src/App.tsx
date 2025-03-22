@@ -226,6 +226,10 @@ export function App() {
         }
     }, [remoteShots]);
 
+    const { showDebug } = useControls('Game Settings', {
+        showDebug: { value: false }
+    });
+
     return (
         <>
             <div style={{
@@ -396,6 +400,11 @@ export function App() {
             {/* Add NetworkStats component */}
             {showMultiplayer && (
                 <NetworkStats connectionManager={connectionManager} visible={true} />
+            )}
+
+            {/* Add debug overlay if enabled */}
+            {showMultiplayer && showDebug && (
+                <MultiplayerManager.ReconciliationDebugOverlay metrics={connectionManager.reconciliationMetrics} />
             )}
         </>
     )

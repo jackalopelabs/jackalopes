@@ -59,6 +59,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     // For client-side prediction
     const lastStateTime = useRef(0)
     const pendingReconciliation = useRef(false)
+    const reconciliationStrength = useRef(0.3) // Default reconciliation strength
     const serverPosition = useRef(new THREE.Vector3())
     const movementIntent = useRef({ forward: false, backward: false, left: false, right: false, jump: false, sprint: false })
     
@@ -228,9 +229,18 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
 
         // If we need to reconcile with server position
         if (pendingReconciliation.current) {
-            // Blend between our predicted position and server position
-            newPosition.lerp(serverPosition.current, 0.3); // Adjust lerp factor as needed
+            // Blend between our predicted position and server position with appropriate strength
+            newPosition.lerp(serverPosition.current, reconciliationStrength.current)
+            
+            // Debug output
+            if (reconciliationStrength.current > 0.1) {
+                console.log(`Applied reconciliation with strength ${reconciliationStrength.current.toFixed(2)}`);
+                console.log(`New position: (${newPosition.x.toFixed(2)}, ${newPosition.y.toFixed(2)}, ${newPosition.z.toFixed(2)})`);
+            }
+            
+            // Reset flags - reconciliation applied
             pendingReconciliation.current = false;
+            reconciliationStrength.current = 0.3; // Reset to default
         }
 
         characterRigidBody.setNextKinematicTranslation(newPosition)
@@ -322,15 +332,50 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         if (connectionManager) {
             // Listen for server state updates to reconcile
             const handleServerState = (state: any) => {
-                // We got an authoritative update from server
-                serverPosition.current.set(
-                    state.position[0],
-                    state.position[1],
-                    state.position[2]
-                );
+                // Check if we need to apply corrections
+                if (state.serverCorrection || (state.positionError && state.positionError > 0.25)) {
+                    console.log(`Applying server correction - Error: ${state.positionError?.toFixed(3) || 'unknown'}`);
                 
-                // Flag that we need to reconcile
-                pendingReconciliation.current = true;
+                    // We got an authoritative update from server
+                    serverPosition.current.set(
+                        state.position[0],
+                        state.position[1],
+                        state.position[2]
+                    );
+                    
+                    // Calculate correction strength based on error magnitude
+                    const correctionStrength = Math.min(0.8, Math.max(0.1, 
+                        state.positionError ? state.positionError * 0.2 : 0.3
+                    ));
+                    
+                    console.log(`Correction strength: ${correctionStrength.toFixed(2)}`);
+                    
+                    // Apply with appropriate strength
+                    if (pendingReconciliation.current) {
+                        // Already waiting for a correction, make this one stronger
+                        pendingReconciliation.current = true;
+                        reconciliationStrength.current = Math.max(reconciliationStrength.current, correctionStrength);
+                    } else {
+                        // First correction for this update
+                        pendingReconciliation.current = true;
+                        reconciliationStrength.current = correctionStrength;
+                    }
+                } else if (state.position) {
+                    // No major correction needed, but store server position anyway
+                    // for smaller corrections
+                    serverPosition.current.set(
+                        state.position[0],
+                        state.position[1],
+                        state.position[2]
+                    );
+                    
+                    // Small correction (less than threshold)
+                    if (state.positionError && state.positionError > 0.05) {
+                        // Use a gentler correction for small errors
+                        pendingReconciliation.current = true;
+                        reconciliationStrength.current = 0.05;
+                    }
+                }
             };
             
             connectionManager.on('server_state_update', handleServerState);

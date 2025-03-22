@@ -228,8 +228,11 @@ export class ConnectionManager extends EventEmitter {
           if (message.id === this.playerId && message.sequence !== undefined) {
             this.emit('server_state_update', {
               position: message.position,
-              timestamp: Date.now(), // Use current time as we don't have server timestamp
-              sequence: message.sequence
+              rotation: message.rotation,
+              timestamp: message.timestamp || Date.now(), // Use server timestamp if available
+              sequence: message.sequence,
+              positionError: message.positionError, // Server reported error
+              serverCorrection: message.serverCorrection // Whether server made a major correction
             });
           } else {
             // Normal update for remote players

@@ -37,6 +37,12 @@ export type RemoteShot = {
     direction: [number, number, number]
 }
 
+// Extended type for network shots that includes additional fields
+export interface NetworkRemoteShot extends RemoteShot {
+    shotId?: string
+    timestamp?: number
+}
+
 const Sphere = ({ position, direction, color, radius }: SphereProps) => {
     return (
         <RigidBody

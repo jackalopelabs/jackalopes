@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useThree } from '@react-three/fiber';
+import { useThree, useFrame } from '@react-three/fiber';
 import { ConnectionManager } from './ConnectionManager';
 import { RemotePlayer } from '../game/RemotePlayer';
 import { RemoteShot } from '../game/sphere-tool';
@@ -14,9 +14,12 @@ interface RemotePlayerData {
   };
 }
 
-// Type definition for remote shot events in the network layer
-interface NetworkRemoteShot extends RemoteShot {
+// Extended RemoteShot type with additional fields for networking
+interface NetworkRemoteShot {
+  id: string;
   shotId: string;
+  origin: [number, number, number];
+  direction: [number, number, number];
   timestamp: number;
 }
 
@@ -56,12 +59,24 @@ export const useMultiplayer = (
   const [remotePlayers, setRemotePlayers] = useState<Record<string, RemotePlayerData>>({});
   const [isConnected, setIsConnected] = useState(false);
   const [playerId, setPlayerId] = useState<string | null>(null);
+  const [debugMode, setDebugMode] = useState(false);
   
   // Add state prediction buffer
   const stateBuffer = useRef<PredictedState[]>([]);
   const lastServerUpdateTime = useRef<number>(0);
   const serverTimeOffset = useRef<number>(0);
   const sequenceNumber = useRef<number>(0);
+  
+  // Add reconciliation tracking variables
+  const accumulatedError = useRef<number>(0);
+  const errorCount = useRef<number>(0);
+  const lastCorrectionTime = useRef<number>(0);
+  const pendingCorrection = useRef<boolean>(false);
+  const correctionData = useRef<{
+    position: THREE.Vector3;
+    smoothingFactor: number;
+    timestamp: number;
+  } | null>(null);
 
   const remotePlayerRefs = useRef<Record<string, RemotePlayerData>>({});
   const { camera } = useThree();
@@ -129,25 +144,141 @@ export const useMultiplayer = (
       
       const positionError = serverPosition.distanceTo(matchingPrediction.position);
       
+      // Calculate error ratios for logging and adaptive correction
+      const errorRatio = positionError / 0.1; // Based on threshold
+      const shouldCorrect = positionError > 0.1; // Threshold in world units
+      
       // If error is significant, reconcile
-      if (positionError > 0.1) { // Threshold in world units
-        console.log(`Reconciling position error of ${positionError} units`);
+      if (shouldCorrect) {
+        console.log(`Reconciling position error of ${positionError.toFixed(3)} units (ratio: ${errorRatio.toFixed(2)})`);
         
-        // If player reference exists, correct position
-        if (localPlayerRef.current?.rigidBody) {
-          // Smoothly lerp to correct position in next frame
-          // This would be applied in useFrame
-          
-          // Update timestamp for synchronization
-          lastServerUpdateTime.current = serverState.timestamp;
+        // Update metrics
+        updateReconciliationMetrics(positionError);
+        
+        // Store error for adaptive correction
+        accumulatedError.current += positionError;
+        errorCount.current++;
+        
+        // Calculate average error over recent reconciliations
+        const avgError = accumulatedError.current / Math.max(1, errorCount.current);
+        
+        // Reset counters periodically to adapt to changing network conditions
+        if (errorCount.current > 30) {
+          accumulatedError.current = avgError * 5; // Keep a weighted history
+          errorCount.current = 5;
         }
+        
+        // Calculate smoothing factor based on error magnitude
+        // Large errors need more aggressive correction
+        const smoothingFactor = Math.min(0.8, Math.max(0.2, errorRatio * 0.3));
+        
+        // If player reference exists, apply correction
+        if (localPlayerRef.current?.rigidBody) {
+          // Avoid too frequent corrections (jitter prevention)
+          const timeSinceLastCorrection = Date.now() - lastCorrectionTime.current;
+          
+          if (timeSinceLastCorrection > 100) { // Limit corrections to max 10 per second
+            correctPlayerPosition(serverPosition, smoothingFactor);
+            lastCorrectionTime.current = Date.now();
+          }
+        }
+      }
+    } else {
+      console.log(`No matching prediction found for sequence ${serverState.sequence}`);
+      
+      // Handle orphaned server updates (no matching prediction)
+      // This can happen due to packet loss or out-of-order delivery
+      if (localPlayerRef.current?.rigidBody && serverState.position) {
+        const serverPosition = new THREE.Vector3(
+          serverState.position[0],
+          serverState.position[1],
+          serverState.position[2]
+        );
+        
+        // Use a higher smoothing factor for orphaned updates
+        correctPlayerPosition(serverPosition, 0.5);
       }
     }
     
     // Clean up old entries that have been processed
     stateBuffer.current = stateBuffer.current.filter(
-      state => !state.processed || state.sequence > serverState.sequence
+      state => !state.processed || state.sequence > serverState.sequence - 30
     );
+  };
+  
+  // Function to correct player position with proper error handling
+  const correctPlayerPosition = (serverPosition: THREE.Vector3, smoothingFactor: number) => {
+    try {
+      // Store the correction for application in the physics step
+      correctionData.current = {
+        position: serverPosition.clone(),
+        smoothingFactor,
+        timestamp: Date.now()
+      };
+      
+      // Schedule correction to be applied in next physics step
+      pendingCorrection.current = true;
+      
+      // Update timestamp for synchronization
+      lastServerUpdateTime.current = Date.now();
+    } catch (error) {
+      console.error("Error during position correction:", error);
+    }
+  };
+  
+  // Function to apply correction in the physics system
+  const applyCorrection = () => {
+    if (!pendingCorrection.current || !correctionData.current) return false;
+    
+    try {
+      if (localPlayerRef.current?.rigidBody) {
+        const rigidBody = localPlayerRef.current.rigidBody;
+        
+        // Get current position
+        const currentPos = rigidBody.translation();
+        const currentPosition = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z);
+        
+        // Calculate corrected position using smoothing
+        const targetPosition = correctionData.current.position;
+        const smoothing = correctionData.current.smoothingFactor;
+        
+        // Interpolate between current and target positions
+        const correctedPosition = new THREE.Vector3().lerpVectors(
+          currentPosition,
+          targetPosition,
+          smoothing
+        );
+        
+        // Store original Y to preserve jumping
+        const originalY = currentPosition.y;
+        
+        // Optionally preserve Y position to avoid disrupting jumps
+        // This is a design choice - sometimes you want full correction including Y
+        if (Math.abs(targetPosition.y - originalY) < 1.0) {
+          correctedPosition.y = originalY;
+        }
+        
+        // Apply the correction
+        rigidBody.setTranslation(
+          { x: correctedPosition.x, y: correctedPosition.y, z: correctedPosition.z },
+          true
+        );
+        
+        // Debug visualization of corrections
+        if (debugMode) {
+          console.log(`Applied correction: Current: (${currentPosition.x.toFixed(2)},${currentPosition.y.toFixed(2)},${currentPosition.z.toFixed(2)}) → ` +
+                      `Target: (${targetPosition.x.toFixed(2)},${targetPosition.y.toFixed(2)},${targetPosition.z.toFixed(2)}) with factor ${smoothing}`);
+        }
+        
+        pendingCorrection.current = false;
+        return true;
+      }
+    } catch (error) {
+      console.error("Error applying correction:", error);
+      pendingCorrection.current = false;
+    }
+    
+    return false;
   };
   
   // Set up connection and event handlers
@@ -298,6 +429,40 @@ export const useMultiplayer = (
     };
   };
   
+  // Apply correction during each frame
+  useFrame(() => {
+    // Apply any pending corrections
+    if (pendingCorrection.current) {
+      applyCorrection();
+    }
+  });
+  
+  // For reconciliation metrics
+  const [reconciliationMetrics, setReconciliationMetrics] = useState({
+    totalCorrections: 0,
+    averageError: 0,
+    lastError: 0,
+    lastCorrection: 0,
+    active: debugMode
+  });
+  
+  // Update metrics when corrections happen
+  const updateReconciliationMetrics = (error: number) => {
+    setReconciliationMetrics(prev => {
+      const totalCorrections = prev.totalCorrections + 1;
+      const totalError = prev.averageError * prev.totalCorrections + error;
+      const averageError = totalError / totalCorrections;
+      
+      return {
+        totalCorrections,
+        averageError,
+        lastError: error,
+        lastCorrection: Date.now(),
+        active: debugMode
+      };
+    });
+  };
+  
   return {
     remotePlayers,
     handleShoot: (origin: [number, number, number], direction: [number, number, number]) => {
@@ -315,7 +480,13 @@ export const useMultiplayer = (
     updatePlayerRef,
     isConnected,
     playerId,
-    sendPlayerPosition
+    sendPlayerPosition,
+    // Add reconciliation controls
+    setDebugMode,
+    applyCorrection,
+    pendingReconciliation: pendingCorrection,
+    reconciliationMetrics,
+    ReconciliationDebugOverlay
   };
 };
 
@@ -351,7 +522,7 @@ export const MultiplayerManager = ({
 
 // Add a hook to get remote shots from the current connection manager
 export const useRemoteShots = (connectionManager: ConnectionManager) => {
-  const [shots, setShots] = useState<RemoteShot[]>([]);
+  const [shots, setShots] = useState<NetworkRemoteShot[]>([]);
   const processedShotIds = useRef<Set<string>>(new Set());
   const eventListenersAttached = useRef<boolean>(false);
   
@@ -384,13 +555,12 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
       return oldEmit.apply(this, [event, ...args]);
     };
     
+    // Handle remote shots from other players
     const handleShot = (data: { id: string; shotId?: string; origin: [number, number, number]; direction: [number, number, number] }) => {
-      console.log('Remote shot received in handleShot:', data);
-      
-      // Create a unique identifier for this shot
+      // Generate a consistent shotId if none provided
       const shotId = data.shotId || `${data.id}-${data.origin.join(',')}-${data.direction.join(',')}`;
       
-      // Avoid duplicate processing
+      // Deduplicate shots (may receive multiple times due to broadcast)
       if (processedShotIds.current.has(shotId)) {
         console.log('Ignoring duplicate shot:', shotId);
         return;
@@ -400,21 +570,21 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
       processedShotIds.current.add(shotId);
       console.log('Adding shot to processed shots, new size:', processedShotIds.current.size);
       
-      const newShot: RemoteShot = {
+      // Create NetworkRemoteShot object
+      const shot: NetworkRemoteShot = {
         id: data.id,
+        shotId: shotId,
         origin: data.origin,
         direction: data.direction,
-        shotId: shotId,
         timestamp: Date.now()
       };
       
-      // Use functional update to ensure we're working with the latest state
+      // Pass to remote shots system with shot limiting
       setShots(prev => {
-        const updated = [...prev, newShot];
-        console.log('New remote shots state:', updated);
-        // Limit to last 30 shots
-        if (updated.length > 30) {
-          return updated.slice(-30);
+        const updated = [...prev, shot];
+        // Limit to last 50 shots
+        if (updated.length > 50) {
+          return updated.slice(-50);
         }
         return updated;
       });
@@ -470,4 +640,43 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
   }, [connectionManager]);
   
   return shots;
+};
+
+// ReconciliationDebugOverlay - show correction metrics
+const ReconciliationDebugOverlay = ({ metrics }: { metrics: { 
+  totalCorrections: number,
+  averageError: number,
+  lastError: number,
+  lastCorrection: number,
+  active: boolean
+} }) => {
+  const [visible, setVisible] = useState(true);
+  
+  if (!visible || !metrics.active) return null;
+  
+  return (
+    <div 
+      style={{
+        position: 'absolute',
+        bottom: '10px',
+        right: '10px',
+        backgroundColor: 'rgba(0,0,0,0.7)',
+        color: 'white',
+        padding: '10px',
+        borderRadius: '5px',
+        fontFamily: 'monospace',
+        fontSize: '12px',
+        zIndex: 1000,
+        pointerEvents: 'none'
+      }}
+    >
+      <div style={{ marginBottom: '5px', borderBottom: '1px solid #555' }}>
+        Reconciliation Stats:
+      </div>
+      <div>Total corrections: {metrics.totalCorrections}</div>
+      <div>Avg error: {metrics.averageError.toFixed(3)} units</div>
+      <div>Last error: {metrics.lastError.toFixed(3)} units</div>
+      <div>Last correction: {(Date.now() - metrics.lastCorrection) / 1000}s ago</div>
+    </div>
+  );
 }; 

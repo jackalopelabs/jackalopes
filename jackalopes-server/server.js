@@ -104,12 +104,34 @@ server.on('connection', (socket) => {
       // Handle different message types
       switch(data.type) {
         case 'player_update':
-          // Update player state
+          // Extract sequence number if present for client prediction
+          const sequence = data.sequence !== undefined ? data.sequence : 0;
+          
+          // Store the original submitted position for error calculation
+          const originalPosition = data.position ? [...data.position] : null;
+          
+          // Get current server state for this player
+          const currentServerState = gameState.players[id] ? 
+            { position: [...gameState.players[id].position] } : 
+            null;
+          
+          // Update player state in game state
           if (data.position) gameState.players[id].position = data.position;
           if (data.rotation) gameState.players[id].rotation = data.rotation;
           
-          // Extract sequence number if present for client prediction
-          const sequence = data.sequence !== undefined ? data.sequence : 0;
+          // Calculate position error if we have both states
+          let positionError = 0;
+          if (originalPosition && currentServerState) {
+            positionError = Math.sqrt(
+              Math.pow(originalPosition[0] - currentServerState.position[0], 2) +
+              Math.pow(originalPosition[1] - currentServerState.position[1], 2) +
+              Math.pow(originalPosition[2] - currentServerState.position[2], 2)
+            );
+          }
+          
+          // Server-side correction (optional)
+          // Here you can implement server-side physics validation if needed
+          // For example, check if the position change is physically possible
           
           // Broadcast to all other clients
           for (const [clientId, client] of clients.entries()) {
@@ -131,7 +153,9 @@ server.on('connection', (socket) => {
             position: gameState.players[id].position,
             rotation: gameState.players[id].rotation,
             sequence: sequence,
-            timestamp: Date.now()
+            timestamp: Date.now(),
+            positionError: positionError,
+            serverCorrection: positionError > 0.5 // Indicate if server made a major correction
           });
           break;
           
