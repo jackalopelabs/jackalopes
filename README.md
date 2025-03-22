@@ -11,6 +11,7 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
 - 3D environment with physics-based collision
 - Post-processing effects for visual enhancements
 - Multiplayer functionality with real-time shooting across different browsers/devices
+- WordPress plugin integration for scalable multiplayer server
 
 ## Technology Stack
 
@@ -20,7 +21,8 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
 - TypeScript for type safety
 - Vite for fast development and building
 - WebSockets for multiplayer communication
-- LocalStorage for cross-browser communication
+- WordPress plugin (PHP/Ratchet) for production multiplayer server
+- LocalStorage for cross-browser communication during development
 
 ## Getting Started
 
@@ -28,6 +30,7 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
 
 - Node.js (v14 or higher)
 - npm or yarn
+- For multiplayer: Either the test server or a WordPress installation (local or remote)
 
 ### Installation
 
@@ -42,11 +45,17 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
    npm install
    ```
 
-3. Start the WebSocket server for multiplayer
+3. Choose a multiplayer server option:
+
+   **Option A: Development Test Server**
    ```
    cd jackalopes-server
    node server.js --network
    ```
+
+   **Option B: WordPress Plugin Server (Recommended for Production)**
+   - Install the WordPress plugin (see "WordPress Plugin Installation" section below)
+   - Start the server from WordPress admin or using the standalone script
 
 4. Start the development server
    ```
@@ -54,6 +63,41 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
    ```
 
 5. Open your browser at the URL shown in the terminal output. Vite will automatically find an available port, typically starting with `http://localhost:5173/` and incrementing if ports are already in use.
+
+### WordPress Plugin Installation
+
+The multiplayer functionality is powered by a WordPress plugin that can be installed in several ways:
+
+#### Via Composer (Recommended)
+
+1. Add the repository to your WordPress site's `composer.json`:
+   ```json
+   "repositories": [
+       {
+           "type": "vcs",
+           "url": "https://github.com/yourusername/jackalopes-server"
+       }
+   ]
+   ```
+
+2. Require the package:
+   ```bash
+   composer require jackalopes/jackalopes-server
+   ```
+
+3. Activate the plugin in WordPress admin.
+
+#### Manual Installation
+
+1. Copy the `jackalopes-server` directory to your WordPress plugins directory
+2. Run `composer install` within the plugin directory to install dependencies
+3. Activate the plugin in WordPress admin
+
+#### Configuration
+
+1. Navigate to "Jackalopes" in the WordPress admin menu
+2. Configure the server port, max connections, and other settings
+3. Start the server from the dashboard
 
 ### Testing Multiplayer Functionality
 
@@ -81,17 +125,30 @@ To test multiplayer features:
 - L3/Left Stick Press: Sprint
 - R2/Right Trigger: Shoot
 
+## Multiplayer Architecture
+
+The multiplayer system consists of:
+
+1. **Client Components**:
+   - ConnectionManager - WebSocket client for server communication
+   - MultiplayerManager - React components for multiplayer state management
+   - Client-side prediction and reconciliation systems
+   - Network state synchronization
+
+2. **Server Components** (WordPress Plugin):
+   - WebSocket server built on Ratchet
+   - Session management and player authentication
+   - Game state persistence with WordPress database
+   - REST API endpoints for game/server statistics
+
+3. **Communication Protocol**:
+   - JSON-based messaging protocol
+   - Support for game snapshots and state synchronization
+   - Hybrid localStorage/WebSocket approach for cross-browser testing
+
 ## Multiplayer Development Process
 
 The multiplayer functionality was developed through an iterative process that addressed several technical challenges:
-
-### Architecture Overview
-
-The multiplayer system consists of:
-1. A WebSocket server (jackalopes-server) that coordinates communication between clients
-2. A ConnectionManager for WebSocket communication handling
-3. Specialized hooks like useRemoteShots for tracking projectiles across clients
-4. A hybrid approach using both WebSockets and localStorage for cross-browser communication
 
 ### Development Challenges and Solutions
 
@@ -117,10 +174,7 @@ Different browser instances weren't reliably communicating through WebSockets al
 **Solution:**
 - Implemented a hybrid approach using both WebSockets and localStorage
 - Created a universal broadcasting system that works across different browsers
-- Added multiple test buttons for troubleshooting different communication methods:
-  - CROSS-TAB TEST SHOT: For testing across tabs in the same browser
-  - DIRECT SERVER SHOT: For testing WebSocket communication
-  - UNIVERSAL BROADCAST: For testing cross-browser communication via localStorage
+- Added multiple test buttons for troubleshooting different communication methods
 
 #### Challenge 4: Synchronization and State Management
 Keeping track of remote shots state consistently across clients.
@@ -129,15 +183,6 @@ Keeping track of remote shots state consistently across clients.
 - Used React's useRef to prevent closure issues in event handlers
 - Implemented polling mechanisms to regularly check for updates from other sources
 - Added reference tracking to ensure state updates properly reflect the latest data
-
-### Testing Methodology
-
-Testing multiplayer functionality required a systematic approach:
-1. Open the game in multiple browser windows (Chrome, Firefox, Safari, Edge)
-2. Enable multiplayer in settings for each window
-3. Use the test buttons to verify cross-browser communication
-4. Monitor console logs for event transmission and processing
-5. Verify visual representation of shots across different clients
 
 ## Building for Production
 
@@ -168,8 +213,11 @@ The game uses Rapier's kinematic character controller for player movement with:
     - `ConnectionManager.ts` - WebSocket client for server communication
     - `MultiplayerManager.tsx` - React components for multiplayer state management
   - `App.tsx` - Main application component
-- `jackalopes-server/` - WebSocket server for multiplayer
-  - `server.js` - WebSocket server implementation
+- `jackalopes-server/` - WordPress plugin for multiplayer server
+  - `includes/` - Core WordPress plugin functions
+  - `admin/` - Admin interface components
+  - `src/` - Autoloaded server classes (PSR-4)
+  - `bin/` - Command-line utilities
 
 ## License
 

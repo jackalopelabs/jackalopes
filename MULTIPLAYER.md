@@ -4,11 +4,15 @@ This document outlines the step-by-step plan for implementing multiplayer functi
 
 > **How to use this checklist**: Mark items as completed by changing `[ ]` to `[x]` as you progress through implementation.
 
-## Phase 1: Frontend Prototype (Testing Without Backend)
+## Current Status
+
+We have completed Phase 1 and Phase 2 of the implementation plan. The WordPress plugin for multiplayer has been created and is ready for use. Phase 3 (Game Integration with WordPress Backend) is the next step.
+
+## Phase 1: Frontend Prototype (Testing Without Backend) ✅
 
 Before integrating with WordPress, we'll build a prototype that works entirely on the frontend or with minimal backend dependencies.
 
-### Mock Server Setup
+### Mock Server Setup ✅
 - [x] Create a simple Node.js WebSocket server for development testing
   ```bash
   npm install ws express cors
@@ -16,7 +20,7 @@ Before integrating with WordPress, we'll build a prototype that works entirely o
 - [x] Implement basic room/lobby functionality in the test server
 - [x] Add simulated latency options for realistic testing
 
-### Frontend Connection Layer
+### Frontend Connection Layer ✅
 - [x] Create a connection manager class in the game
   ```typescript
   // src/network/ConnectionManager.ts
@@ -27,53 +31,118 @@ Before integrating with WordPress, we'll build a prototype that works entirely o
 - [x] Implement WebSocket connection handling with reconnection logic
 - [x] Add event system for network events (connect, disconnect, message)
 
-### Game State Synchronization (Client)
+### Game State Synchronization (Client) ✅
 - [x] Design network message protocol (JSON-based for development)
 - [x] Create entity interpolation system for remote players
 - [x] Implement client-side prediction for local player
 - [x] Add reconciliation system to handle server corrections
 - [x] Build snapshot system for game state updates
 
-### Testing Tools
+### Testing Tools ✅
 - [x] Create network condition simulator (latency, packet loss)
 - [x] Add debug visualization for network entities
 - [x] Implement logging system for network messages
 
-## Phase 2: WordPress Plugin for Multiplayer Server
+## Phase 2: WordPress Plugin for Multiplayer Server ✅
 
 After the frontend prototype is working, we'll implement the backend server as a WordPress plugin while keeping the game separate. This allows us to maintain the game's development independently while providing a production-ready multiplayer backend.
 
-### WordPress Plugin Architecture (will be installed via composer)
-- [ ] Create plugin boilerplate
+### WordPress Plugin Architecture ✅
+- [x] Create plugin boilerplate
   ```bash
   wp scaffold plugin jackalopes-server
   ```
-- [ ] Set up plugin activation/deactivation hooks
-- [ ] Create admin settings page for server configuration
-- [ ] Implement database tables for game state persistence
+- [x] Set up plugin activation/deactivation hooks
+- [x] Create admin settings page for server configuration
+- [x] Implement database tables for game state persistence
 
-### WebSocket Server Integration
-- [ ] Integrate Ratchet WebSocket server within the plugin
+### WebSocket Server Integration ✅
+- [x] Integrate Ratchet WebSocket server within the plugin
   ```bash
   composer require cboden/ratchet
   ```
-- [ ] Implement connection handling and message routing
-- [ ] Create room/lobby management system
-- [ ] Add authentication handlers (supporting both WP users and guest sessions)
-- [ ] Implement game session management
+- [x] Implement connection handling and message routing
+- [x] Create room/lobby management system
+- [x] Add authentication handlers (supporting both WP users and guest sessions)
+- [x] Implement game session management
 
-### Server Management Features
-- [ ] Create server start/stop controls in WP admin
-- [ ] Add status monitoring for active connections
-- [ ] Implement logging system for diagnostics
-- [ ] Add configuration for server performance settings
+### Server Management Features ✅
+- [x] Create server start/stop controls in WP admin
+- [x] Add status monitoring for active connections
+- [x] Implement logging system for diagnostics
+- [x] Add configuration for server performance settings
 
-### API Endpoints
-- [ ] Create REST API endpoints for game statistics and session data
-- [ ] Implement endpoints for player authentication
-- [ ] Add endpoints for server status information
+### API Endpoints ✅
+- [x] Create REST API endpoints for game statistics and session data
+- [x] Implement endpoints for player authentication
+- [x] Add endpoints for server status information
 
-## Phase 3: Game Integration with WordPress Backend
+## WordPress Multiplayer Server Usage
+
+### Installation Options
+
+#### Option 1: Composer Installation (Recommended)
+
+```bash
+# Add to existing WordPress site
+composer require jackalopes/jackalopes-server
+```
+
+#### Option 2: Manual Installation
+
+1. Copy the `jackalopes-server` directory to your WordPress plugins directory
+2. Run `composer install` within the plugin directory to install dependencies
+3. Activate the plugin through the WordPress admin panel
+
+### Running the Server
+
+There are two ways to run the WebSocket server:
+
+#### Method 1: Through WordPress Admin
+
+1. Navigate to "Jackalopes" in the WordPress admin menu
+2. Go to the "Server" tab
+3. Configure server settings (port, max connections, etc.)
+4. Click "Start Server"
+
+#### Method 2: Standalone Command Line
+
+```bash
+# Navigate to plugin directory
+cd wp-content/plugins/jackalopes-server
+
+# Start server with default port (8080)
+php bin/server.php
+
+# Or specify a custom port
+php bin/server.php 9000
+```
+
+### Connecting the Game to the Server
+
+In your game's connection settings, set the WebSocket URL to:
+
+```
+ws://your-wordpress-site.com:8080
+```
+
+For local development:
+
+```
+ws://localhost:8080
+```
+
+### Server Configuration
+
+Edit your `.env` file in the plugin directory to customize server behavior:
+
+```
+SERVER_PORT=8080
+MAX_CONNECTIONS=100
+LOG_LEVEL="info"
+```
+
+## Phase 3: Game Integration with WordPress Backend (In Progress)
 
 Once the WordPress multiplayer server is stable, we can work on tighter integration options for the game.
 
@@ -98,7 +167,7 @@ Once the WordPress multiplayer server is stable, we can work on tighter integrat
 - [ ] Develop shortcode for easy embedding: `[jackalopes]`
 - [ ] Add customization options via shortcode attributes
 
-## Phase 4: Advanced Features
+## Phase 4: Advanced Features (Future)
 
 After basic multiplayer is working with WordPress, we'll add more sophisticated features.
 
@@ -124,41 +193,39 @@ After basic multiplayer is working with WordPress, we'll add more sophisticated 
 
 There are two main approaches for the WordPress server implementation:
 
-### Option 1: Embedded WebSocket Server (Simpler)
+### Option 1: Embedded WebSocket Server (Current Implementation)
 The WebSocket server runs within the WordPress process:
 - Easier to implement initially
 - Uses WordPress hooks for access to WP functionality
 - Limited scalability (tied to PHP execution)
 - Requires special hosting setup for persistent connections
 
-### Option 2: Separate WebSocket Service (More Scalable)
+### Option 2: Separate WebSocket Service (Future Upgrade Path)
 The WebSocket server runs as a separate service and communicates with WordPress:
 - More complex initial setup
 - Better performance and scalability
 - Independent lifecycle from WordPress
 - Requires additional server configuration
 
-For initial implementation, we'll start with Option 1 for simplicity, with architecture allowing a later move to Option 2 if needed.
+Our implementation allows for starting with Option 1 and migrating to Option 2 as needed for scaling.
 
-## WordPress Plugin Structure
+## Current WordPress Plugin Structure
 
 ```
 jackalopes-server/
-├── admin/
-│   ├── class-admin.php            # Admin UI
-│   ├── js/                        # Admin JavaScript
-│   └── css/                       # Admin styles
-├── includes/
-│   ├── class-websocket-server.php # Ratchet WebSocket implementation
-│   ├── class-game-state.php       # Game state management
-│   ├── class-authentication.php   # WP authentication handler
-│   └── class.database.php         # Database interactions
-├── public/
-│   ├── class-rest-api.php         # REST API endpoints
-│   └── class-shortcodes.php       # Shortcodes (for future integration)
-├── vendor/                        # Composer dependencies
-├── jackalopes-server.php          # Main plugin file
-└── uninstall.php                  # Cleanup on uninstall
+├── admin/                       # Admin UI components
+├── includes/                    # WordPress integration classes
+├── src/                         # PSR-4 autoloaded classes
+│   ├── Server.php               # Main WebSocket server implementation
+│   └── Logger.php               # Logging utility
+├── bin/                         # Command-line utilities
+│   └── server.php               # Standalone server script
+├── vendor/                      # Composer dependencies
+├── .env.example                 # Environment configuration template
+├── composer.json                # Composer package definition
+├── jackalopes-server.php        # Main plugin file
+├── wordpress-loader.php         # WordPress bootstrap for standalone mode
+└── uninstall.php                # Cleanup on uninstall
 ```
 
 ## Frontend Testing Strategies
@@ -173,63 +240,7 @@ Use a simple Node.js WebSocket server for development:
 const WebSocket = require('ws');
 const server = new WebSocket.Server({ port: 8080 });
 
-const clients = new Map();
-let nextId = 0;
-
-server.on('connection', (socket) => {
-  const id = nextId++;
-  clients.set(id, socket);
-  
-  console.log(`Client ${id} connected`);
-  
-  // Send initial state
-  socket.send(JSON.stringify({
-    type: 'connection',
-    id: id,
-    players: Array.from(clients.keys())
-  }));
-  
-  // Broadcast to all other clients that new player joined
-  for (const [clientId, client] of clients.entries()) {
-    if (clientId !== id && client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify({
-        type: 'player_joined',
-        id: id
-      }));
-    }
-  }
-  
-  socket.on('message', (message) => {
-    const data = JSON.parse(message);
-    
-    // Broadcast message to all other clients
-    for (const [clientId, client] of clients.entries()) {
-      if (clientId !== id && client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({
-          ...data,
-          id: id
-        }));
-      }
-    }
-  });
-  
-  socket.on('close', () => {
-    clients.delete(id);
-    console.log(`Client ${id} disconnected`);
-    
-    // Broadcast to all that player left
-    for (const [clientId, client] of clients.entries()) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({
-          type: 'player_left',
-          id: id
-        }));
-      }
-    }
-  });
-});
-
-console.log('WebSocket server started on port 8080');
+// Server implementation details...
 ```
 
 ### Option 2: WebRTC Peer-to-Peer
@@ -238,8 +249,6 @@ For testing without any server, use WebRTC peer connections:
 ```bash
 npm install simple-peer
 ```
-
-This allows direct browser-to-browser connections for testing with friends on the same network or using a simple signaling service.
 
 ### Option 3: Mocked Network Module
 Create a network module that can switch between real and simulated connections:
@@ -253,17 +262,7 @@ export class NetworkManager {
     this.useSimulation = useSimulation;
   }
   
-  connect() {
-    if (this.useSimulation) {
-      // Connect to simulated network
-      this.setupSimulation();
-    } else {
-      // Connect to real WebSocket server
-      this.connectToServer();
-    }
-  }
-  
-  // Rest of implementation
+  // Implementation details...
 }
 ```
 
@@ -284,13 +283,12 @@ function broadcastState(state) {
 }
 ```
 
-## Integration Testing Strategy
+## Moving Forward: Integration Strategy
 
-When ready to move from frontend testing to WordPress backend integration:
-
-1. Start with the WordPress plugin's WebSocket server implementation
-2. Implement the same protocol used in the mock server
-3. Add configuration in the game to connect to either the mock server or WordPress server
-4. Gradually integrate WordPress-specific features (authentication, persistence)
+1. Implement the WordPress-specific connection adapter
+2. Add authentication using WordPress user accounts
+3. Create environment detection for switching between development and production servers
+4. Test with larger numbers of simultaneous players
+5. Optimize performance for production use
 
 This approach allows for incremental integration while maintaining a working system at each step.
