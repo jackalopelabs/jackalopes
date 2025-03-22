@@ -10,6 +10,7 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
 - Gamepad support with configurable controls
 - 3D environment with physics-based collision
 - Post-processing effects for visual enhancements
+- Multiplayer functionality with real-time shooting across different browsers/devices
 
 ## Technology Stack
 
@@ -18,6 +19,8 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
 - Three.js for 3D graphics
 - TypeScript for type safety
 - Vite for fast development and building
+- WebSockets for multiplayer communication
+- LocalStorage for cross-browser communication
 
 ## Getting Started
 
@@ -39,12 +42,27 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
    npm install
    ```
 
-3. Start the development server
+3. Start the WebSocket server for multiplayer
+   ```
+   cd jackalopes-server
+   node server.js --network
+   ```
+
+4. Start the development server
    ```
    npm run dev
    ```
 
-4. Open your browser and navigate to `http://localhost:5173`
+5. Open your browser at the URL shown in the terminal output. Vite will automatically find an available port, typically starting with `http://localhost:5173/` and incrementing if ports are already in use.
+
+### Testing Multiplayer Functionality
+
+To test multiplayer features:
+
+1. Open multiple browser windows pointing to the same URL
+2. Enable multiplayer in the settings menu in each window
+3. Use the test buttons (UNIVERSAL BROADCAST, TEST SHOT) to verify cross-browser communication
+4. Shots fired in one window should appear in all connected windows
 
 ## Controls
 
@@ -62,6 +80,64 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
 - A/Cross Button: Jump
 - L3/Left Stick Press: Sprint
 - R2/Right Trigger: Shoot
+
+## Multiplayer Development Process
+
+The multiplayer functionality was developed through an iterative process that addressed several technical challenges:
+
+### Architecture Overview
+
+The multiplayer system consists of:
+1. A WebSocket server (jackalopes-server) that coordinates communication between clients
+2. A ConnectionManager for WebSocket communication handling
+3. Specialized hooks like useRemoteShots for tracking projectiles across clients
+4. A hybrid approach using both WebSockets and localStorage for cross-browser communication
+
+### Development Challenges and Solutions
+
+#### Challenge 1: Event Propagation Across Clients
+Initially, shooting events from one client weren't being properly received by other clients.
+
+**Solution:**
+- Added unique identifiers (shotId) to each shooting event
+- Implemented logging throughout the event chain to track message flow
+- Enhanced the server's broadcast system to ensure all clients receive events
+
+#### Challenge 2: Duplicate Shot Handling
+Shots were sometimes processed multiple times, creating duplicate visual effects.
+
+**Solution:**
+- Created a global tracking mechanism using `window.__processedShots` to store already-processed shots
+- Implemented shot deduplication based on unique IDs at multiple levels
+- Added validation to ensure messages contain all required fields before processing
+
+#### Challenge 3: Cross-Browser Communication
+Different browser instances weren't reliably communicating through WebSockets alone.
+
+**Solution:**
+- Implemented a hybrid approach using both WebSockets and localStorage
+- Created a universal broadcasting system that works across different browsers
+- Added multiple test buttons for troubleshooting different communication methods:
+  - CROSS-TAB TEST SHOT: For testing across tabs in the same browser
+  - DIRECT SERVER SHOT: For testing WebSocket communication
+  - UNIVERSAL BROADCAST: For testing cross-browser communication via localStorage
+
+#### Challenge 4: Synchronization and State Management
+Keeping track of remote shots state consistently across clients.
+
+**Solution:**
+- Used React's useRef to prevent closure issues in event handlers
+- Implemented polling mechanisms to regularly check for updates from other sources
+- Added reference tracking to ensure state updates properly reflect the latest data
+
+### Testing Methodology
+
+Testing multiplayer functionality required a systematic approach:
+1. Open the game in multiple browser windows (Chrome, Firefox, Safari, Edge)
+2. Enable multiplayer in settings for each window
+3. Use the test buttons to verify cross-browser communication
+4. Monitor console logs for event transmission and processing
+5. Verify visual representation of shots across different clients
 
 ## Building for Production
 
@@ -88,7 +164,12 @@ The game uses Rapier's kinematic character controller for player movement with:
     - `sphere-tool.tsx` - Projectile shooting mechanics
     - `platforms.tsx` - Level platforms
   - `common/` - Shared components and hooks
+  - `network/` - Multiplayer networking components
+    - `ConnectionManager.ts` - WebSocket client for server communication
+    - `MultiplayerManager.tsx` - React components for multiplayer state management
   - `App.tsx` - Main application component
+- `jackalopes-server/` - WebSocket server for multiplayer
+  - `server.js` - WebSocket server implementation
 
 ## License
 

@@ -122,15 +122,37 @@ server.on('connection', (socket) => {
           break;
           
         case 'shoot':
-          // Broadcast shooting event
+          // Log shot event
+          console.log(`Shoot event from client ${id}:`, {
+            shotId: data.shotId,
+            origin: data.origin,
+            direction: data.direction
+          });
+          
+          // Create a standard shot message with consistent fields
+          const shotMessage = {
+            type: 'shoot',
+            id: id,
+            shotId: data.shotId || `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            origin: data.origin,
+            direction: data.direction,
+            timestamp: Date.now()
+          };
+          
+          // Log what we're broadcasting
+          console.log(`Broadcasting shot to ${clients.size} clients:`, shotMessage);
+          
+          // Broadcast shooting event to ALL clients including sender (for shot verification)
           for (const [clientId, client] of clients.entries()) {
-            if (clientId !== id && client.readyState === WebSocket.OPEN) {
-              sendWithNetworkConditions(client, {
-                type: 'shoot',
-                id: id,
-                origin: data.origin,
-                direction: data.direction
-              });
+            try {
+              if (client.readyState === WebSocket.OPEN) {
+                console.log(`Sending shot event to client ${clientId}`);
+                sendWithNetworkConditions(client, shotMessage);
+              } else {
+                console.log(`Client ${clientId} not ready, state: ${client.readyState}`);
+              }
+            } catch (error) {
+              console.error(`Error sending shot event to client ${clientId}:`, error);
             }
           }
           break;

@@ -79,6 +79,24 @@ export const SphereTool = ({
     // Keep track of processed remote shots to avoid duplicates
     const processedRemoteShots = useRef<Set<string>>(new Set());
     
+    // Debug logging for component props
+    useEffect(() => {
+        console.log('SphereTool mounted with props:', { 
+            hasOnShoot: !!onShoot, 
+            remoteShots: remoteShots?.length || 0 
+        });
+        
+        // Log when remoteShots array changes
+        return () => {
+            console.log('SphereTool unmounting, processed shots:', processedRemoteShots.current.size);
+        };
+    }, []);
+    
+    // Log when remoteShots changes
+    useEffect(() => {
+        console.log('remoteShots changed, new length:', remoteShots?.length || 0);
+    }, [remoteShots]);
+    
     // Process remote shots
     useEffect(() => {
         if (!remoteShots || remoteShots.length === 0) return;
@@ -87,8 +105,11 @@ export const SphereTool = ({
         
         // Get shots that haven't been processed yet
         const newShots = remoteShots.filter(shot => {
+            // Create a unique ID for this shot to avoid duplicates
             const shotId = `${shot.id}-${shot.origin.join(',')}-${shot.direction.join(',')}`;
-            return !processedRemoteShots.current.has(shotId);
+            const isProcessed = processedRemoteShots.current.has(shotId);
+            console.log(`Shot ${shotId} already processed: ${isProcessed}`);
+            return !isProcessed;
         });
         
         if (newShots.length === 0) {
@@ -105,18 +126,22 @@ export const SphereTool = ({
             
             // Mark as processed
             processedRemoteShots.current.add(shotId);
-            console.log('Adding new remote shot from player:', shot.id);
+            console.log('Adding new remote shot from player:', shot.id, 'with shotId:', shotId);
             
-            // Add remote player's shot
+            // Add remote player's shot with distinctive color
             const randomColor = RAINBOW_COLORS[Math.floor(Math.random() * RAINBOW_COLORS.length)];
             
-            setSpheres(prev => [...prev, {
-                position: shot.origin,
-                direction: shot.direction,
-                color: randomColor,
-                radius: sphereRadius,
-                playerId: shot.id
-            }]);
+            setSpheres(prev => {
+                const newSpheres = [...prev, {
+                    position: shot.origin,
+                    direction: shot.direction,
+                    color: randomColor,
+                    radius: sphereRadius,
+                    playerId: shot.id
+                }];
+                console.log('Updated spheres array, new length:', newSpheres.length);
+                return newSpheres;
+            });
         });
         
         // Limit the size of our processed shots set to avoid memory leaks
@@ -141,7 +166,14 @@ export const SphereTool = ({
 
     const shootSphere = () => {
         const pointerLocked = document.pointerLockElement !== null || gamepadState.connected
-        if (!pointerLocked || isReloading || ammoCount <= 0) return
+        if (!pointerLocked || isReloading || ammoCount <= 0) {
+            console.log('Cannot shoot:', { 
+                pointerLocked, 
+                isReloading, 
+                ammoCount 
+            });
+            return;
+        }
 
         setAmmoCount(prev => {
             const newCount = prev - 1
@@ -163,24 +195,32 @@ export const SphereTool = ({
         direction.normalize() // Keep direction exactly as camera is pointing
 
         const randomColor = RAINBOW_COLORS[Math.floor(Math.random() * RAINBOW_COLORS.length)]
+        const originArray = position.toArray() as [number, number, number];
+        const directionArray = direction.toArray() as [number, number, number];
 
+        // Always add the local sphere immediately
         setSpheres(prev => [...prev, {
-            position: position.toArray() as [number, number, number],
-            direction: direction.toArray() as [number, number, number],
+            position: originArray,
+            direction: directionArray,
             color: randomColor,
             radius: sphereRadius
-        }])
+        }]);
         
         // Notify multiplayer system of the shot
         if (onShoot) {
-            console.log('Sending shot to multiplayer:', {
-                position: position.toArray(),
-                direction: direction.toArray()
+            console.log('Sending shot to multiplayer with onShoot handler:', {
+                position: originArray,
+                direction: directionArray
             });
-            onShoot(
-                position.toArray() as [number, number, number],
-                direction.toArray() as [number, number, number]
-            );
+            
+            try {
+                onShoot(originArray, directionArray);
+                console.log('Shot successfully sent to multiplayer');
+            } catch (error) {
+                console.error('Error sending shot to multiplayer:', error);
+            }
+        } else {
+            console.log('No onShoot handler available, shot will only be local');
         }
     }
 

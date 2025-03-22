@@ -326,10 +326,15 @@ export function App() {
                     
                     {/* Show SphereTool - always render it but pass remote shots when multiplayer is enabled */}
                     <SphereTool 
-                        onShoot={showMultiplayer && playerRefReady ? 
+                        onShoot={showMultiplayer ? 
                             (origin, direction) => {
                                 console.log('App: onShoot called with', { origin, direction });
-                                connectionManager.sendShootEvent(origin, direction);
+                                try {
+                                    connectionManager.sendShootEvent(origin, direction);
+                                    console.log('App: successfully sent shoot event');
+                                } catch (error) {
+                                    console.error('App: error sending shoot event:', error);
+                                }
                             } 
                             : undefined
                         }

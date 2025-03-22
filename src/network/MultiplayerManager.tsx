@@ -198,7 +198,14 @@ export const useMultiplayer = (
     remotePlayers,
     handleShoot: (origin: [number, number, number], direction: [number, number, number]) => {
       if (isConnected) {
+        console.log('handleShoot called in useMultiplayer, sending to connectionManager', { 
+          origin, 
+          direction,
+          isConnected 
+        });
         connectionManager.sendShootEvent(origin, direction);
+      } else {
+        console.log('Cannot send shoot event - not connected to server');
       }
     },
     updatePlayerRef,
@@ -240,17 +247,53 @@ export const MultiplayerManager = ({
 // Add a hook to get remote shots from the current connection manager
 export const useRemoteShots = (connectionManager: ConnectionManager) => {
   const [shots, setShots] = useState<RemoteShot[]>([]);
+  const processedShotIds = useRef<Set<string>>(new Set());
+  const eventListenersAttached = useRef<boolean>(false);
   
   useEffect(() => {
     console.log('Setting up remote shots listener on connection manager:', connectionManager);
     
-    // Debug: Test event emitter
-    connectionManager.on('message_received', (msg) => {
-      console.log('Connection message received:', msg);
-    });
+    if (eventListenersAttached.current) {
+      console.log('Event listeners already attached, cleaning up first');
+      connectionManager.off('player_shoot', () => {});
+      connectionManager.off('message_received', () => {});
+    }
     
-    const handleShot = (data: { id: string; origin: [number, number, number]; direction: [number, number, number] }) => {
-      console.log('Remote shot received:', data);
+    eventListenersAttached.current = true;
+    
+    // Debug: Test event emitter
+    const handleMessageReceived = (msg: any) => {
+      console.log('Connection message received:', msg);
+      // Explicitly check for shoot messages
+      if (msg.type === 'shoot') {
+        console.log('IMPORTANT: Shot message received in message_received handler:', msg);
+      }
+    };
+    
+    connectionManager.on('message_received', handleMessageReceived);
+    
+    // Add a global check for events
+    const oldEmit = connectionManager.emit;
+    connectionManager.emit = function(event: string, ...args: any[]) {
+      console.log(`ConnectionManager emitting event: ${event}`, args);
+      return oldEmit.apply(this, [event, ...args]);
+    };
+    
+    const handleShot = (data: { id: string; shotId?: string; origin: [number, number, number]; direction: [number, number, number] }) => {
+      console.log('Remote shot received in handleShot:', data);
+      
+      // Create a unique identifier for this shot
+      const shotId = data.shotId || `${data.id}-${data.origin.join(',')}-${data.direction.join(',')}`;
+      
+      // Avoid duplicate processing
+      if (processedShotIds.current.has(shotId)) {
+        console.log('Ignoring duplicate shot:', shotId);
+        return;
+      }
+      
+      // Mark as processed
+      processedShotIds.current.add(shotId);
+      console.log('Adding shot to processed shots, new size:', processedShotIds.current.size);
       
       const newShot: RemoteShot = {
         id: data.id,
@@ -258,8 +301,10 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
         direction: data.direction
       };
       
+      // Use functional update to ensure we're working with the latest state
       setShots(prev => {
         const updated = [...prev, newShot];
+        console.log('New remote shots state:', updated);
         // Limit to last 30 shots
         if (updated.length > 30) {
           return updated.slice(-30);
@@ -268,12 +313,51 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
       });
     };
     
+    // Function to clear old shot IDs periodically
+    const clearOldShotIds = () => {
+      if (processedShotIds.current.size > 100) {
+        console.log('Clearing old shot IDs, current size:', processedShotIds.current.size);
+        processedShotIds.current = new Set(
+          Array.from(processedShotIds.current).slice(-50)
+        );
+      }
+    };
+    
+    // Set up interval to clear old shot IDs
+    const intervalId = setInterval(clearOldShotIds, 10000);
+    
+    // Send periodic test shots every 5 seconds for debugging
+    const testShotIntervalId = setInterval(() => {
+      console.log('Sending test shot directly to useRemoteShots hook');
+      const testShot = {
+        id: 'test-player',
+        shotId: `test-${Date.now()}`,
+        origin: [0, 0, 0] as [number, number, number],
+        direction: [0, 1, 0] as [number, number, number]
+      };
+      
+      handleShot(testShot);
+    }, 5000);
+    
+    // Test direct event emission
+    console.log('Testing direct event emission');
+    connectionManager.emit('player_shoot', {
+      id: 'test-player',
+      origin: [0, 0, 0] as [number, number, number],
+      direction: [0, 1, 0] as [number, number, number]
+    });
+    
     connectionManager.on('player_shoot', handleShot);
     
     return () => {
       console.log('Cleaning up remote shots listener');
+      // Restore original emit function
+      connectionManager.emit = oldEmit;
       connectionManager.off('player_shoot', handleShot);
-      connectionManager.off('message_received', () => {});  // Pass empty callback
+      connectionManager.off('message_received', handleMessageReceived);
+      clearInterval(intervalId);
+      clearInterval(testShotIntervalId);
+      eventListenersAttached.current = false;
       setShots([]);
     };
   }, [connectionManager]);

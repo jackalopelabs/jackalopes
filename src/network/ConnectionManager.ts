@@ -152,12 +152,24 @@ export class ConnectionManager extends EventEmitter {
   }
   
   sendShootEvent(origin: [number, number, number], direction: [number, number, number]): void {
-    if (!this.isConnected) return;
+    if (!this.isConnected) {
+      console.log('Cannot send shoot event: not connected to server');
+      return;
+    }
     
-    console.log('ConnectionManager sending shoot event to server:', { origin, direction });
+    // Generate a unique ID for this shot
+    const shotId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    
+    console.log('ConnectionManager sending shoot event to server:', { 
+      shotId,
+      origin, 
+      direction,
+      playerId: this.playerId
+    });
     
     this.send({
       type: 'shoot',
+      shotId: shotId,
       origin,
       direction
     });
@@ -165,12 +177,24 @@ export class ConnectionManager extends EventEmitter {
   
   private send(data: any): void {
     if (this.socket && this.isConnected) {
-      this.socket.send(JSON.stringify(data));
-      this.emit('message_sent', data);
+      try {
+        const jsonData = JSON.stringify(data);
+        console.log(`Sending data to server (${data.type}):`, data);
+        this.socket.send(jsonData);
+        this.emit('message_sent', data);
+      } catch (error) {
+        console.error('Error sending data to server:', error);
+      }
+    } else {
+      console.warn('Cannot send data: socket not available or not connected', {
+        socketExists: !!this.socket,
+        isConnected: this.isConnected
+      });
     }
   }
   
   private handleMessage(message: any): void {
+    console.log(`Received message from server (${message.type}):`, message);
     this.emit('message_received', message);
     
     switch (message.type) {
@@ -204,11 +228,18 @@ export class ConnectionManager extends EventEmitter {
         
       case 'shoot':
         console.log('Received shot event:', message);
-        this.emit('player_shoot', {
-          id: message.id,
-          origin: message.origin,
-          direction: message.direction
-        });
+        // Make sure we don't process our own shots
+        if (message.id !== this.playerId) {
+          console.log('Emitting player_shoot event for shot from player:', message.id);
+          this.emit('player_shoot', {
+            id: message.id,
+            shotId: message.shotId || 'no-id',
+            origin: message.origin,
+            direction: message.direction
+          });
+        } else {
+          console.log('Ignoring our own shot event from server (player ID:', this.playerId, ')');
+        }
         break;
         
       case 'pong':
