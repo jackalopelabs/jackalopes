@@ -22,8 +22,13 @@ let nextId = 0;
 
 // Track basic game state
 const gameState = {
-  players: {}
+  players: {},
+  events: [],
+  snapshots: []
 };
+
+// Maximum snapshots to keep in history
+const MAX_SNAPSHOTS = 60; // ~6 seconds of history at 10 snapshots per second
 
 // Configure simulated network conditions
 const networkConditions = {
@@ -49,6 +54,71 @@ function sendWithNetworkConditions(socket, data) {
     }
 }
 
+// Function to create a server snapshot of the current game state
+function createGameSnapshot() {
+  const snapshot = {
+    timestamp: Date.now(),
+    sequence: gameState.snapshots.length > 0 ? 
+      gameState.snapshots[gameState.snapshots.length - 1].sequence + 1 : 0,
+    players: JSON.parse(JSON.stringify(gameState.players)), // Deep copy
+    events: gameState.events.slice() // Copy recent events
+  };
+  
+  // Add to snapshot history
+  gameState.snapshots.push(snapshot);
+  
+  // Limit snapshot history size
+  if (gameState.snapshots.length > MAX_SNAPSHOTS) {
+    gameState.snapshots.shift();
+  }
+  
+  // Clear processed events
+  gameState.events = [];
+  
+  return snapshot;
+}
+
+// Timer for regular snapshot creation and broadcast
+let snapshotInterval = null;
+const SNAPSHOT_INTERVAL_MS = 500; // Create snapshot every 500ms (2 per second)
+
+// Start snapshot system
+function startSnapshotSystem() {
+  if (snapshotInterval) {
+    clearInterval(snapshotInterval);
+  }
+  
+  // Create and broadcast snapshots at regular interval
+  snapshotInterval = setInterval(() => {
+    if (clients.size > 0) {
+      const snapshot = createGameSnapshot();
+      
+      // Broadcast to all clients
+      broadcastGameSnapshot(snapshot);
+    }
+  }, SNAPSHOT_INTERVAL_MS);
+  
+  console.log(`Snapshot system started (interval: ${SNAPSHOT_INTERVAL_MS}ms)`);
+}
+
+// Broadcast a snapshot to all clients
+function broadcastGameSnapshot(snapshot) {
+  // Skip if no clients
+  if (clients.size === 0) return;
+  
+  for (const [clientId, client] of clients.entries()) {
+    if (client.readyState === WebSocket.OPEN) {
+      sendWithNetworkConditions(client, {
+        type: 'game_snapshot',
+        snapshot
+      });
+    }
+  }
+}
+
+// Start the snapshot system
+startSnapshotSystem();
+
 server.on('connection', (socket) => {
   const id = nextId++;
   clients.set(id, socket);
@@ -61,6 +131,13 @@ server.on('connection', (socket) => {
     rotation: [0, 0, 0, 1],
     health: 100
   };
+  
+  // Add connection event to game events
+  gameState.events.push({
+    type: 'player_joined',
+    timestamp: Date.now(),
+    data: { playerId: id }
+  });
   
   // Send initial state to new player
   sendWithNetworkConditions(socket, {
@@ -177,6 +254,13 @@ server.on('connection', (socket) => {
             timestamp: Date.now()
           };
           
+          // Add to game events for snapshots
+          gameState.events.push({
+            type: 'player_shoot',
+            timestamp: Date.now(),
+            data: shotMessage
+          });
+          
           // Log what we're broadcasting
           console.log(`Broadcasting shot to ${clients.size} clients:`, shotMessage);
           
@@ -192,6 +276,38 @@ server.on('connection', (socket) => {
             } catch (error) {
               console.error(`Error sending shot event to client ${clientId}:`, error);
             }
+          }
+          break;
+          
+        case 'game_snapshot':
+          // Process client snapshot 
+          console.log(`Received game snapshot from client ${id}:`, {
+            timestamp: data.snapshot.timestamp,
+            sequence: data.snapshot.sequence,
+            players: Object.keys(data.snapshot.players).length,
+            events: data.snapshot.events?.length || 0
+          });
+          
+          // Merge client events into server events
+          if (data.snapshot.events && data.snapshot.events.length > 0) {
+            // Filter and process events, add to server event queue
+            data.snapshot.events.forEach(event => {
+              // Validate event before adding to the server queue
+              if (event.type && event.timestamp) {
+                // Add client ID to event data for tracking
+                const serverEvent = {
+                  ...event,
+                  clientId: id,
+                  serverTimestamp: Date.now()
+                };
+                
+                // Add to server event queue
+                gameState.events.push(serverEvent);
+                
+                // Process specific events
+                processGameEvent(serverEvent);
+              }
+            });
           }
           break;
           
@@ -213,6 +329,13 @@ server.on('connection', (socket) => {
     delete gameState.players[id];
     console.log(`Client ${id} disconnected`);
     
+    // Add disconnect event
+    gameState.events.push({
+      type: 'player_left',
+      timestamp: Date.now(),
+      data: { playerId: id }
+    });
+    
     // Broadcast to all that player left
     for (const [clientId, client] of clients.entries()) {
       if (client.readyState === WebSocket.OPEN) {
@@ -224,6 +347,50 @@ server.on('connection', (socket) => {
     }
   });
 });
+
+// Process game events with server-side logic
+function processGameEvent(event) {
+  switch (event.type) {
+    case 'player_hit':
+      // Process hit logic (e.g., damage calculation)
+      console.log(`Processing hit event:`, event.data);
+      
+      // Update player health if hit is valid
+      if (event.data.targetId && gameState.players[event.data.targetId]) {
+        const targetPlayer = gameState.players[event.data.targetId];
+        
+        // Apply damage
+        targetPlayer.health = Math.max(0, targetPlayer.health - event.data.damage || 10);
+        
+        // Check for player death
+        if (targetPlayer.health <= 0) {
+          // Create death event
+          gameState.events.push({
+            type: 'player_death',
+            timestamp: Date.now(),
+            data: {
+              playerId: event.data.targetId,
+              killedBy: event.data.attackerId
+            }
+          });
+        }
+        
+        // Broadcast health update
+        for (const [clientId, client] of clients.entries()) {
+          if (client.readyState === WebSocket.OPEN) {
+            sendWithNetworkConditions(client, {
+              type: 'player_health_update',
+              id: event.data.targetId,
+              health: targetPlayer.health
+            });
+          }
+        }
+      }
+      break;
+      
+    // Add more event types as needed
+  }
+}
 
 // Log server IP and port
 const os = require('os');
@@ -249,8 +416,24 @@ To connect from this device:
 
 ${useNetworkMode ? `To connect from other devices:
 - Connect to: ws://${localIp}:${serverOptions.port}
-- Make sure your firewall allows connections on port ${serverOptions.port}` : `To enable network connections, restart with:
-- node server.js --network`}
+` : ''}
 
-Server is running and waiting for connections...
-`); 
+Server options:
+- Network mode: ${useNetworkMode ? 'ENABLED' : 'DISABLED'}
+- Latency simulation: ${networkConditions.latency}ms
+- Packet loss simulation: ${networkConditions.packetLoss}%
+`);
+
+// Cleanup on server shutdown
+process.on('SIGINT', () => {
+  console.log('Shutting down server...');
+  
+  if (snapshotInterval) {
+    clearInterval(snapshotInterval);
+  }
+  
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+}); 

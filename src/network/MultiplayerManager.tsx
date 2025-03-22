@@ -39,6 +39,28 @@ interface PredictedState {
   processed: boolean;
 }
 
+// Snapshot system interfaces
+interface GameSnapshot {
+  timestamp: number;
+  sequence: number;
+  players: Record<string, PlayerSnapshot>;
+  events: GameEvent[];
+}
+
+interface PlayerSnapshot {
+  id: string;
+  position: [number, number, number];
+  rotation: [number, number, number, number];
+  velocity?: [number, number, number];
+  health: number;
+}
+
+interface GameEvent {
+  type: string;
+  timestamp: number;
+  data: any;
+}
+
 interface ServerState {
   position: [number, number, number];
   timestamp: number;
@@ -49,6 +71,37 @@ type PlayerData = {
   position: [number, number, number];
   rotation: [number, number, number, number];
   health: number;
+};
+
+// ReconciliationDebugOverlay component to show reconciliation metrics
+const ReconciliationDebugOverlay = ({ metrics }: { metrics: {
+  totalCorrections: number,
+  averageError: number,
+  lastError: number,
+  lastCorrection: number,
+  active: boolean
+} }) => {
+  return (
+    <div style={{
+      position: 'absolute',
+      top: '10px',
+      right: '10px',
+      background: 'rgba(0,0,0,0.7)',
+      color: 'white',
+      padding: '10px',
+      borderRadius: '5px',
+      fontSize: '12px',
+      fontFamily: 'monospace',
+      width: '200px',
+      zIndex: 1000,
+    }}>
+      <h3 style={{margin: '0 0 5px 0'}}>Reconciliation Metrics</h3>
+      <div>Total Corrections: {metrics.totalCorrections}</div>
+      <div>Avg Error: {metrics.averageError.toFixed(3)}</div>
+      <div>Last Error: {metrics.lastError.toFixed(3)}</div>
+      <div>Last Correction: {metrics.lastCorrection > 0 ? `${((Date.now() - metrics.lastCorrection) / 1000).toFixed(1)}s ago` : 'None'}</div>
+    </div>
+  );
 };
 
 // Create a hook for the multiplayer logic
@@ -78,12 +131,72 @@ export const useMultiplayer = (
     timestamp: number;
   } | null>(null);
 
+  // New snapshot system state
+  const snapshots = useRef<GameSnapshot[]>([]);
+  const snapshotInterval = useRef<number>(100); // ms between snapshots
+  const lastSnapshotTime = useRef<number>(0);
+  const maxSnapshots = useRef<number>(60); // Keep at most 60 snapshots (6 seconds at 10 per second)
+
   const remotePlayerRefs = useRef<Record<string, RemotePlayerData>>({});
   const { camera } = useThree();
   
   // Get server time with offset
   const getServerTime = () => {
     return Date.now() + serverTimeOffset.current;
+  };
+  
+  // Create a new game snapshot
+  const createGameSnapshot = () => {
+    if (!isConnected || !localPlayerRef.current || !playerId) return null;
+    
+    // Get current player states
+    const players: Record<string, PlayerSnapshot> = {};
+    
+    // Add local player
+    if (localPlayerRef.current.rigidBody) {
+      const position = localPlayerRef.current.rigidBody.translation();
+      const positionArray: [number, number, number] = [position.x, position.y, position.z];
+      const rotationArray: [number, number, number, number] = camera.quaternion.toArray() as [number, number, number, number];
+      
+      players[playerId] = {
+        id: playerId,
+        position: positionArray,
+        rotation: rotationArray,
+        health: 100, // Assuming default health
+      };
+    }
+    
+    // Add remote players
+    Object.entries(remotePlayerRefs.current).forEach(([id, data]) => {
+      if (data && data.position) {
+        players[id] = {
+          id,
+          position: data.position,
+          rotation: data.rotation,
+          health: 100, // Assuming default health
+        };
+      }
+    });
+    
+    // Create the snapshot
+    const snapshot: GameSnapshot = {
+      timestamp: getServerTime(),
+      sequence: sequenceNumber.current,
+      players,
+      events: [] // No events in this basic snapshot
+    };
+    
+    // Add to snapshot buffer
+    snapshots.current.push(snapshot);
+    
+    // Limit buffer size
+    if (snapshots.current.length > maxSnapshots.current) {
+      snapshots.current.shift();
+    }
+    
+    lastSnapshotTime.current = Date.now();
+    
+    return snapshot;
   };
   
   // Add function to send player position with prediction
@@ -146,42 +259,57 @@ export const useMultiplayer = (
       
       // Calculate error ratios for logging and adaptive correction
       const errorRatio = positionError / 0.1; // Based on threshold
-      const shouldCorrect = positionError > 0.1; // Threshold in world units
+      const shouldCorrect = positionError > 0.1;
       
-      // If error is significant, reconcile
-      if (shouldCorrect) {
-        console.log(`Reconciling position error of ${positionError.toFixed(3)} units (ratio: ${errorRatio.toFixed(2)})`);
+      // Update error tracking for metrics
+      accumulatedError.current += positionError;
+      errorCount.current++;
+      updateReconciliationMetrics(positionError);
+      
+      if (shouldCorrect && localPlayerRef.current?.rigidBody) {
+        console.log(`Correcting position error: ${positionError.toFixed(3)} (${errorRatio.toFixed(1)}x threshold)`);
         
-        // Update metrics
-        updateReconciliationMetrics(positionError);
+        // Choose a smoothing factor based on error size
+        // Larger errors use stronger correction
+        let smoothingFactor = 0.3; // Default
         
-        // Store error for adaptive correction
-        accumulatedError.current += positionError;
-        errorCount.current++;
-        
-        // Calculate average error over recent reconciliations
-        const avgError = accumulatedError.current / Math.max(1, errorCount.current);
-        
-        // Reset counters periodically to adapt to changing network conditions
-        if (errorCount.current > 30) {
-          accumulatedError.current = avgError * 5; // Keep a weighted history
-          errorCount.current = 5;
+        if (errorRatio > 5) {
+          // Very large error - snap immediately
+          smoothingFactor = 1.0;
+        } else if (errorRatio > 2) {
+          // Large error - correct more strongly
+          smoothingFactor = 0.7;
+        } else if (errorRatio < 0.5) {
+          // Minor error - gentle correction
+          smoothingFactor = 0.1;
         }
         
-        // Calculate smoothing factor based on error magnitude
-        // Large errors need more aggressive correction
-        const smoothingFactor = Math.min(0.8, Math.max(0.2, errorRatio * 0.3));
-        
-        // If player reference exists, apply correction
-        if (localPlayerRef.current?.rigidBody) {
-          // Avoid too frequent corrections (jitter prevention)
-          const timeSinceLastCorrection = Date.now() - lastCorrectionTime.current;
-          
-          if (timeSinceLastCorrection > 100) { // Limit corrections to max 10 per second
+        // Don't apply corrections too frequently (prevent jitter)
+        const correctionTimeDiff = Date.now() - lastCorrectionTime.current;
+        if (correctionTimeDiff > 50) { // At least 50ms between corrections
+          // For Y-axis, we want to be careful not to interfere with jumps
+          // Only correct Y if we're significantly off
+          const yError = Math.abs(serverPosition.y - matchingPrediction.position.y);
+          if (yError > 0.5) {
+            // Major Y difference - include in correction
             correctPlayerPosition(serverPosition, smoothingFactor);
-            lastCorrectionTime.current = Date.now();
+          } else {
+            // Minor Y difference - only correct XZ
+            const currentPosition = localPlayerRef.current.rigidBody.translation();
+            const correctedPosition = new THREE.Vector3(
+              serverPosition.x,
+              currentPosition.y, // Keep current Y
+              serverPosition.z
+            );
+            correctPlayerPosition(correctedPosition, smoothingFactor);
           }
+          
+          lastCorrectionTime.current = Date.now();
         }
+      } else if (shouldCorrect) {
+        console.warn("Cannot correct position: no rigidBody reference");
+      } else {
+        console.log(`Position accurate within threshold: ${positionError.toFixed(3)}`);
       }
     } else {
       console.log(`No matching prediction found for sequence ${serverState.sequence}`);
@@ -226,53 +354,36 @@ export const useMultiplayer = (
     }
   };
   
-  // Function to apply correction in the physics system
+  // Apply correction with proper physics integration
   const applyCorrection = () => {
-    if (!pendingCorrection.current || !correctionData.current) return false;
+    if (!correctionData.current || !localPlayerRef.current?.rigidBody) {
+      pendingCorrection.current = false;
+      return false;
+    }
     
     try {
-      if (localPlayerRef.current?.rigidBody) {
-        const rigidBody = localPlayerRef.current.rigidBody;
-        
-        // Get current position
-        const currentPos = rigidBody.translation();
-        const currentPosition = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z);
-        
-        // Calculate corrected position using smoothing
-        const targetPosition = correctionData.current.position;
-        const smoothing = correctionData.current.smoothingFactor;
-        
-        // Interpolate between current and target positions
-        const correctedPosition = new THREE.Vector3().lerpVectors(
-          currentPosition,
-          targetPosition,
-          smoothing
-        );
-        
-        // Store original Y to preserve jumping
-        const originalY = currentPosition.y;
-        
-        // Optionally preserve Y position to avoid disrupting jumps
-        // This is a design choice - sometimes you want full correction including Y
-        if (Math.abs(targetPosition.y - originalY) < 1.0) {
-          correctedPosition.y = originalY;
-        }
-        
-        // Apply the correction
-        rigidBody.setTranslation(
-          { x: correctedPosition.x, y: correctedPosition.y, z: correctedPosition.z },
-          true
-        );
-        
-        // Debug visualization of corrections
-        if (debugMode) {
-          console.log(`Applied correction: Current: (${currentPosition.x.toFixed(2)},${currentPosition.y.toFixed(2)},${currentPosition.z.toFixed(2)}) → ` +
-                      `Target: (${targetPosition.x.toFixed(2)},${targetPosition.y.toFixed(2)},${targetPosition.z.toFixed(2)}) with factor ${smoothing}`);
-        }
-        
-        pendingCorrection.current = false;
-        return true;
-      }
+      const { position, smoothingFactor } = correctionData.current;
+      const currentPosition = localPlayerRef.current.rigidBody.translation();
+      
+      // Calculate interpolated position
+      const newX = currentPosition.x + (position.x - currentPosition.x) * smoothingFactor;
+      const newY = currentPosition.y + (position.y - currentPosition.y) * smoothingFactor;
+      const newZ = currentPosition.z + (position.z - currentPosition.z) * smoothingFactor;
+      
+      // Apply the correction to the physics body
+      localPlayerRef.current.rigidBody.setTranslation(
+        { x: newX, y: newY, z: newZ },
+        true
+      );
+      
+      // Log the correction
+      console.log(`Applied position correction with factor ${smoothingFactor}`);
+      
+      // Clear the correction data
+      correctionData.current = null;
+      pendingCorrection.current = false;
+      
+      return true;
     } catch (error) {
       console.error("Error applying correction:", error);
       pendingCorrection.current = false;
@@ -319,6 +430,10 @@ export const useMultiplayer = (
       // Estimate server time offset (assume minimal latency for simplicity)
       serverTimeOffset.current = 0;
       
+      // Initialize snapshots
+      snapshots.current = [];
+      lastSnapshotTime.current = Date.now();
+      
       setRemotePlayers(initialPlayers);
     });
     
@@ -326,6 +441,38 @@ export const useMultiplayer = (
     connectionManager.on('server_state_update', (data: ServerState) => {
       // Process server reconciliation
       handleServerReconciliation(data);
+    });
+    
+    // Handler for full game state snapshots from server
+    connectionManager.on('game_snapshot', (snapshotData: GameSnapshot) => {
+      console.log('Received game snapshot:', snapshotData);
+      
+      // Store in snapshot buffer for interpolation and replay
+      snapshots.current.push(snapshotData);
+      
+      // Limit snapshot buffer size
+      if (snapshots.current.length > maxSnapshots.current) {
+        snapshots.current.shift();
+      }
+      
+      // Process events in the snapshot
+      if (snapshotData.events && snapshotData.events.length > 0) {
+        console.log(`Processing ${snapshotData.events.length} events from snapshot`);
+        snapshotData.events.forEach(event => {
+          // Handle different event types
+          switch (event.type) {
+            case 'player_hit':
+              console.log('Player hit event:', event.data);
+              // Handle player hit logic
+              break;
+            case 'item_pickup':
+              console.log('Item pickup event:', event.data);
+              // Handle item pickup logic
+              break;
+            // Add more event types as needed
+          }
+        });
+      }
     });
     
     // Player events
@@ -383,6 +530,23 @@ export const useMultiplayer = (
     };
   }, [connectionManager]);
   
+  // Create and send snapshots periodically
+  useEffect(() => {
+    if (!isConnected || !localPlayerRef.current?.rigidBody) return;
+    
+    const snapshotTimer = setInterval(() => {
+      const snapshot = createGameSnapshot();
+      if (snapshot) {
+        // Send snapshot to server if needed
+        connectionManager.sendGameSnapshot(snapshot);
+      }
+    }, snapshotInterval.current);
+    
+    return () => {
+      clearInterval(snapshotTimer);
+    };
+  }, [isConnected, localPlayerRef, connectionManager]);
+  
   // Send regular position updates with better cleanup
   useEffect(() => {
     if (!isConnected || !localPlayerRef.current?.rigidBody) return;
@@ -397,7 +561,7 @@ export const useMultiplayer = (
         const currentState: PredictedState = {
           position: new THREE.Vector3(position.x, position.y, position.z),
           velocity: new THREE.Vector3(0, 0, 0), // Assuming no velocity for now
-          sequence: 0, // Assuming sequence number 0 for now
+          sequence: sequenceNumber.current,
           timestamp: getServerTime(),
           processed: false
         };
@@ -410,8 +574,12 @@ export const useMultiplayer = (
         
         connectionManager.sendPlayerUpdate(
           [position.x, position.y, position.z], 
-          cameraQuat
+          cameraQuat,
+          sequenceNumber.current
         );
+        
+        // Increment sequence number
+        sequenceNumber.current++;
       }
     }, 100); // 10 updates per second
     
@@ -429,11 +597,19 @@ export const useMultiplayer = (
     };
   };
   
-  // Apply correction during each frame
+  // Apply correction during each frame and handle snapshot interpolation
   useFrame(() => {
     // Apply any pending corrections
     if (pendingCorrection.current) {
       applyCorrection();
+    }
+    
+    // Snapshot management - check for stale data
+    if (snapshots.current.length > 0) {
+      const now = Date.now();
+      // Clean up snapshots older than 10 seconds
+      const oldestValidTime = now - 10000;
+      snapshots.current = snapshots.current.filter(s => s.timestamp > oldestValidTime);
     }
   });
   
@@ -463,6 +639,95 @@ export const useMultiplayer = (
     });
   };
   
+  // Function to get a snapshot at a specific time
+  const getSnapshotAtTime = (timestamp: number) => {
+    if (snapshots.current.length === 0) {
+      return null;
+    }
+    
+    // Find the closest snapshots
+    let before = snapshots.current[0];
+    let after = snapshots.current[snapshots.current.length - 1];
+    
+    for (const snapshot of snapshots.current) {
+      if (snapshot.timestamp <= timestamp && snapshot.timestamp > before.timestamp) {
+        before = snapshot;
+      }
+      
+      if (snapshot.timestamp >= timestamp && snapshot.timestamp < after.timestamp) {
+        after = snapshot;
+      }
+    }
+    
+    // If we found exact match
+    if (before.timestamp === timestamp) {
+      return before;
+    }
+    
+    // If the timestamp is out of range
+    if (timestamp < before.timestamp) {
+      return before;
+    }
+    
+    if (timestamp > after.timestamp) {
+      return after;
+    }
+    
+    // Otherwise we need to interpolate
+    return interpolateSnapshots(before, after, timestamp);
+  };
+  
+  // Helper to interpolate between two snapshots
+  const interpolateSnapshots = (before: GameSnapshot, after: GameSnapshot, timestamp: number) => {
+    const t = (timestamp - before.timestamp) / (after.timestamp - before.timestamp);
+    
+    // Create a new interpolated snapshot
+    const interpolated: GameSnapshot = {
+      timestamp,
+      sequence: Math.floor(before.sequence + (after.sequence - before.sequence) * t),
+      players: {},
+      events: [] // We don't interpolate events
+    };
+    
+    // Interpolate player positions
+    const playerIds = new Set([
+      ...Object.keys(before.players),
+      ...Object.keys(after.players)
+    ]);
+    
+    playerIds.forEach(id => {
+      const beforePlayer = before.players[id];
+      const afterPlayer = after.players[id];
+      
+      if (beforePlayer && afterPlayer) {
+        // Both snapshots have the player - interpolate
+        const position: [number, number, number] = [
+          beforePlayer.position[0] + (afterPlayer.position[0] - beforePlayer.position[0]) * t,
+          beforePlayer.position[1] + (afterPlayer.position[1] - beforePlayer.position[1]) * t,
+          beforePlayer.position[2] + (afterPlayer.position[2] - beforePlayer.position[2]) * t
+        ];
+        
+        // Note: We should properly interpolate quaternions, but this is simplified
+        const rotation = beforePlayer.rotation;
+        
+        interpolated.players[id] = {
+          id,
+          position,
+          rotation,
+          health: Math.floor(beforePlayer.health + (afterPlayer.health - beforePlayer.health) * t)
+        };
+      } else if (beforePlayer) {
+        // Only in before snapshot - assume player was removed
+        interpolated.players[id] = { ...beforePlayer };
+      } else if (afterPlayer) {
+        // Only in after snapshot - assume player was added
+        interpolated.players[id] = { ...afterPlayer };
+      }
+    });
+    
+    return interpolated;
+  };
+  
   return {
     remotePlayers,
     handleShoot: (origin: [number, number, number], direction: [number, number, number]) => {
@@ -486,7 +751,14 @@ export const useMultiplayer = (
     applyCorrection,
     pendingReconciliation: pendingCorrection,
     reconciliationMetrics,
-    ReconciliationDebugOverlay
+    ReconciliationDebugOverlay,
+    // Add snapshot system exports
+    getSnapshotAtTime,
+    createGameSnapshot,
+    snapshots: snapshots.current,
+    setSnapshotInterval: (interval: number) => {
+      snapshotInterval.current = Math.max(50, interval); // Min 50ms
+    }
   };
 };
 
@@ -640,43 +912,4 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
   }, [connectionManager]);
   
   return shots;
-};
-
-// ReconciliationDebugOverlay - show correction metrics
-const ReconciliationDebugOverlay = ({ metrics }: { metrics: { 
-  totalCorrections: number,
-  averageError: number,
-  lastError: number,
-  lastCorrection: number,
-  active: boolean
-} }) => {
-  const [visible, setVisible] = useState(true);
-  
-  if (!visible || !metrics.active) return null;
-  
-  return (
-    <div 
-      style={{
-        position: 'absolute',
-        bottom: '10px',
-        right: '10px',
-        backgroundColor: 'rgba(0,0,0,0.7)',
-        color: 'white',
-        padding: '10px',
-        borderRadius: '5px',
-        fontFamily: 'monospace',
-        fontSize: '12px',
-        zIndex: 1000,
-        pointerEvents: 'none'
-      }}
-    >
-      <div style={{ marginBottom: '5px', borderBottom: '1px solid #555' }}>
-        Reconciliation Stats:
-      </div>
-      <div>Total corrections: {metrics.totalCorrections}</div>
-      <div>Avg error: {metrics.averageError.toFixed(3)} units</div>
-      <div>Last error: {metrics.lastError.toFixed(3)} units</div>
-      <div>Last correction: {(Date.now() - metrics.lastCorrection) / 1000}s ago</div>
-    </div>
-  );
 }; 

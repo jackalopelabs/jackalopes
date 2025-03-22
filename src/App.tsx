@@ -83,6 +83,142 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     )
 }
 
+const SnapshotDebugOverlay = ({ 
+  snapshots,
+  getSnapshotAtTime
+}: { 
+  snapshots: any[],
+  getSnapshotAtTime: (timestamp: number) => any
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [selectedSnapshot, setSelectedSnapshot] = useState<any>(null);
+  
+  // Update selected snapshot when snapshots change
+  useEffect(() => {
+    if (snapshots.length > 0 && !selectedSnapshot) {
+      setSelectedSnapshot(snapshots[snapshots.length - 1]);
+    }
+  }, [snapshots, selectedSnapshot]);
+  
+  if (!snapshots || snapshots.length === 0) return null;
+  
+  return (
+    <div style={{
+      position: 'absolute',
+      bottom: '10px',
+      right: '10px',
+      background: 'rgba(0,0,0,0.7)',
+      color: 'white',
+      padding: '10px',
+      borderRadius: '5px',
+      fontSize: '12px',
+      fontFamily: 'monospace',
+      width: expanded ? '400px' : '200px',
+      zIndex: 1000,
+    }}>
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        marginBottom: '8px',
+        borderBottom: '1px solid #555',
+        paddingBottom: '4px'
+      }}>
+        <h3 style={{margin: 0}}>Snapshot System</h3>
+        <button 
+          onClick={() => setExpanded(!expanded)}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'white',
+            cursor: 'pointer',
+            fontSize: '12px'
+          }}
+        >
+          {expanded ? 'Collapse' : 'Expand'}
+        </button>
+      </div>
+
+      <div>Snapshots: {snapshots.length}</div>
+      {expanded && snapshots.length > 0 && (
+        <>
+          <div style={{marginTop: '8px'}}>
+            <div>Latest Snapshot:</div>
+            <div>Time: {new Date(snapshots[snapshots.length - 1].timestamp).toISOString().substr(11, 8)}</div>
+            <div>Seq: {snapshots[snapshots.length - 1].sequence}</div>
+            <div>Players: {Object.keys(snapshots[snapshots.length - 1].players).length}</div>
+            <div>Events: {snapshots[snapshots.length - 1].events?.length || 0}</div>
+          </div>
+          
+          {selectedSnapshot && (
+            <div style={{
+              marginTop: '8px',
+              padding: '8px',
+              background: 'rgba(255,255,255,0.1)',
+              borderRadius: '4px'
+            }}>
+              <div>Selected Snapshot:</div>
+              <div>Time: {new Date(selectedSnapshot.timestamp).toISOString().substr(11, 8)}</div>
+              <div>Sequence: {selectedSnapshot.sequence}</div>
+              <div>
+                Players: {Object.keys(selectedSnapshot.players).map(id => (
+                  <div key={id} style={{paddingLeft: '8px', fontSize: '10px'}}>
+                    {id}: {JSON.stringify(selectedSnapshot.players[id].position).substring(0, 20)}...
+                  </div>
+                ))}
+              </div>
+              {selectedSnapshot.events && selectedSnapshot.events.length > 0 && (
+                <div>
+                  Events: {selectedSnapshot.events.map((event: any, i: number) => (
+                    <div key={i} style={{paddingLeft: '8px', fontSize: '10px'}}>
+                      {event.type}: {event.timestamp}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          
+          <div style={{marginTop: '8px'}}>
+            <div>Timeline:</div>
+            <div style={{
+              height: '20px',
+              background: '#333',
+              position: 'relative',
+              borderRadius: '4px',
+              marginTop: '4px'
+            }}>
+              {snapshots.map((snapshot, i) => {
+                // Calculate relative position
+                const startTime = snapshots[0].timestamp;
+                const endTime = snapshots[snapshots.length - 1].timestamp;
+                const range = endTime - startTime;
+                const position = range > 0 ? ((snapshot.timestamp - startTime) / range) * 100 : 0;
+                
+                return (
+                  <div
+                    key={i}
+                    style={{
+                      position: 'absolute',
+                      left: `${position}%`,
+                      top: '0',
+                      width: '2px',
+                      height: '100%',
+                      background: selectedSnapshot && snapshot.sequence === selectedSnapshot.sequence ? '#ff0' : '#0af',
+                      cursor: 'pointer'
+                    }}
+                    onClick={() => setSelectedSnapshot(snapshot)}
+                    title={`Snapshot ${snapshot.sequence} at ${new Date(snapshot.timestamp).toISOString()}`}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
 export function App() {
     const loading = useLoadingAssets()
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
@@ -405,6 +541,13 @@ export function App() {
             {/* Add debug overlay if enabled */}
             {showMultiplayer && showDebug && (
                 <MultiplayerManager.ReconciliationDebugOverlay metrics={connectionManager.reconciliationMetrics} />
+            )}
+
+            {showMultiplayer && showDebug && connectionManager?.snapshots && (
+                <SnapshotDebugOverlay 
+                    snapshots={connectionManager.snapshots} 
+                    getSnapshotAtTime={connectionManager.getSnapshotAtTime}
+                />
             )}
         </>
     )

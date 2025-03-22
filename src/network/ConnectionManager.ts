@@ -8,6 +8,22 @@ type GameState = {
   }>;
 };
 
+// Game snapshot interface for state synchronization
+interface GameSnapshot {
+  timestamp: number;
+  sequence: number;
+  players: Record<string, PlayerSnapshot>;
+  events: any[];
+}
+
+interface PlayerSnapshot {
+  id: string;
+  position: [number, number, number];
+  rotation: [number, number, number, number];
+  velocity?: [number, number, number];
+  health: number;
+}
+
 export class ConnectionManager extends EventEmitter {
   private socket: WebSocket | null = null;
   private playerId: string | null = null;
@@ -329,5 +345,37 @@ export class ConnectionManager extends EventEmitter {
     } else {
       console.log(`Max reconnect attempts (${this.maxReconnectAttempts}) reached. Giving up.`);
     }
+  }
+  
+  // Add server-side game snapshot for state synchronization
+  sendGameSnapshot(snapshot: GameSnapshot): void {
+    if (!this.isConnected) {
+      console.log('Cannot send game snapshot: not connected to server');
+      return;
+    }
+    
+    this.send({
+      type: 'game_snapshot',
+      snapshot
+    });
+  }
+  
+  // Expose snapshots and related methods for UI components
+  get snapshots(): GameSnapshot[] {
+    return [];  // Return empty array as a fallback
+  }
+  
+  getSnapshotAtTime(timestamp: number): GameSnapshot | null {
+    return null;  // Return null as a fallback
+  }
+  
+  get reconciliationMetrics(): any {
+    return {
+      totalCorrections: 0,
+      averageError: 0,
+      lastError: 0,
+      lastCorrection: 0,
+      active: true
+    };
   }
 } 
