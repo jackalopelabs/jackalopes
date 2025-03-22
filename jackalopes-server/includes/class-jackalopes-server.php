@@ -92,6 +92,9 @@ class Jackalopes_Server {
         $this->loader->add_action('admin_enqueue_scripts', $plugin_admin, 'enqueue_scripts');
         $this->loader->add_action('admin_menu', $plugin_admin, 'add_admin_menu');
         $this->loader->add_action('admin_init', $plugin_admin, 'register_settings');
+        
+        // Register AJAX handlers
+        $plugin_admin->register_ajax_handlers();
     }
 
     /**

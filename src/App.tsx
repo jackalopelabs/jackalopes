@@ -18,6 +18,7 @@ import { Platforms } from './game/platforms'
 import { MultiplayerManager, useRemoteShots } from './network/MultiplayerManager'
 import { NetworkStats } from './network/NetworkStats'
 import { ConnectionManager } from './network/ConnectionManager'
+import { ConnectionTest } from './components/ConnectionTest'
 
 const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     const texture = useTexture('/final-texture.png')
@@ -549,6 +550,9 @@ export function App() {
                     getSnapshotAtTime={connectionManager.getSnapshotAtTime}
                 />
             )}
+
+            <Instructions />
+            <ConnectionTest />
         </>
     )
 }

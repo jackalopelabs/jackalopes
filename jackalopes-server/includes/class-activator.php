@@ -75,5 +75,35 @@ class Jackalopes_Server_Activator {
         add_option('jackalopes_server_max_connections', '100');
         add_option('jackalopes_server_auto_start', '0');
         add_option('jackalopes_server_log_level', 'info');
+        
+        // Install Node.js dependencies
+        self::install_node_dependencies();
+    }
+    
+    /**
+     * Install Node.js dependencies for the WebSocket server
+     *
+     * @since    1.0.0
+     * @access   private
+     */
+    private static function install_node_dependencies() {
+        $plugin_dir = JACKALOPES_SERVER_PLUGIN_DIR;
+        
+        // Check if package.json exists
+        if (!file_exists($plugin_dir . 'package.json')) {
+            return;
+        }
+        
+        // Run npm install in the plugin directory
+        $command = sprintf(
+            'cd %s && npm install',
+            escapeshellarg($plugin_dir)
+        );
+        
+        exec($command, $output, $return_var);
+        
+        if ($return_var !== 0) {
+            error_log('Failed to install Node.js dependencies for Jackalopes Server plugin');
+        }
     }
 } 

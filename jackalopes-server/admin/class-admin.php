@@ -234,4 +234,102 @@ class Jackalopes_Server_Admin {
     public function display_sessions_page() {
         require_once JACKALOPES_SERVER_PLUGIN_DIR . 'admin/partials/sessions.php';
     }
+    
+    /**
+     * Register AJAX handlers
+     *
+     * @since    1.0.0
+     */
+    public function register_ajax_handlers() {
+        add_action('wp_ajax_jackalopes_check_server_status', array($this, 'ajax_check_server_status'));
+        add_action('wp_ajax_jackalopes_server_action', array($this, 'ajax_server_action'));
+        add_action('wp_ajax_jackalopes_create_session', array($this, 'ajax_create_session'));
+    }
+    
+    /**
+     * AJAX handler for checking server status
+     *
+     * @since    1.0.0
+     */
+    public function ajax_check_server_status() {
+        // Check nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'jackalopes_server_nonce')) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+        }
+        
+        // Get server status
+        $websocket_server = new Jackalopes_Server_WebSocket();
+        $status = $websocket_server->get_status();
+        
+        wp_send_json_success($status);
+    }
+    
+    /**
+     * AJAX handler for server actions (start, stop, restart)
+     *
+     * @since    1.0.0
+     */
+    public function ajax_server_action() {
+        // Check nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'jackalopes_server_nonce')) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+        }
+        
+        // Check if action is provided
+        if (!isset($_POST['server_action'])) {
+            wp_send_json_error(array('message' => 'No action specified'));
+        }
+        
+        $action = sanitize_text_field($_POST['server_action']);
+        $websocket_server = new Jackalopes_Server_WebSocket();
+        
+        switch ($action) {
+            case 'start':
+                $result = $websocket_server->start();
+                break;
+                
+            case 'stop':
+                $result = $websocket_server->stop();
+                break;
+                
+            case 'restart':
+                $result = $websocket_server->restart();
+                break;
+                
+            default:
+                wp_send_json_error(array('message' => 'Invalid action'));
+                break;
+        }
+        
+        if ($result) {
+            wp_send_json_success(array('message' => 'Action completed successfully'));
+        } else {
+            wp_send_json_error(array('message' => 'Failed to perform action'));
+        }
+    }
+    
+    /**
+     * AJAX handler for creating a game session
+     *
+     * @since    1.0.0
+     */
+    public function ajax_create_session() {
+        // Check nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'jackalopes_server_nonce')) {
+            wp_send_json_error(array('message' => 'Security check failed'));
+        }
+        
+        // Get parameters
+        $max_players = isset($_POST['max_players']) ? absint($_POST['max_players']) : 10;
+        $settings = isset($_POST['settings']) ? $_POST['settings'] : '';
+        
+        // Create session
+        $result = Jackalopes_Server_Database::create_session($max_players, $settings);
+        
+        if ($result['success']) {
+            wp_send_json_success($result['session']);
+        } else {
+            wp_send_json_error(array('message' => $result['message']));
+        }
+    }
 } 
