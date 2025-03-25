@@ -401,8 +401,8 @@ export function App() {
     const playerRef = useRef<any>(null);
     // Add a state to track if playerRef is ready
     const [playerRefReady, setPlayerRefReady] = useState(false);
-    // Create a shared ConnectionManager instance
-    const [connectionManager] = useState(() => new ConnectionManager());
+    // Create a shared ConnectionManager instance with the staging server URL
+    const [connectionManager] = useState(() => new ConnectionManager('ws://staging.games.bonsai.so/websocket/'));
     // Add state to track if we're in offline mode
     const [isOfflineMode, setIsOfflineMode] = useState(false);
     // Track if notification is visible
@@ -814,7 +814,8 @@ export function App() {
             )}
 
             <Instructions />
-            <ConnectionTest />
+            {/* Pass the shared connection manager to ConnectionTest */}
+            <ConnectionTest sharedConnectionManager={connectionManager} />
             
             {/* Add debugging panel for multiplayer testing */}
             {showMultiplayer && (

@@ -46,6 +46,18 @@ export class ConnectionManager extends EventEmitter {
   
   constructor(private serverUrl: string = 'ws://localhost:8082') {
     super();
+    
+    // If the serverUrl contains staging.games.bonsai.so but doesn't have /websocket/ path, add it
+    if (this.serverUrl.includes('staging.games.bonsai.so') && !this.serverUrl.includes('/websocket/')) {
+      // Extract the protocol and host
+      const urlParts = this.serverUrl.match(/^(ws:\/\/|wss:\/\/)(.*?)(?::(\d+))?$/);
+      if (urlParts) {
+        const [, protocol, host, port] = urlParts;
+        // Rebuild the URL with the /websocket/ path
+        this.serverUrl = `${protocol}${host}${port ? `:${port}` : ''}/websocket/`;
+        console.log('Updated server URL to include websocket path:', this.serverUrl);
+      }
+    }
   }
   
   connect(): void {
@@ -78,19 +90,30 @@ export class ConnectionManager extends EventEmitter {
   
   private checkServerAvailability(): void {
     // Try a basic fetch to check if the domain is accessible
-    fetch('https://staging.games.bonsai.so/health-check', { 
+    // Extract domain from the serverUrl
+    const urlMatch = this.serverUrl.match(/^(ws:\/\/|wss:\/\/)([^\/]*)/);
+    if (!urlMatch) {
+      console.error('Invalid server URL format');
+      this.handleDisconnect();
+      return;
+    }
+    
+    const domain = urlMatch[2]; // Extract the domain part
+    const protocol = this.serverUrl.startsWith('wss://') ? 'https://' : 'http://';
+    
+    fetch(`${protocol}${domain}/health-check`, { 
       method: 'HEAD',
       mode: 'no-cors',
       cache: 'no-store'
     })
     .then(() => {
       // If we can reach the domain, try the WebSocket connection
-      console.log('Domain staging.games.bonsai.so is reachable, attempting WebSocket connection...');
+      console.log(`Domain ${domain} is reachable, attempting WebSocket connection...`);
       this.createWebSocketConnection();
     })
     .catch((error) => {
       // If we can't reach the domain, go to offline mode immediately
-      console.error('Cannot reach staging.games.bonsai.so, switching to offline mode:', error);
+      console.error(`Cannot reach ${domain}, switching to offline mode:`, error);
       this.connectionFailed = true;
       this.offlineMode = true;
       this.emit('server_unreachable', { server: this.serverUrl });
@@ -387,6 +410,7 @@ export class ConnectionManager extends EventEmitter {
     });
   }
   
+  // Update sendShootEvent to use a compatible message format with the staging server
   sendShootEvent(origin: [number, number, number], direction: [number, number, number]): void {
     if (!this.isReadyToSend()) {
       // First try localStorage fallback for cross-browser testing
@@ -427,11 +451,27 @@ export class ConnectionManager extends EventEmitter {
       playerId: this.playerId
     });
     
+    // The staging server doesn't support the 'shoot' message type
+    // So we'll use 'game_event' instead, which is more likely to be supported
     this.send({
-      type: 'shoot',
+      type: 'game_event',  // Use 'game_event' instead of 'shoot'
+      event_type: 'player_shoot', // Specify the event type in a field the server might understand
+      data: {              // Wrap the shot data in a data field
+        shotId: shotId,
+        origin,
+        direction,
+        player_id: this.playerId,
+        timestamp: Date.now()
+      }
+    });
+    
+    // Also emit the event locally to ensure it works even if the server doesn't process it
+    this.emit('player_shoot', {
+      id: this.playerId,
       shotId: shotId,
       origin,
-      direction
+      direction,
+      timestamp: Date.now()
     });
   }
   
@@ -541,8 +581,47 @@ export class ConnectionManager extends EventEmitter {
         break;
         
       case 'player_joined':
-        this.gameState.players[message.id] = message.initialState;
-        this.emit('player_joined', { id: message.id, state: message.initialState });
+        console.log('👤 Player joined event received:', message);
+        // Handle both formats the server might send
+        const playerId = message.id || message.player_id;
+        const playerState = message.initialState || {
+          position: message.position || [0, 1, 0],
+          rotation: message.rotation || [0, 0, 0, 1],
+          health: 100
+        };
+        
+        // Skip if this is our own player ID
+        if (playerId === this.playerId) {
+          console.log('Ignoring player_joined for our own player ID');
+          break;
+        }
+        
+        // Add to the game state
+        this.gameState.players[playerId] = playerState;
+        
+        // Emit the event so the UI can update
+        this.emit('player_joined', { id: playerId, state: playerState });
+        console.log('🎮 Updated player list - current players:', Object.keys(this.gameState.players));
+        break;
+        
+      case 'player_list':
+        // Some servers might send a complete player list instead of individual join/leave events
+        console.log('Received player list from server:', message.players);
+        if (message.players && typeof message.players === 'object') {
+          // Update our game state with all players
+          Object.entries(message.players).forEach(([id, playerData]: [string, any]) => {
+            // Skip if this is our own player
+            if (id === this.playerId) return;
+            
+            // Add or update this player in our game state
+            this.gameState.players[id] = playerData;
+            
+            // Emit player_joined for any new players we didn't know about
+            this.emit('player_joined', { id, state: playerData });
+          });
+          
+          console.log('🎮 Updated player list from server - current players:', Object.keys(this.gameState.players));
+        }
         break;
         
       case 'player_left':
@@ -551,27 +630,77 @@ export class ConnectionManager extends EventEmitter {
         break;
         
       case 'player_update':
-        if (this.gameState.players[message.id]) {
-          this.gameState.players[message.id].position = message.position;
-          this.gameState.players[message.id].rotation = message.rotation;
-          
-          // If message is for local player, emit server_state_update for reconciliation
-          if (message.id === this.playerId && message.sequence !== undefined) {
-            this.emit('server_state_update', {
+        // Handle both our own updates and updates from other players
+        const updatePlayerId = message.id || message.player_id;
+        
+        // Skip processing updates from ourselves
+        if (updatePlayerId !== this.playerId) {
+          // Check if this is a player we don't know about yet
+          if (!this.gameState.players[updatePlayerId]) {
+            console.log(`New player detected from player_update: ${updatePlayerId}`);
+            // Create a player joined event for this new player
+            const newPlayerState = {
               position: message.position,
               rotation: message.rotation,
-              timestamp: message.timestamp || Date.now(), // Use server timestamp if available
-              sequence: message.sequence,
-              positionError: message.positionError, // Server reported error
-              serverCorrection: message.serverCorrection // Whether server made a major correction
+              health: 100
+            };
+            
+            // Add to our game state
+            this.gameState.players[updatePlayerId] = newPlayerState;
+            
+            // Emit a player_joined event
+            this.emit('player_joined', { 
+              id: updatePlayerId, 
+              state: newPlayerState
+            });
+          }
+          
+          // Update the player in our game state
+          this.gameState.players[updatePlayerId].position = message.position;
+          this.gameState.players[updatePlayerId].rotation = message.rotation;
+          
+          // Emit player_update for this remote player
+          this.emit('player_update', { 
+            id: updatePlayerId, 
+            position: message.position, 
+            rotation: message.rotation 
+          });
+        } else if (updatePlayerId === this.playerId && message.sequence !== undefined) {
+          // If message is for local player, emit server_state_update for reconciliation
+          this.emit('server_state_update', {
+            position: message.position,
+            rotation: message.rotation,
+            timestamp: message.timestamp || Date.now(), // Use server timestamp if available
+            sequence: message.sequence,
+            positionError: message.positionError, // Server reported error
+            serverCorrection: message.serverCorrection // Whether server made a major correction
+          });
+        }
+        break;
+        
+      case 'game_event':
+        // Handle game events - could be various types including shots
+        console.log('Game event received:', message);
+        
+        // Check for shot events
+        if (message.event_type === 'player_shoot' || 
+            (message.data && message.data.event_type === 'player_shoot')) {
+          
+          const eventData = message.data || message;
+          const shooterId = eventData.player_id || eventData.id;
+          
+          // Make sure we don't process our own shots
+          if (shooterId !== this.playerId) {
+            console.log('Emitting player_shoot event for shot from player:', shooterId);
+            this.emit('player_shoot', {
+              id: shooterId,
+              shotId: eventData.shotId || 'server-' + Date.now(),
+              origin: eventData.origin,
+              direction: eventData.direction,
+              timestamp: eventData.timestamp || Date.now()
             });
           } else {
-            // Normal update for remote players
-            this.emit('player_update', { 
-              id: message.id, 
-              position: message.position, 
-              rotation: message.rotation 
-            });
+            console.log('Ignoring our own shot event from server (player ID:', this.playerId, ')');
           }
         }
         break;
@@ -663,6 +792,17 @@ export class ConnectionManager extends EventEmitter {
     if (!this.socket) return 'NO_SOCKET';
     const stateMap = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
     return stateMap[this.socket.readyState];
+  }
+  
+  // Get the server URL
+  getServerUrl(): string {
+    return this.serverUrl;
+  }
+  
+  // Public wrapper for send method 
+  sendMessage(data: any): void {
+    // Call the private send method
+    this.send(data);
   }
   
   private clearReconnectTimeout() {

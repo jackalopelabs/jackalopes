@@ -1,12 +1,16 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { ConnectionManager } from '../network/ConnectionManager';
 
-export const ConnectionTest: React.FC = () => {
+interface ConnectionTestProps {
+  sharedConnectionManager?: ConnectionManager;
+}
+
+export const ConnectionTest: React.FC<ConnectionTestProps> = ({ sharedConnectionManager }) => {
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'offline'>('disconnected');
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [latency, setLatency] = useState<number>(0);
   const [logs, setLogs] = useState<string[]>([]);
-  const [serverUrl, setServerUrl] = useState('ws://localhost:8082');
+  const [serverUrl, setServerUrl] = useState('ws://staging.games.bonsai.so/websocket/');
   const connectionManagerRef = useRef<ConnectionManager | null>(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -19,10 +23,10 @@ export const ConnectionTest: React.FC = () => {
   const setServerPreset = (preset: string) => {
     switch (preset) {
       case 'staging':
-        setServerUrl('ws://staging.games.bonsai.so:8082');
+        setServerUrl('ws://staging.games.bonsai.so/websocket/');
         break;
       case 'staging-secure':
-        setServerUrl('wss://staging.games.bonsai.so:8082');
+        setServerUrl('wss://staging.games.bonsai.so/websocket/');
         break;
       case 'local':
         setServerUrl('ws://localhost:8082');
@@ -39,24 +43,51 @@ export const ConnectionTest: React.FC = () => {
   };
 
   useEffect(() => {
-    // Create and store the connection manager
-    connectionManagerRef.current = new ConnectionManager(serverUrl);
+    // Use the shared connection manager if provided, otherwise create a new one
+    if (sharedConnectionManager) {
+      connectionManagerRef.current = sharedConnectionManager;
+      
+      // Check current connection state
+      if (sharedConnectionManager.isReadyToSend()) {
+        if (sharedConnectionManager.isPlayerConnected()) {
+          setConnectionStatus('connected');
+          setPlayerId(sharedConnectionManager.getPlayerId() || null);
+        } else {
+          setConnectionStatus('offline');
+          setPlayerId(sharedConnectionManager.getPlayerId() || null);
+        }
+      } else {
+        setConnectionStatus('disconnected');
+      }
+      
+      addLog(`Using shared connection manager (URL: ${sharedConnectionManager.getServerUrl()})`);
+    } else {
+      // Create and store the connection manager
+      connectionManagerRef.current = new ConnectionManager(serverUrl);
+      addLog(`Created new connection manager with URL: ${serverUrl}`);
+      
+      // Connect when component mounts with a new manager
+      setConnectionStatus('connecting');
+      connectionManagerRef.current.connect();
+    }
+
     const connectionManager = connectionManagerRef.current;
 
-    connectionManager.on('connected', () => {
+    // Set up event listeners
+    const handleConnected = () => {
       setConnectionStatus('connected');
       addLog('Connected to server');
-    });
+    };
 
-    connectionManager.on('disconnected', () => {
+    const handleDisconnected = () => {
       // Only set to disconnected if not in offline mode
       if (connectionStatus !== 'offline') {
         setConnectionStatus('disconnected');
         addLog('Disconnected from server');
       }
-    });
+    };
 
-    connectionManager.on('initialized', (data) => {
+    const handleInitialized = (data: any) => {
       setPlayerId(data.id);
       
       // Check if we're in offline mode (player ID starts with 'offline-')
@@ -66,48 +97,72 @@ export const ConnectionTest: React.FC = () => {
       } else {
         addLog(`Initialized with player ID: ${data.id}`);
       }
-    });
+    };
     
-    connectionManager.on('server_unreachable', () => {
+    const handleServerUnreachable = () => {
       setConnectionStatus('offline');
       addLog('Server unreachable. Switched to offline mode.');
-    });
+    };
 
-    connectionManager.on('latency_update', (newLatency) => {
+    const handleLatencyUpdate = (newLatency: number) => {
       setLatency(newLatency);
-    });
+    };
 
-    connectionManager.on('message_received', (message) => {
+    const handleMessageReceived = (message: any) => {
       addLog(`Received: ${message.type}`);
-    });
+    };
 
-    connectionManager.on('message_sent', (message) => {
+    const handleMessageSent = (message: any) => {
       addLog(`Sent: ${message.type}`);
-    });
+    };
 
-    // Connect when component mounts
-    setConnectionStatus('connecting');
-    connectionManager.connect();
+    // Add event listeners
+    connectionManager.on('connected', handleConnected);
+    connectionManager.on('disconnected', handleDisconnected);
+    connectionManager.on('initialized', handleInitialized);
+    connectionManager.on('server_unreachable', handleServerUnreachable);
+    connectionManager.on('latency_update', handleLatencyUpdate);
+    connectionManager.on('message_received', handleMessageReceived);
+    connectionManager.on('message_sent', handleMessageSent);
 
     // Cleanup on unmount
     return () => {
-      connectionManager.disconnect();
-      connectionManagerRef.current = null;
+      // Remove event listeners
+      connectionManager.off('connected', handleConnected);
+      connectionManager.off('disconnected', handleDisconnected);
+      connectionManager.off('initialized', handleInitialized);
+      connectionManager.off('server_unreachable', handleServerUnreachable);
+      connectionManager.off('latency_update', handleLatencyUpdate);
+      connectionManager.off('message_received', handleMessageReceived);
+      connectionManager.off('message_sent', handleMessageSent);
+      
+      // Only disconnect if we created our own manager
+      if (!sharedConnectionManager) {
+        connectionManager.disconnect();
+        connectionManagerRef.current = null;
+      }
     };
-  }, [serverUrl]);
+  }, [serverUrl, sharedConnectionManager]);
 
   const handleConnect = () => {
-    setConnectionStatus('connecting');
     if (connectionManagerRef.current) {
-      connectionManagerRef.current.disconnect();
+      setConnectionStatus('connecting');
+      
+      // Only create a new connection manager if we're not using a shared one
+      if (!sharedConnectionManager) {
+        connectionManagerRef.current.disconnect();
+        connectionManagerRef.current = new ConnectionManager(serverUrl);
+      }
+      
+      connectionManagerRef.current.connect();
+      addLog(`Connecting to ${serverUrl}...`);
     }
-    connectionManagerRef.current = new ConnectionManager(serverUrl);
-    connectionManagerRef.current.connect();
   };
 
   const handleDisconnect = () => {
     if (connectionManagerRef.current) {
       connectionManagerRef.current.disconnect();
+      addLog('Manually disconnected');
     }
     setConnectionStatus('disconnected');
   };
@@ -185,23 +240,27 @@ export const ConnectionTest: React.FC = () => {
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
             className="w-full bg-gray-700 text-white px-2 py-1 rounded mb-2"
+            disabled={!!sharedConnectionManager}
           />
           <div className="flex flex-wrap gap-2 text-xs">
             <button 
               onClick={() => setServerPreset('staging')} 
               className="bg-gray-700 px-2 py-1 rounded hover:bg-gray-600"
+              disabled={!!sharedConnectionManager}
             >
               Staging (ws://)
             </button>
             <button 
               onClick={() => setServerPreset('staging-secure')}
               className="bg-gray-700 px-2 py-1 rounded hover:bg-gray-600"
+              disabled={!!sharedConnectionManager}
             >
               Staging (wss://)
             </button>
             <button 
               onClick={() => setServerPreset('local')}
               className="bg-gray-700 px-2 py-1 rounded hover:bg-gray-600"
+              disabled={!!sharedConnectionManager}
             >
               Local
             </button>
@@ -212,6 +271,11 @@ export const ConnectionTest: React.FC = () => {
               Offline Mode
             </button>
           </div>
+          {sharedConnectionManager && (
+            <div className="mt-2 text-xs text-yellow-300">
+              ⚠️ Using shared connection manager - URL changes disabled
+            </div>
+          )}
         </div>
       )}
 

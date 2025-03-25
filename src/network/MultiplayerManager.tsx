@@ -3,31 +3,38 @@ declare global {
   interface Window { 
     __shotBroadcast?: (shot: any) => any;
     __processedShots?: Set<string>;
+    __sendTestShot?: () => void;
   }
 }
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useImperativeHandle } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { ConnectionManager } from './ConnectionManager';
-import { RemotePlayer } from '../game/RemotePlayer';
+import { RemotePlayer, RemotePlayerMethods } from '../game/RemotePlayer';
 import { RemoteShot } from '../game/sphere-tool';
 import * as THREE from 'three';
+import { Html } from '@react-three/drei';
 
 // Types for multiplayer system
-interface RemotePlayerData {
+type RemotePlayerData = {
+  id: string;
   position: [number, number, number];
   rotation: [number, number, number, number];
-  updateRef?: {
-    updateTransform: (position: [number, number, number], rotation: [number, number, number, number]) => void;
-  };
+  lastUpdate: number;
+};
+
+// Interface for RemotePlayer props
+interface RemotePlayerProps {
+  id: string;
+  initialPosition: [number, number, number];
+  initialRotation: [number, number, number, number];
+  ref?: React.RefObject<RemotePlayerMethods>;
 }
 
 // Extended RemoteShot type with additional fields for networking
-interface NetworkRemoteShot {
+interface NetworkRemoteShot extends RemoteShot {
   id: string;
   shotId: string;
-  origin: [number, number, number];
-  direction: [number, number, number];
   timestamp: number;
 }
 
@@ -146,6 +153,7 @@ export const useMultiplayer = (
   const maxSnapshots = useRef<number>(60); // Keep at most 60 snapshots (6 seconds at 10 per second)
 
   const remotePlayerRefs = useRef<Record<string, RemotePlayerData>>({});
+  const updateMethodsRef = useRef<Record<string, RemotePlayerMethods>>({});
   const { camera } = useThree();
   
   // Get server time with offset
@@ -400,141 +408,151 @@ export const useMultiplayer = (
     return false;
   };
   
-  // Set up connection and event handlers
+  // Track remote players
   useEffect(() => {
-    console.log('Setting up multiplayer connection...');
+    if (!connectionManager) return;
     
-    // Connection events
-    connectionManager.on('connected', () => {
-      console.log('Connected to multiplayer server');
-      setIsConnected(true);
-    });
+    console.log("⚡ Setting up remote player tracking in MultiplayerManager");
     
-    connectionManager.on('disconnected', () => {
-      console.log('Disconnected from multiplayer server');
-      setIsConnected(false);
-    });
-    
-    connectionManager.on('initialized', (data: InitializedData) => {
-      console.log('Initialized with ID:', data.id);
-      setPlayerId(data.id);
+    const handlePlayerJoined = (data: any) => {
+      console.log("➕ Player joined:", data);
       
-      // Initialize remote players from current game state
-      const initialPlayers: Record<string, RemotePlayerData> = {};
-      Object.entries(data.gameState.players).forEach(([id, playerData]) => {
-        if (id !== data.id) { // Skip local player
-          initialPlayers[id] = {
-            position: playerData.position as [number, number, number],
-            rotation: playerData.rotation as [number, number, number, number]
-          };
-        }
-      });
-      
-      // Reset state buffer on initialization
-      stateBuffer.current = [];
-      sequenceNumber.current = 0;
-      lastServerUpdateTime.current = Date.now();
-      
-      // Estimate server time offset (assume minimal latency for simplicity)
-      serverTimeOffset.current = 0;
-      
-      // Initialize snapshots
-      snapshots.current = [];
-      lastSnapshotTime.current = Date.now();
-      
-      setRemotePlayers(initialPlayers);
-    });
-    
-    // Add server state update handler
-    connectionManager.on('server_state_update', (data: ServerState) => {
-      // Process server reconciliation
-      handleServerReconciliation(data);
-    });
-    
-    // Handler for full game state snapshots from server
-    connectionManager.on('game_snapshot', (snapshotData: GameSnapshot) => {
-      console.log('Received game snapshot:', snapshotData);
-      
-      // Store in snapshot buffer for interpolation and replay
-      snapshots.current.push(snapshotData);
-      
-      // Limit snapshot buffer size
-      if (snapshots.current.length > maxSnapshots.current) {
-        snapshots.current.shift();
-      }
-      
-      // Process events in the snapshot
-      if (snapshotData.events && snapshotData.events.length > 0) {
-        console.log(`Processing ${snapshotData.events.length} events from snapshot`);
-        snapshotData.events.forEach(event => {
-          // Handle different event types
-          switch (event.type) {
-            case 'player_hit':
-              console.log('Player hit event:', event.data);
-              // Handle player hit logic
-              break;
-            case 'item_pickup':
-              console.log('Item pickup event:', event.data);
-              // Handle item pickup logic
-              break;
-            // Add more event types as needed
-          }
-        });
-      }
-    });
-    
-    // Player events
-    connectionManager.on('player_joined', (data) => {
-      console.log('Player joined:', data.id);
-      setRemotePlayers(prev => ({
-        ...prev,
-        [data.id]: {
-          position: data.state.position,
-          rotation: data.state.rotation
-        }
-      }));
-    });
-    
-    connectionManager.on('player_left', (data) => {
-      console.log('Player left:', data.id);
       setRemotePlayers(prev => {
+        // Skip if player already exists
+        if (prev[data.id]) {
+          console.log(`Player ${data.id} already exists in our list`);
+          return prev;
+        }
+        
+        console.log(`Adding new remote player: ${data.id}`);
+        
+        // Add the new player with their initial state
+        return {
+          ...prev,
+          [data.id]: {
+            id: data.id,
+            position: data.state?.position || [0, 1, 0],
+            rotation: data.state?.rotation || [0, 0, 0, 1],
+            lastUpdate: Date.now()
+          }
+        };
+      });
+    };
+    
+    const handlePlayerLeft = (data: any) => {
+      console.log("➖ Player left:", data);
+      
+      setRemotePlayers(prev => {
+        if (!prev[data.id]) {
+          return prev;
+        }
+        
+        // Create a new object without this player
         const newPlayers = { ...prev };
         delete newPlayers[data.id];
         return newPlayers;
       });
-    });
+    };
     
-    connectionManager.on('player_update', (data) => {
-      if (remotePlayerRefs.current[data.id]?.updateRef) {
-        // Update the player directly via ref if available
-        remotePlayerRefs.current[data.id].updateRef!.updateTransform(
-          data.position, 
-          data.rotation
-        );
-      } else {
-        // Otherwise update the state (this will be slower)
-        setRemotePlayers(prev => ({
+    const handlePlayerUpdate = (data: any) => {
+      // Skip updates from ourselves
+      if (data.id === connectionManager.getPlayerId()) {
+        return;
+      }
+      
+      // Debug logging every 60 updates
+      if (Math.random() < 0.02) {
+        console.log(`📡 Remote player update for ${data.id}:`, {
+          position: data.position,
+          rotation: data.rotation
+        });
+      }
+      
+      setRemotePlayers(prev => {
+        // If we don't have this player yet, add them
+        if (!prev[data.id]) {
+          console.log(`Adding player ${data.id} from update - wasn't in our list`);
+          return {
+            ...prev,
+            [data.id]: {
+              id: data.id,
+              position: data.position,
+              rotation: data.rotation,
+              lastUpdate: Date.now()
+            }
+          };
+        }
+        
+        // Update existing player
+        return {
           ...prev,
           [data.id]: {
             ...prev[data.id],
             position: data.position,
-            rotation: data.rotation
+            rotation: data.rotation,
+            lastUpdate: Date.now()
           }
-        }));
+        };
+      });
+    };
+    
+    // Register event handlers
+    connectionManager.on('player_joined', handlePlayerJoined);
+    connectionManager.on('player_left', handlePlayerLeft);
+    connectionManager.on('player_update', handlePlayerUpdate);
+    
+    // When connected, request the player list to make sure we have everyone
+    const handleConnected = () => {
+      console.log("🔌 Connected to multiplayer server - requesting player list");
+      
+      // Only send player list request if not using the staging server
+      if (connectionManager.isReadyToSend() && !connectionManager.getServerUrl().includes('staging.games.bonsai.so')) {
+        connectionManager.sendMessage({
+          type: 'request_player_list'
+        });
+      } else {
+        console.log('Skipping request_player_list for staging server - not supported');
       }
-    });
+    };
     
-    // Connect to the server
-    connectionManager.connect();
+    connectionManager.on('connected', handleConnected);
     
+    // Also request player list when initialized
+    const handleInitialized = () => {
+      console.log("🔌 Initialized connection - requesting player list");
+      
+      // Wait a second before requesting the player list
+      setTimeout(() => {
+        // Only send player list request if not using the staging server
+        if (connectionManager.isReadyToSend() && !connectionManager.getServerUrl().includes('staging.games.bonsai.so')) {
+          connectionManager.sendMessage({
+            type: 'request_player_list'
+          });
+        } else {
+          console.log('Skipping request_player_list for staging server - not supported');
+        }
+      }, 1000);
+    };
+    
+    connectionManager.on('initialized', handleInitialized);
+    
+    // Request player list immediately if we're already connected
+    if (connectionManager.isReadyToSend() && !connectionManager.getServerUrl().includes('staging.games.bonsai.so')) {
+      console.log("Already connected - requesting player list");
+      connectionManager.sendMessage({
+        type: 'request_player_list'
+      });
+    } else if (connectionManager.isReadyToSend()) {
+      console.log('Skipping request_player_list for staging server - not supported');
+    }
+    
+    // When component unmounts
     return () => {
-      console.log('Cleaning up multiplayer connection...');
-      // Ensure we disconnect properly when component unmounts
-      connectionManager.disconnect();
-      // Reset states on unmount
-      setIsConnected(false);
-      setPlayerId(null);
-      setRemotePlayers({});
+      connectionManager.off('player_joined', handlePlayerJoined);
+      connectionManager.off('player_left', handlePlayerLeft);
+      connectionManager.off('player_update', handlePlayerUpdate);
+      connectionManager.off('connected', handleConnected);
+      connectionManager.off('initialized', handleInitialized);
     };
   }, [connectionManager]);
   
@@ -555,54 +573,79 @@ export const useMultiplayer = (
     };
   }, [isConnected, localPlayerRef, connectionManager]);
   
-  // Send regular position updates with better cleanup
+  // Set up position updates
   useEffect(() => {
-    if (!isConnected || !localPlayerRef.current?.rigidBody) return;
+    if (!connectionManager || !localPlayerRef.current || !isConnected) return;
     
     console.log('Starting position update interval');
+    
+    // Send position update at regular intervals  
     const updateInterval = setInterval(() => {
-      if (localPlayerRef.current?.rigidBody) {
-        const position = localPlayerRef.current.rigidBody.translation();
-        const cameraQuat = camera.quaternion.toArray() as [number, number, number, number];
+      if (localPlayerRef.current && connectionManager.isReadyToSend()) {
+        let position;
+        let rotation;
         
-        // Store predicted state in buffer
-        const currentState: PredictedState = {
-          position: new THREE.Vector3(position.x, position.y, position.z),
-          velocity: new THREE.Vector3(0, 0, 0), // Assuming no velocity for now
-          sequence: sequenceNumber.current,
-          timestamp: getServerTime(),
-          processed: false
-        };
-        
-        // Add to state buffer (keep last 60 states max, ~1 second at 60fps)
-        stateBuffer.current.push(currentState);
-        if (stateBuffer.current.length > 60) {
-          stateBuffer.current.shift();
+        // Try different ways to get position data based on player implementation
+        if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
+          // Direct position property
+          position = localPlayerRef.current.position;
+          rotation = localPlayerRef.current.quaternion;
+        } else if (localPlayerRef.current.rigidBody && localPlayerRef.current.rigidBody.translation) {
+          // Rapier physics rigidBody
+          position = localPlayerRef.current.rigidBody.translation();
+          
+          // For rotation, use camera quaternion if player doesn't have one
+          if (localPlayerRef.current.rigidBody.rotation) {
+            rotation = localPlayerRef.current.rigidBody.rotation();
+          } else {
+            // Use camera quaternion as fallback for rotation
+            rotation = camera.quaternion; 
+          }
         }
         
-        connectionManager.sendPlayerUpdate(
-          [position.x, position.y, position.z], 
-          cameraQuat,
-          sequenceNumber.current
-        );
-        
-        // Increment sequence number
-        sequenceNumber.current++;
+        // Only send update if we have valid position and rotation data
+        if (position && position.x !== undefined && 
+            rotation && rotation.x !== undefined) {
+          
+          // Send to server
+          connectionManager.sendPlayerUpdate(
+            [position.x, position.y, position.z],
+            [rotation.x, rotation.y, rotation.z, rotation.w]
+          );
+        } else {
+          console.log('Player position or rotation not available yet:', {
+            hasPosition: !!position,
+            hasRotation: !!rotation,
+            playerProps: Object.keys(localPlayerRef.current)
+          });
+        }
       }
-    }, 100); // 10 updates per second
+    }, 50); // 20 updates per second
     
     return () => {
       console.log('Clearing position update interval');
       clearInterval(updateInterval);
     };
-  }, [isConnected, localPlayerRef, camera, connectionManager]);
+  }, [connectionManager, localPlayerRef, isConnected, camera]);
   
   // Handle ref updates for remote players
-  const updatePlayerRef = (id: string, methods: { updateTransform: (position: [number, number, number], rotation: [number, number, number, number]) => void }) => {
-    remotePlayerRefs.current[id] = {
-      ...remotePlayerRefs.current[id],
-      updateRef: methods
-    };
+  const updatePlayerRef = (id: string, methods: RemotePlayerMethods) => {
+    // Store methods in a separate structure, not as part of RemotePlayerData
+    if (!remotePlayerRefs.current[id]) {
+      remotePlayerRefs.current[id] = {
+        id,
+        position: [0, 0, 0],
+        rotation: [0, 0, 0, 1],
+        lastUpdate: Date.now()
+      };
+    }
+    
+    // Store the update method in a separate ref map
+    if (!updateMethodsRef.current) {
+      updateMethodsRef.current = {};
+    }
+    
+    updateMethodsRef.current[id] = methods;
   };
   
   // Apply correction during each frame and handle snapshot interpolation
@@ -770,276 +813,402 @@ export const useMultiplayer = (
   };
 };
 
-// Actual component that uses the hook and renders things
-export const MultiplayerManager = ({ 
-  localPlayerRef,
-  connectionManager
-}: { 
-  localPlayerRef: React.MutableRefObject<any>,
-  connectionManager: ConnectionManager
-}) => {
-  const {
-    remotePlayers,
-    handleShoot,
-    updatePlayerRef
-  } = useMultiplayer(localPlayerRef, connectionManager);
+// Render remote players
+export const RemotePlayers: React.FC<{ 
+  players: Record<string, RemotePlayerData> 
+}> = ({ players }) => {
+  const playerRefsMap = useRef<Record<string, React.RefObject<RemotePlayerMethods>>>({});
+  
+  // Create refs for new players
+  Object.keys(players).forEach(id => {
+    if (!playerRefsMap.current[id]) {
+      playerRefsMap.current[id] = React.createRef<RemotePlayerMethods>();
+    }
+  });
+  
+  // Clean up removed players
+  useEffect(() => {
+    const currentIds = Object.keys(players);
+    const storedIds = Object.keys(playerRefsMap.current);
+    
+    // Remove refs for players that no longer exist
+    storedIds.forEach(id => {
+      if (!currentIds.includes(id)) {
+        delete playerRefsMap.current[id];
+      }
+    });
+  }, [players]);
+  
+  // Direct updates to the player refs
+  useEffect(() => {
+    Object.entries(players).forEach(([id, data]) => {
+      const ref = playerRefsMap.current[id];
+      if (ref && ref.current) {
+        ref.current.updateTransform(data.position, data.rotation);
+      }
+    });
+  }, [players]);
   
   return (
     <>
-      {/* Render all remote players */}
-      {Object.entries(remotePlayers).map(([id, playerData]) => (
+      {Object.entries(players).map(([id, data]) => (
         <RemotePlayer
           key={id}
           id={id}
-          initialPosition={playerData.position}
-          initialRotation={playerData.rotation}
-          updateRef={(methods) => updatePlayerRef(id, methods)}
+          initialPosition={data.position}
+          initialRotation={data.rotation}
+          ref={playerRefsMap.current[id]}
         />
       ))}
     </>
   );
 };
 
-// Add a direct browser-to-browser communication channel for testing
-const LOCAL_STORAGE_KEY = 'jackalopes_shot_events';
-const PLAYER_UPDATE_KEY = 'jackalopes_player_update';
-
-// Function to broadcast a shot to other browser tabs
-const broadcastShotToLocalStorage = (shot: NetworkRemoteShot) => {
-  try {
-    // Add a timestamp to ensure uniqueness and ordering
-    const timestampedShot = {
-      ...shot,
-      timestamp: Date.now(),
-      shotId: shot.shotId || `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
-    };
-    
-    // Store in localStorage to share with other tabs
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(timestampedShot));
-    console.log('Shot broadcasted to localStorage:', timestampedShot);
-    
-    // Immediately remove it to allow future events of the same type
-    setTimeout(() => {
-      localStorage.removeItem(LOCAL_STORAGE_KEY);
-    }, 50);
-  } catch (error) {
-    console.error('Error broadcasting shot to localStorage:', error);
-  }
-};
-
-// Create a more robust cross-window universal broadcast function
-const universalBroadcast = (shot: NetworkRemoteShot) => {
-  try {
-    // Create a special universal broadcast message
-    const broadcastShot = {
-      ...shot,
-      isUniversalBroadcast: true,
-      timestamp: Date.now(),
-      shotId: `universal-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
-    };
-    
-    // Store directly in sessionStorage first (immediately available in this browser)
-    sessionStorage.setItem('last_universal_broadcast', JSON.stringify(broadcastShot));
-    
-    // Then use localStorage for cross-browser communication
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(broadcastShot));
-    
-    // Keep trying to broadcast a few times to ensure delivery
-    const repeatInterval = setInterval(() => {
-      try {
-        localStorage.setItem(`${LOCAL_STORAGE_KEY}_repeat`, JSON.stringify({
-          ...broadcastShot,
-          repeatTimestamp: Date.now()
-        }));
-      } catch (e) {
-        clearInterval(repeatInterval);
-      }
-    }, 100);
-    
-    // Stop repeating after 1 second
-    setTimeout(() => {
-      clearInterval(repeatInterval);
-      // Clean up storage
-      localStorage.removeItem(`${LOCAL_STORAGE_KEY}_repeat`);
-    }, 1000);
-    
-    console.log('🌐 UNIVERSAL BROADCAST sent:', broadcastShot);
-    
-    return broadcastShot;
-  } catch (error) {
-    console.error('Error in universal broadcast:', error);
-    return shot;
-  }
-};
-
-// Add a hook to get remote shots from the current connection manager
-export const useRemoteShots = (connectionManager: ConnectionManager) => {
-  const [shots, setShots] = useState<NetworkRemoteShot[]>([]);
-  const processedShotIds = useRef<Set<string>>(new Set());
-  const eventListenersAttached = useRef<boolean>(false);
+// Export main MultiplayerManager component
+export const MultiplayerManager: React.FC<{ 
+  localPlayerRef: React.RefObject<any>,
+  connectionManager: ConnectionManager
+}> = ({ localPlayerRef, connectionManager }) => {
+  const [isConnected, setIsConnected] = useState(false);
+  const [playerId, setPlayerId] = useState<string | null>(null);
+  const [remotePlayers, setRemotePlayers] = useState<Record<string, RemotePlayerData>>({});
+  const { camera } = useThree(); // Get the camera from useThree hook outside of the effect
   
-  // Process a shot and add it to the list if it's new
-  const handleShot = (shotData: NetworkRemoteShot) => {
-    // Skip if null or undefined
-    if (!shotData) return;
+  // Set up connection and event handlers
+  useEffect(() => {
+    console.log('Setting up multiplayer connection...');
     
-    // Handle universal broadcast specially
-    if ((shotData as any).isUniversalBroadcast) {
-      console.log('🌐 Received universal broadcast:', shotData);
-    }
-    
-    // Ensure we have a shot ID
-    const shotId = shotData.shotId || `${shotData.id}-${shotData.origin.join(',')}-${shotData.direction.join(',')}`;
-    
-    // Skip if already processed
-    if (processedShotIds.current.has(shotId)) {
-      console.log(`Shot ${shotId} already processed:`, true);
-      return;
-    }
-    
-    console.log('Adding shot to processed shots, new size:', processedShotIds.current.size + 1);
-    
-    // Add to processed set
-    processedShotIds.current.add(shotId);
-    
-    // Update shots list with full data
-    setShots(prev => [
-      ...prev, 
-      {
-        ...shotData,
-        shotId
-      }
-    ]);
-    
-    // Broadcast to other browser tabs for cross-browser testing
-    broadcastShotToLocalStorage({
-      ...shotData,
-      shotId
+    // Connection events
+    connectionManager.on('connected', () => {
+      console.log('Connected to multiplayer server');
+      setIsConnected(true);
     });
-  };
+    
+    connectionManager.on('disconnected', () => {
+      console.log('Disconnected from multiplayer server');
+      setIsConnected(false);
+    });
+    
+    connectionManager.on('initialized', (data: any) => {
+      console.log('Initialized with ID:', data.id);
+      setPlayerId(data.id);
+    });
+    
+    // Connect to the server
+    connectionManager.connect();
+    
+    return () => {
+      console.log('Cleaning up multiplayer connection...');
+      // Ensure we disconnect properly when component unmounts
+      connectionManager.disconnect();
+      // Reset states on unmount
+      setIsConnected(false);
+      setPlayerId(null);
+      setRemotePlayers({});
+    };
+  }, [connectionManager]);
   
-  // Add a global function for universal broadcasts
-  if (typeof window !== 'undefined' && !window.__shotBroadcast) {
-    window.__shotBroadcast = universalBroadcast;
-  }
+  // Track remote players
+  useEffect(() => {
+    if (!connectionManager) return;
+    
+    console.log("⚡ Setting up remote player tracking in MultiplayerManager");
+    
+    const handlePlayerJoined = (data: any) => {
+      console.log("➕ Player joined:", data);
+      
+      setRemotePlayers(prev => {
+        // Skip if player already exists
+        if (prev[data.id]) {
+          console.log(`Player ${data.id} already exists in our list`);
+          return prev;
+        }
+        
+        console.log(`Adding new remote player: ${data.id}`);
+        
+        // Add the new player with their initial state
+        return {
+          ...prev,
+          [data.id]: {
+            id: data.id,
+            position: data.state?.position || [0, 1, 0],
+            rotation: data.state?.rotation || [0, 0, 0, 1],
+            lastUpdate: Date.now()
+          }
+        };
+      });
+    };
+    
+    const handlePlayerLeft = (data: any) => {
+      console.log("➖ Player left:", data);
+      
+      setRemotePlayers(prev => {
+        if (!prev[data.id]) {
+          return prev;
+        }
+        
+        // Create a new object without this player
+        const newPlayers = { ...prev };
+        delete newPlayers[data.id];
+        return newPlayers;
+      });
+    };
+    
+    const handlePlayerUpdate = (data: any) => {
+      // Skip updates from ourselves
+      if (data.id === connectionManager.getPlayerId()) {
+        return;
+      }
+      
+      // Debug logging every 60 updates
+      if (Math.random() < 0.02) {
+        console.log(`📡 Remote player update for ${data.id}:`, {
+          position: data.position,
+          rotation: data.rotation
+        });
+      }
+      
+      setRemotePlayers(prev => {
+        // If we don't have this player yet, add them
+        if (!prev[data.id]) {
+          console.log(`Adding player ${data.id} from update - wasn't in our list`);
+          return {
+            ...prev,
+            [data.id]: {
+              id: data.id,
+              position: data.position,
+              rotation: data.rotation,
+              lastUpdate: Date.now()
+            }
+          };
+        }
+        
+        // Update existing player
+        return {
+          ...prev,
+          [data.id]: {
+            ...prev[data.id],
+            position: data.position,
+            rotation: data.rotation,
+            lastUpdate: Date.now()
+          }
+        };
+      });
+    };
+    
+    // Register event handlers
+    connectionManager.on('player_joined', handlePlayerJoined);
+    connectionManager.on('player_left', handlePlayerLeft);
+    connectionManager.on('player_update', handlePlayerUpdate);
+    
+    // When connected, request the player list to make sure we have everyone
+    const handleConnected = () => {
+      console.log("🔌 Connected to multiplayer server - requesting player list");
+      
+      // Only send player list request if not using the staging server
+      if (connectionManager.isReadyToSend() && !connectionManager.getServerUrl().includes('staging.games.bonsai.so')) {
+        connectionManager.sendMessage({
+          type: 'request_player_list'
+        });
+      } else {
+        console.log('Skipping request_player_list for staging server - not supported');
+      }
+    };
+    
+    connectionManager.on('connected', handleConnected);
+    
+    // Also request player list when initialized
+    const handleInitialized = () => {
+      console.log("🔌 Initialized connection - requesting player list");
+      
+      // Wait a second before requesting the player list
+      setTimeout(() => {
+        // Only send player list request if not using the staging server
+        if (connectionManager.isReadyToSend() && !connectionManager.getServerUrl().includes('staging.games.bonsai.so')) {
+          connectionManager.sendMessage({
+            type: 'request_player_list'
+          });
+        } else {
+          console.log('Skipping request_player_list for staging server - not supported');
+        }
+      }, 1000);
+    };
+    
+    connectionManager.on('initialized', handleInitialized);
+    
+    // Request player list immediately if we're already connected
+    if (connectionManager.isReadyToSend() && !connectionManager.getServerUrl().includes('staging.games.bonsai.so')) {
+      console.log("Already connected - requesting player list");
+      connectionManager.sendMessage({
+        type: 'request_player_list'
+      });
+    } else if (connectionManager.isReadyToSend()) {
+      console.log('Skipping request_player_list for staging server - not supported');
+    }
+    
+    // When component unmounts
+    return () => {
+      connectionManager.off('player_joined', handlePlayerJoined);
+      connectionManager.off('player_left', handlePlayerLeft);
+      connectionManager.off('player_update', handlePlayerUpdate);
+      connectionManager.off('connected', handleConnected);
+      connectionManager.off('initialized', handleInitialized);
+    };
+  }, [connectionManager]);
+  
+  // Set up position updates
+  useEffect(() => {
+    if (!connectionManager || !localPlayerRef.current || !isConnected) return;
+    
+    console.log('Starting position update interval');
+    
+    // Send position update at regular intervals  
+    const updateInterval = setInterval(() => {
+      if (localPlayerRef.current && connectionManager.isReadyToSend()) {
+        let position;
+        let rotation;
+        
+        // Try different ways to get position data based on player implementation
+        if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
+          // Direct position property
+          position = localPlayerRef.current.position;
+          rotation = localPlayerRef.current.quaternion;
+        } else if (localPlayerRef.current.rigidBody && localPlayerRef.current.rigidBody.translation) {
+          // Rapier physics rigidBody
+          position = localPlayerRef.current.rigidBody.translation();
+          
+          // For rotation, use camera quaternion if player doesn't have one
+          if (localPlayerRef.current.rigidBody.rotation) {
+            rotation = localPlayerRef.current.rigidBody.rotation();
+          } else {
+            // Use camera quaternion as fallback for rotation
+            rotation = camera.quaternion; 
+          }
+        }
+        
+        // Only send update if we have valid position and rotation data
+        if (position && position.x !== undefined && 
+            rotation && rotation.x !== undefined) {
+          
+          // Send to server
+          connectionManager.sendPlayerUpdate(
+            [position.x, position.y, position.z],
+            [rotation.x, rotation.y, rotation.z, rotation.w]
+          );
+        } else {
+          console.log('Player position or rotation not available yet:', {
+            hasPosition: !!position,
+            hasRotation: !!rotation,
+            playerProps: Object.keys(localPlayerRef.current)
+          });
+        }
+      }
+    }, 50); // 20 updates per second
+    
+    return () => {
+      console.log('Clearing position update interval');
+      clearInterval(updateInterval);
+    };
+  }, [connectionManager, localPlayerRef, isConnected, camera]);
+
+  // Render remote players
+  return (
+    <>
+      <RemotePlayers players={remotePlayers} />
+    </>
+  );
+};
+
+// Remote shots hook for use in the sphere tool component
+export const useRemoteShots = (connectionManager: ConnectionManager) => {
+  const [shots, setShots] = useState<RemoteShot[]>([]);
+  const processedShots = useRef<Set<string>>(new Set());
   
   useEffect(() => {
+    if (!connectionManager) return;
+    
     console.log('Setting up remote shots listener on connection manager:', connectionManager);
     
-    if (eventListenersAttached.current) {
-      console.log('Event listeners already attached, cleaning up first');
-      connectionManager.off('player_shoot', handleShot);
-      connectionManager.off('message_received', () => {});
-      window.removeEventListener('storage', () => {});
-    }
-    
-    eventListenersAttached.current = true;
-    
-    // Listen for storage events from other tabs
-    const handleStorageEvent = (event: StorageEvent) => {
-      // Skip null events
-      if (!event.key || !event.newValue) return;
+    // Create a handler for shots from other players
+    const handleShot = (shotData: any) => {
+      console.log('Remote shot received:', shotData);
       
-      // Handle shot events
-      if (event.key === LOCAL_STORAGE_KEY || 
-          event.key === `${LOCAL_STORAGE_KEY}_repeat` || 
-          event.key.startsWith(LOCAL_STORAGE_KEY)) {
+      // Skip if we've already processed this shot
+      if (!shotData.shotId || processedShots.current.has(shotData.shotId)) {
+        console.log('Shot already processed, skipping:', shotData.shotId);
+        return;
+      }
+      
+      // Add to processed shots to prevent duplicates
+      processedShots.current.add(shotData.shotId);
+      console.log('Adding shot to processed shots, new size:', processedShots.current.size);
+      
+      // Note: RemoteShot only requires id, origin, and direction properties
+      const remoteShot: RemoteShot = {
+        id: shotData.id || 'unknown',
+        origin: shotData.origin || shotData.position || [0, 0, 0],
+        direction: shotData.direction || [0, 1, 0]
+      };
+      
+      // Add the shot to our state
+      setShots(prev => [...prev, remoteShot]);
+    };
+    
+    // Setup cross-browser communication for shots
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === 'jackalopes_shot_events' && e.newValue) {
         try {
-          const shotData = JSON.parse(event.newValue) as NetworkRemoteShot;
-          console.log('Received shot from localStorage:', shotData);
+          const shotData = JSON.parse(e.newValue);
+          console.log('Shot received from localStorage:', shotData);
           handleShot(shotData);
         } catch (error) {
           console.error('Error processing shot from localStorage:', error);
         }
       }
-      
-      // Handle player updates
-      if (event.key === PLAYER_UPDATE_KEY) {
-        try {
-          const updateData = JSON.parse(event.newValue);
-          console.log('Received player update from localStorage:', updateData);
-          // Process player update if needed
-        } catch (error) {
-          console.error('Error processing player update from localStorage:', error);
-        }
-      }
     };
     
+    // Listen for shots from the connection manager
+    connectionManager.on('player_shoot', handleShot);
+    
+    // Also listen for shots from localStorage (cross-browser testing)
     window.addEventListener('storage', handleStorageEvent);
     
-    // Debug: Test event emitter
-    const handleMessageReceived = (msg: any) => {
-      // Only log shoot messages to reduce console noise
-      if (msg.type === 'shoot') {
-        console.log('IMPORTANT: Shot message received in message_received handler:', msg);
-      }
+    // Make the localStorage broadcast function available globally
+    window.__shotBroadcast = (shotData: any) => {
+      console.log('Shot broadcasted to localStorage:', shotData);
+      localStorage.setItem('jackalopes_shot_events', JSON.stringify(shotData));
+      
+      // Also process it locally for the current window
+      handleShot(shotData);
     };
     
-    connectionManager.on('message_received', handleMessageReceived);
-    
-    // Check for new shots every second (fallback for environments where storage events don't fire)
-    const intervalId = setInterval(() => {
-      // Check normal shot events
-      const storedShot = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (storedShot) {
-        try {
-          const shotData = JSON.parse(storedShot) as NetworkRemoteShot;
-          handleShot(shotData);
-        } catch (error) {
-          console.error('Error processing shot from intervalId check:', error);
-        }
-      }
-      
-      // Check for repeated universal broadcasts
-      const repeatedShot = localStorage.getItem(`${LOCAL_STORAGE_KEY}_repeat`);
-      if (repeatedShot) {
-        try {
-          const shotData = JSON.parse(repeatedShot) as NetworkRemoteShot;
-          handleShot(shotData);
-        } catch (e) {
-          // Ignore errors
-        }
-      }
-      
-      // Check session storage for direct broadcasts
-      const sessionShot = sessionStorage.getItem('last_universal_broadcast');
-      if (sessionShot) {
-        try {
-          const shotData = JSON.parse(sessionShot) as NetworkRemoteShot;
-          handleShot(shotData);
-          // Remove after processing
-          sessionStorage.removeItem('last_universal_broadcast');
-        } catch (e) {
-          // Ignore errors
-        }
-      }
-    }, 1000);
-    
-    // Send periodic test shots every 5 seconds for debugging
-    const testShotIntervalId = setInterval(() => {
-      console.log('Sending test shot directly to useRemoteShots hook');
-      const testShot = {
+    // Set up a function for sending test shots directly
+    // This allows testing without the server connection
+    const sendTestShot = () => {
+      const testShotData = {
         id: 'test-player',
-        shotId: `test-player-0,0,0-0,1,0`,
-        origin: [0, 0, 0] as [number, number, number],
-        direction: [0, 1, 0] as [number, number, number],
+        shotId: 'test-player-0,0,0-0,1,0',
+        origin: [0, 0, 0],
+        direction: [0, 1, 0],
         timestamp: Date.now()
       };
       
-      handleShot(testShot);
-    }, 5000);
+      console.log('Sending test shot directly to useRemoteShots hook');
+      handleShot(testShotData);
+    };
     
-    // Handle shots from the server
-    connectionManager.on('player_shoot', handleShot);
+    // Add the test function to the window for debugging
+    window.__sendTestShot = sendTestShot;
     
+    // Clean up on unmount
     return () => {
       console.log('Cleaning up remote shots listener');
       connectionManager.off('player_shoot', handleShot);
-      connectionManager.off('message_received', handleMessageReceived);
       window.removeEventListener('storage', handleStorageEvent);
-      clearInterval(intervalId);
-      clearInterval(testShotIntervalId);
-      eventListenersAttached.current = false;
+      
+      // Clean up global functions
+      delete window.__shotBroadcast;
+      delete window.__sendTestShot;
     };
   }, [connectionManager]);
   
