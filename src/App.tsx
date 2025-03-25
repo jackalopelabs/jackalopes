@@ -220,6 +220,179 @@ const SnapshotDebugOverlay = ({
   );
 };
 
+// Add a MultiplayerDebugPanel component for testing
+const MultiplayerDebugPanel = ({ 
+  connectionManager, 
+  visible,
+  isOfflineMode
+}: { 
+  connectionManager: any, 
+  visible: boolean,
+  isOfflineMode: boolean
+}) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  
+  if (!visible) return null;
+
+  const sendTestShot = () => {
+    // Generate a test shot and broadcast it
+    const testShot = {
+      id: 'test-player',
+      shotId: `test-shot-${Date.now()}`,
+      origin: [0, 0, 0],
+      direction: [0, 1, 0],
+      timestamp: Date.now()
+    };
+    
+    // Trigger a shot via connectionManager
+    connectionManager.emit('player_shoot', testShot);
+    console.log('Manual test shot fired:', testShot);
+  };
+
+  const sendUniversalBroadcast = () => {
+    // Use the global broadcast function if available
+    if (window.__shotBroadcast) {
+      const testShot = {
+        id: 'broadcast-player',
+        shotId: `universal-broadcast-${Date.now()}`,
+        origin: [0, 0, 0],
+        direction: [0, 1, 0],
+        timestamp: Date.now()
+      };
+      
+      // Use our more robust broadcast method
+      window.__shotBroadcast(testShot);
+    } else {
+      // Fallback to simple localStorage method
+      const testShot = {
+        id: 'broadcast-player',
+        shotId: `universal-broadcast-${Date.now()}`,
+        origin: [0, 0, 0],
+        direction: [0, 1, 0],
+        timestamp: Date.now()
+      };
+      
+      // Store in localStorage for cross-browser communication
+      localStorage.setItem('jackalopes_shot_events', JSON.stringify(testShot));
+      console.log('UNIVERSAL BROADCAST sent (fallback):', testShot);
+    }
+  };
+
+  const forceOfflineMode = () => {
+    console.log('Forcing offline mode...');
+    if (connectionManager && connectionManager.forceReady) {
+      connectionManager.forceReady();
+    }
+  };
+
+  return (
+    <div style={{
+      position: 'fixed',
+      bottom: isExpanded ? '180px' : '60px', // Move up when expanded
+      left: '10px',
+      backgroundColor: isOfflineMode ? 'rgba(244, 67, 54, 0.8)' : 'rgba(0, 0, 0, 0.7)',
+      padding: '10px',
+      borderRadius: '4px',
+      zIndex: 1000,
+      border: isOfflineMode ? '1px solid #ff8a80' : 'none',
+    }}>
+      <div style={{ 
+        fontSize: '14px', 
+        color: 'white', 
+        marginBottom: '10px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <span>
+          {isOfflineMode ? '🔴 OFFLINE MODE' : 'Multiplayer Tools'}
+        </span>
+        <button 
+          onClick={() => setIsExpanded(!isExpanded)}
+          style={{
+            backgroundColor: '#333',
+            color: 'white',
+            border: 'none',
+            padding: '3px 6px',
+            borderRadius: '2px',
+            fontSize: '10px',
+            cursor: 'pointer',
+          }}
+        >
+          {isExpanded ? 'Collapse' : 'Expand'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <button
+          onClick={sendTestShot}
+          style={{
+            backgroundColor: '#4CAF50',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          TEST SHOT
+        </button>
+        <button
+          onClick={sendUniversalBroadcast}
+          style={{
+            backgroundColor: '#2196F3',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          UNIVERSAL BROADCAST
+        </button>
+        <button
+          onClick={forceOfflineMode}
+          style={{
+            backgroundColor: isOfflineMode ? '#666' : '#FF5722',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            opacity: isOfflineMode ? 0.7 : 1,
+          }}
+          disabled={isOfflineMode}
+        >
+          {isOfflineMode ? 'ALREADY OFFLINE' : 'FORCE OFFLINE MODE'}
+        </button>
+      </div>
+      
+      {isExpanded && (
+        <div style={{
+          marginTop: '10px',
+          fontSize: '12px',
+          color: 'white',
+          backgroundColor: 'rgba(0, 0, 0, 0.3)',
+          padding: '8px',
+          borderRadius: '4px',
+        }}>
+          <p style={{ margin: '5px 0' }}>
+            <strong>Connection Status:</strong> {connectionManager.isReadyToSend() ? 'Ready' : 'Not Ready'}
+          </p>
+          <p style={{ margin: '5px 0' }}>
+            <strong>Socket State:</strong> {connectionManager.getSocketState?.() || 'Unknown'}
+          </p>
+          <p style={{ margin: '5px 0' }}>
+            <strong>Player ID:</strong> {connectionManager.getPlayerId?.() || 'None'}
+          </p>
+          <p style={{ margin: '5px 0' }}>
+            <strong>Offline Mode:</strong> {isOfflineMode ? 'Yes' : 'No'}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
 export function App() {
     const loading = useLoadingAssets()
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
@@ -230,6 +403,10 @@ export function App() {
     const [playerRefReady, setPlayerRefReady] = useState(false);
     // Create a shared ConnectionManager instance
     const [connectionManager] = useState(() => new ConnectionManager());
+    // Add state to track if we're in offline mode
+    const [isOfflineMode, setIsOfflineMode] = useState(false);
+    // Track if notification is visible
+    const [showOfflineNotification, setShowOfflineNotification] = useState(false);
     
     // Use an effect to track when the playerRef becomes available
     useEffect(() => {
@@ -237,6 +414,38 @@ export function App() {
             setPlayerRefReady(true);
         }
     }, [playerRef.current, playerRefReady]);
+    
+    // Listen for connection status changes
+    useEffect(() => {
+        const handleServerUnreachable = () => {
+            console.log('App received server_unreachable event, showing notification');
+            setIsOfflineMode(true);
+            setShowOfflineNotification(true);
+            // Auto-hide notification after 7 seconds
+            setTimeout(() => setShowOfflineNotification(false), 7000);
+        };
+        
+        const handleConnected = () => {
+            setIsOfflineMode(false);
+        };
+        
+        const handleDisconnected = () => {
+            // Only consider disconnected if we're not forcing offline mode
+            if (!connectionManager.isReadyToSend()) {
+                setIsOfflineMode(true);
+            }
+        };
+        
+        connectionManager.on('server_unreachable', handleServerUnreachable);
+        connectionManager.on('connected', handleConnected);
+        connectionManager.on('disconnected', handleDisconnected);
+        
+        return () => {
+            connectionManager.off('server_unreachable', handleServerUnreachable);
+            connectionManager.off('connected', handleConnected);
+            connectionManager.off('disconnected', handleDisconnected);
+        };
+    }, [connectionManager]);
     
     // Add multiplayer controls to Leva panel and track its state change
     const { enableMultiplayer } = useControls('Multiplayer', {
@@ -255,11 +464,35 @@ export function App() {
     // Use an effect to properly handle multiplayer enabling/disabling with proper cleanup timing
     useEffect(() => {
         let timeoutId: number | null = null;
+        let forceReadyTimeoutId: number | null = null;
         
         if (enableMultiplayer) {
             // When enabling, set immediately
             setShowMultiplayer(true);
             console.log('Multiplayer enabled');
+            
+            // Add a fallback for connection issues by forcing ready state after 4 seconds
+            forceReadyTimeoutId = setTimeout(() => {
+                console.log('Checking if connection is ready, forcing if needed...');
+                if (connectionManager && !connectionManager.isReadyToSend()) {
+                    console.log('⚠️ Connection not fully established after 4s, forcing ready state for testing');
+                    connectionManager.forceReady();
+                    setIsOfflineMode(true);
+                    setShowOfflineNotification(true);
+                    // Auto-hide notification after 5 seconds
+                    setTimeout(() => setShowOfflineNotification(false), 5000);
+                }
+            }, 4000); // Reduced to 4 seconds to give faster feedback
+            
+            // Cleanup function to clear both timeouts
+            return () => {
+                if (timeoutId) {
+                    window.clearTimeout(timeoutId);
+                }
+                if (forceReadyTimeoutId) {
+                    clearTimeout(forceReadyTimeoutId);
+                }
+            };
         } else {
             // When disabling, add a delay to allow for cleanup
             console.log('Disabling multiplayer with cleanup delay...');
@@ -267,15 +500,18 @@ export function App() {
                 setShowMultiplayer(false);
                 console.log('Multiplayer disabled after cleanup');
             }, 500); // Half-second delay for proper cleanup
+            
+            // Cleanup function to clear the timeout
+            return () => {
+                if (timeoutId) {
+                    window.clearTimeout(timeoutId);
+                }
+                if (forceReadyTimeoutId) {
+                    clearTimeout(forceReadyTimeoutId);
+                }
+            };
         }
-        
-        // Cleanup function to clear the timeout
-        return () => {
-            if (timeoutId) {
-                window.clearTimeout(timeoutId);
-            }
-        };
-    }, [enableMultiplayer]);
+    }, [enableMultiplayer, connectionManager]);
 
     const { 
         walkSpeed,
@@ -551,8 +787,43 @@ export function App() {
                 />
             )}
 
+            {/* Offline Mode Notification */}
+            {showMultiplayer && showOfflineNotification && (
+                <div style={{
+                    position: 'fixed',
+                    top: '50px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    backgroundColor: '#f44336',
+                    color: 'white',
+                    padding: '10px 15px',
+                    borderRadius: '4px',
+                    zIndex: 2000,
+                    fontSize: '14px',
+                    textAlign: 'center',
+                    boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
+                    maxWidth: '80%'
+                }}>
+                    <p style={{ margin: '0', fontWeight: 'bold' }}>
+                        Server connection failed. Running in offline mode.
+                    </p>
+                    <p style={{ margin: '5px 0 0', fontSize: '12px' }}>
+                        Cross-browser shots are enabled using localStorage
+                    </p>
+                </div>
+            )}
+
             <Instructions />
             <ConnectionTest />
+            
+            {/* Add debugging panel for multiplayer testing */}
+            {showMultiplayer && (
+                <MultiplayerDebugPanel 
+                    connectionManager={connectionManager} 
+                    visible={true}
+                    isOfflineMode={isOfflineMode}
+                />
+            )}
         </>
     )
 }

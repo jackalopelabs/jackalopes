@@ -1,3 +1,11 @@
+// Add global type declaration at the top of the file
+declare global {
+  interface Window { 
+    __shotBroadcast?: (shot: any) => any;
+    __processedShots?: Set<string>;
+  }
+}
+
 import { useState, useEffect, useRef } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { ConnectionManager } from './ConnectionManager';
@@ -792,27 +800,176 @@ export const MultiplayerManager = ({
   );
 };
 
+// Add a direct browser-to-browser communication channel for testing
+const LOCAL_STORAGE_KEY = 'jackalopes_shot_events';
+const PLAYER_UPDATE_KEY = 'jackalopes_player_update';
+
+// Function to broadcast a shot to other browser tabs
+const broadcastShotToLocalStorage = (shot: NetworkRemoteShot) => {
+  try {
+    // Add a timestamp to ensure uniqueness and ordering
+    const timestampedShot = {
+      ...shot,
+      timestamp: Date.now(),
+      shotId: shot.shotId || `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+    };
+    
+    // Store in localStorage to share with other tabs
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(timestampedShot));
+    console.log('Shot broadcasted to localStorage:', timestampedShot);
+    
+    // Immediately remove it to allow future events of the same type
+    setTimeout(() => {
+      localStorage.removeItem(LOCAL_STORAGE_KEY);
+    }, 50);
+  } catch (error) {
+    console.error('Error broadcasting shot to localStorage:', error);
+  }
+};
+
+// Create a more robust cross-window universal broadcast function
+const universalBroadcast = (shot: NetworkRemoteShot) => {
+  try {
+    // Create a special universal broadcast message
+    const broadcastShot = {
+      ...shot,
+      isUniversalBroadcast: true,
+      timestamp: Date.now(),
+      shotId: `universal-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+    };
+    
+    // Store directly in sessionStorage first (immediately available in this browser)
+    sessionStorage.setItem('last_universal_broadcast', JSON.stringify(broadcastShot));
+    
+    // Then use localStorage for cross-browser communication
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(broadcastShot));
+    
+    // Keep trying to broadcast a few times to ensure delivery
+    const repeatInterval = setInterval(() => {
+      try {
+        localStorage.setItem(`${LOCAL_STORAGE_KEY}_repeat`, JSON.stringify({
+          ...broadcastShot,
+          repeatTimestamp: Date.now()
+        }));
+      } catch (e) {
+        clearInterval(repeatInterval);
+      }
+    }, 100);
+    
+    // Stop repeating after 1 second
+    setTimeout(() => {
+      clearInterval(repeatInterval);
+      // Clean up storage
+      localStorage.removeItem(`${LOCAL_STORAGE_KEY}_repeat`);
+    }, 1000);
+    
+    console.log('🌐 UNIVERSAL BROADCAST sent:', broadcastShot);
+    
+    return broadcastShot;
+  } catch (error) {
+    console.error('Error in universal broadcast:', error);
+    return shot;
+  }
+};
+
 // Add a hook to get remote shots from the current connection manager
 export const useRemoteShots = (connectionManager: ConnectionManager) => {
   const [shots, setShots] = useState<NetworkRemoteShot[]>([]);
   const processedShotIds = useRef<Set<string>>(new Set());
   const eventListenersAttached = useRef<boolean>(false);
   
+  // Process a shot and add it to the list if it's new
+  const handleShot = (shotData: NetworkRemoteShot) => {
+    // Skip if null or undefined
+    if (!shotData) return;
+    
+    // Handle universal broadcast specially
+    if ((shotData as any).isUniversalBroadcast) {
+      console.log('🌐 Received universal broadcast:', shotData);
+    }
+    
+    // Ensure we have a shot ID
+    const shotId = shotData.shotId || `${shotData.id}-${shotData.origin.join(',')}-${shotData.direction.join(',')}`;
+    
+    // Skip if already processed
+    if (processedShotIds.current.has(shotId)) {
+      console.log(`Shot ${shotId} already processed:`, true);
+      return;
+    }
+    
+    console.log('Adding shot to processed shots, new size:', processedShotIds.current.size + 1);
+    
+    // Add to processed set
+    processedShotIds.current.add(shotId);
+    
+    // Update shots list with full data
+    setShots(prev => [
+      ...prev, 
+      {
+        ...shotData,
+        shotId
+      }
+    ]);
+    
+    // Broadcast to other browser tabs for cross-browser testing
+    broadcastShotToLocalStorage({
+      ...shotData,
+      shotId
+    });
+  };
+  
+  // Add a global function for universal broadcasts
+  if (typeof window !== 'undefined' && !window.__shotBroadcast) {
+    window.__shotBroadcast = universalBroadcast;
+  }
+  
   useEffect(() => {
     console.log('Setting up remote shots listener on connection manager:', connectionManager);
     
     if (eventListenersAttached.current) {
       console.log('Event listeners already attached, cleaning up first');
-      connectionManager.off('player_shoot', () => {});
+      connectionManager.off('player_shoot', handleShot);
       connectionManager.off('message_received', () => {});
+      window.removeEventListener('storage', () => {});
     }
     
     eventListenersAttached.current = true;
     
+    // Listen for storage events from other tabs
+    const handleStorageEvent = (event: StorageEvent) => {
+      // Skip null events
+      if (!event.key || !event.newValue) return;
+      
+      // Handle shot events
+      if (event.key === LOCAL_STORAGE_KEY || 
+          event.key === `${LOCAL_STORAGE_KEY}_repeat` || 
+          event.key.startsWith(LOCAL_STORAGE_KEY)) {
+        try {
+          const shotData = JSON.parse(event.newValue) as NetworkRemoteShot;
+          console.log('Received shot from localStorage:', shotData);
+          handleShot(shotData);
+        } catch (error) {
+          console.error('Error processing shot from localStorage:', error);
+        }
+      }
+      
+      // Handle player updates
+      if (event.key === PLAYER_UPDATE_KEY) {
+        try {
+          const updateData = JSON.parse(event.newValue);
+          console.log('Received player update from localStorage:', updateData);
+          // Process player update if needed
+        } catch (error) {
+          console.error('Error processing player update from localStorage:', error);
+        }
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageEvent);
+    
     // Debug: Test event emitter
     const handleMessageReceived = (msg: any) => {
-      console.log('Connection message received:', msg);
-      // Explicitly check for shoot messages
+      // Only log shoot messages to reduce console noise
       if (msg.type === 'shoot') {
         console.log('IMPORTANT: Shot message received in message_received handler:', msg);
       }
@@ -820,94 +977,69 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
     
     connectionManager.on('message_received', handleMessageReceived);
     
-    // Add a global check for events
-    const oldEmit = connectionManager.emit;
-    connectionManager.emit = function(event: string, ...args: any[]) {
-      console.log(`ConnectionManager emitting event: ${event}`, args);
-      return oldEmit.apply(this, [event, ...args]);
-    };
-    
-    // Handle remote shots from other players
-    const handleShot = (data: { id: string; shotId?: string; origin: [number, number, number]; direction: [number, number, number] }) => {
-      // Generate a consistent shotId if none provided
-      const shotId = data.shotId || `${data.id}-${data.origin.join(',')}-${data.direction.join(',')}`;
-      
-      // Deduplicate shots (may receive multiple times due to broadcast)
-      if (processedShotIds.current.has(shotId)) {
-        console.log('Ignoring duplicate shot:', shotId);
-        return;
-      }
-      
-      // Mark as processed
-      processedShotIds.current.add(shotId);
-      console.log('Adding shot to processed shots, new size:', processedShotIds.current.size);
-      
-      // Create NetworkRemoteShot object
-      const shot: NetworkRemoteShot = {
-        id: data.id,
-        shotId: shotId,
-        origin: data.origin,
-        direction: data.direction,
-        timestamp: Date.now()
-      };
-      
-      // Pass to remote shots system with shot limiting
-      setShots(prev => {
-        const updated = [...prev, shot];
-        // Limit to last 50 shots
-        if (updated.length > 50) {
-          return updated.slice(-50);
+    // Check for new shots every second (fallback for environments where storage events don't fire)
+    const intervalId = setInterval(() => {
+      // Check normal shot events
+      const storedShot = localStorage.getItem(LOCAL_STORAGE_KEY);
+      if (storedShot) {
+        try {
+          const shotData = JSON.parse(storedShot) as NetworkRemoteShot;
+          handleShot(shotData);
+        } catch (error) {
+          console.error('Error processing shot from intervalId check:', error);
         }
-        return updated;
-      });
-    };
-    
-    // Function to clear old shot IDs periodically
-    const clearOldShotIds = () => {
-      if (processedShotIds.current.size > 100) {
-        console.log('Clearing old shot IDs, current size:', processedShotIds.current.size);
-        processedShotIds.current = new Set(
-          Array.from(processedShotIds.current).slice(-50)
-        );
       }
-    };
-    
-    // Set up interval to clear old shot IDs
-    const intervalId = setInterval(clearOldShotIds, 10000);
+      
+      // Check for repeated universal broadcasts
+      const repeatedShot = localStorage.getItem(`${LOCAL_STORAGE_KEY}_repeat`);
+      if (repeatedShot) {
+        try {
+          const shotData = JSON.parse(repeatedShot) as NetworkRemoteShot;
+          handleShot(shotData);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+      
+      // Check session storage for direct broadcasts
+      const sessionShot = sessionStorage.getItem('last_universal_broadcast');
+      if (sessionShot) {
+        try {
+          const shotData = JSON.parse(sessionShot) as NetworkRemoteShot;
+          handleShot(shotData);
+          // Remove after processing
+          sessionStorage.removeItem('last_universal_broadcast');
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+    }, 1000);
     
     // Send periodic test shots every 5 seconds for debugging
     const testShotIntervalId = setInterval(() => {
       console.log('Sending test shot directly to useRemoteShots hook');
       const testShot = {
         id: 'test-player',
-        shotId: `test-${Date.now()}`,
+        shotId: `test-player-0,0,0-0,1,0`,
         origin: [0, 0, 0] as [number, number, number],
-        direction: [0, 1, 0] as [number, number, number]
+        direction: [0, 1, 0] as [number, number, number],
+        timestamp: Date.now()
       };
       
       handleShot(testShot);
     }, 5000);
     
-    // Test direct event emission
-    console.log('Testing direct event emission');
-    connectionManager.emit('player_shoot', {
-      id: 'test-player',
-      origin: [0, 0, 0] as [number, number, number],
-      direction: [0, 1, 0] as [number, number, number]
-    });
-    
+    // Handle shots from the server
     connectionManager.on('player_shoot', handleShot);
     
     return () => {
       console.log('Cleaning up remote shots listener');
-      // Restore original emit function
-      connectionManager.emit = oldEmit;
       connectionManager.off('player_shoot', handleShot);
       connectionManager.off('message_received', handleMessageReceived);
+      window.removeEventListener('storage', handleStorageEvent);
       clearInterval(intervalId);
       clearInterval(testShotIntervalId);
       eventListenersAttached.current = false;
-      setShots([]);
     };
   }, [connectionManager]);
   
