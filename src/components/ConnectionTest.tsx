@@ -6,7 +6,7 @@ export const ConnectionTest: React.FC = () => {
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [latency, setLatency] = useState<number>(0);
   const [logs, setLogs] = useState<string[]>([]);
-  const [serverUrl, setServerUrl] = useState('ws://localhost:8080');
+  const [serverUrl, setServerUrl] = useState('ws://bonsai.test:8082');
 
   const addLog = (message: string) => {
     const timestamp = new Date().toISOString().substr(11, 8);

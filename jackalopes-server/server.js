@@ -1,14 +1,21 @@
 const WebSocket = require('ws');
 const fs = require('fs');
 const path = require('path');
+const dotenv = require('dotenv');
+
+// Load environment variables from .env file
+dotenv.config();
 
 // Parse command line arguments
 const args = process.argv.slice(2);
 const useNetworkMode = args.includes('--network');
 
+// Get port from environment variable or use default
+const port = process.env.SERVER_PORT || 8082;
+
 // Configure the server options
 const serverOptions = {
-    port: 8080
+    port: parseInt(port, 10)
 };
 
 // If network mode is enabled, listen on all interfaces

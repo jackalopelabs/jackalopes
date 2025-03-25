@@ -39,7 +39,7 @@ export class ConnectionManager extends EventEmitter {
   private pingStartTime: number = 0;
   private latency: number = 0;
   
-  constructor(private serverUrl: string = 'ws://localhost:8080') {
+  constructor(private serverUrl: string = 'ws://bonsai.test:8082') {
     super();
   }
   
