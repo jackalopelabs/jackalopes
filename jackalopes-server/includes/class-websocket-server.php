@@ -65,12 +65,26 @@ class Jackalopes_Server_WebSocket {
     private $log_file;
     
     /**
+     * Path to Node.js executable
+     *
+     * @since    1.0.0
+     * @access   private
+     * @var      string    $node_executable    Path to Node.js executable
+     */
+    private $node_executable = 'node';
+    
+    /**
      * Constructor
      */
     public function __construct() {
         $this->server_script = JACKALOPES_SERVER_PLUGIN_DIR . 'server.js';
         $this->pid_file = JACKALOPES_SERVER_PLUGIN_DIR . 'server.pid';
         $this->log_file = JACKALOPES_SERVER_PLUGIN_DIR . 'server.log';
+        
+        // Log plugin initialization
+        $this->log_message('Initializing Jackalopes Server');
+        $this->log_message('Plugin directory: ' . JACKALOPES_SERVER_PLUGIN_DIR);
+        $this->log_message('Log file location: ' . $this->log_file);
         
         // Check if server is already running
         $this->check_status();
@@ -90,28 +104,53 @@ class Jackalopes_Server_WebSocket {
         // Get server configuration
         $port = get_option('jackalopes_server_port', '8082');
         
+        // Create log file if it doesn't exist
+        if (!file_exists($this->log_file)) {
+            touch($this->log_file);
+            chmod($this->log_file, 0664);
+        }
+        
         // Empty log file
-        file_put_contents($this->log_file, '');
+        file_put_contents($this->log_file, "Starting server log at: " . date('Y-m-d H:i:s') . "\n");
         
         // Check if server.js exists
         if (!file_exists($this->server_script)) {
-            $this->log_message('Error: server.js not found in plugin directory.');
+            $this->log_message('Error: server.js not found in plugin directory. Path: ' . $this->server_script);
             return false;
         }
         
         // Check if Node.js is available
         if (!$this->check_nodejs()) {
+            $this->log_message('Error: Failed to start server because Node.js is not available or configured correctly.');
             return false;
         }
         
         // Update .env file with correct port
         $this->update_env_file('SERVER_PORT', $port);
         
+        // Check if .env file exists, create from example if not
+        if (!file_exists(JACKALOPES_SERVER_PLUGIN_DIR . '.env')) {
+            if (file_exists(JACKALOPES_SERVER_PLUGIN_DIR . '.env.example')) {
+                copy(JACKALOPES_SERVER_PLUGIN_DIR . '.env.example', JACKALOPES_SERVER_PLUGIN_DIR . '.env');
+                $this->log_message('Created .env file from example template');
+            } else {
+                $this->log_message('Error: .env.example not found');
+                return false;
+            }
+        }
+        
+        // Log server directory and script path
+        $this->log_message('Server directory: ' . JACKALOPES_SERVER_PLUGIN_DIR);
+        $this->log_message('Server script: ' . $this->server_script);
+        $this->log_message('Using port: ' . $port);
+        $this->log_message('Node.js executable: ' . $this->node_executable);
+        
         // Start the Node.js server process using nohup to keep it running
         $command = sprintf(
-            'cd %s && SERVER_PORT=%s nohup node %s > %s 2>&1 & echo $! > %s',
+            'cd %s && SERVER_PORT=%s %s %s > %s 2>&1 & echo $! > %s',
             escapeshellarg(JACKALOPES_SERVER_PLUGIN_DIR),
             escapeshellarg($port),
+            escapeshellarg($this->node_executable),
             escapeshellarg($this->server_script),
             escapeshellarg($this->log_file),
             escapeshellarg($this->pid_file)
@@ -119,27 +158,47 @@ class Jackalopes_Server_WebSocket {
         
         $this->log_message('Executing command: ' . $command);
         
-        exec($command, $output, $return_var);
-        
-        if ($return_var !== 0) {
-            $this->log_message('Error: Command failed with return code ' . $return_var);
-            if (!empty($output)) {
-                $this->log_message('Command output: ' . implode("\n", $output));
+        // Execute the command
+        try {
+            exec($command, $output, $return_var);
+            
+            if ($return_var !== 0) {
+                $this->log_message('Error: Command failed with return code ' . $return_var);
+                if (!empty($output)) {
+                    $this->log_message('Command output: ' . implode("\n", $output));
+                }
+                return false;
             }
-            return false;
-        }
-        
-        // Wait a moment for the server to start
-        sleep(2);
-        
-        // Check if server started successfully
-        $this->check_status();
-        
-        if ($this->running) {
-            $this->log_message('Server started on port ' . $port . ' with PID ' . $this->pid);
-            return true;
-        } else {
-            $this->log_message('Failed to start server. Check server.log for details.');
+            
+            // Wait a moment for the server to start
+            sleep(2);
+            
+            // Check if server started successfully
+            $this->check_status();
+            
+            if ($this->running) {
+                $this->log_message('Server started on port ' . $port . ' with PID ' . $this->pid);
+                return true;
+            } else {
+                // Check for PID file
+                if (file_exists($this->pid_file)) {
+                    $pid = (int)file_get_contents($this->pid_file);
+                    $this->log_message('PID file exists with PID ' . $pid . ' but process not running');
+                } else {
+                    $this->log_message('PID file not created. Server failed to start.');
+                }
+                
+                // Log server.log contents if available
+                if (file_exists($this->log_file)) {
+                    $log_content = file_get_contents($this->log_file);
+                    $this->log_message('Server log contents: ' . $log_content);
+                }
+                
+                $this->log_message('Failed to start server. Check server.log for details.');
+                return false;
+            }
+        } catch (Exception $e) {
+            $this->log_message('Exception while starting server: ' . $e->getMessage());
             return false;
         }
     }
@@ -321,11 +380,132 @@ class Jackalopes_Server_WebSocket {
         $timestamp = date('Y-m-d H:i:s');
         $log_entry = "[$timestamp] $message\n";
         
+        $plugin_log = JACKALOPES_SERVER_PLUGIN_DIR . 'plugin.log';
+        
+        // Create log file if it doesn't exist
+        if (!file_exists($plugin_log)) {
+            touch($plugin_log);
+            chmod($plugin_log, 0664);
+        }
+        
         file_put_contents(
-            JACKALOPES_SERVER_PLUGIN_DIR . 'plugin.log',
+            $plugin_log,
             $log_entry,
             FILE_APPEND
         );
+    }
+    
+    /**
+     * Check if Node.js is installed and available
+     *
+     * @since    1.0.0
+     * @return   bool    True if Node.js is available, false otherwise
+     */
+    public function check_nodejs() {
+        // First, check if we have a bundled Node.js executable
+        $bundled_node = JACKALOPES_SERVER_PLUGIN_DIR . 'bin/node';
+        $use_bundled = false;
+        
+        if (file_exists($bundled_node)) {
+            $this->log_message('Found bundled Node.js executable');
+            // Make sure it's executable
+            chmod($bundled_node, 0755);
+            $use_bundled = true;
+        }
+        
+        // Check if system node is available if we're not using bundled
+        if (!$use_bundled) {
+            exec('which node', $output, $return_var);
+            
+            if ($return_var !== 0) {
+                $this->log_message('Error: Node.js not found in system. Looking for bundled version...');
+                
+                // No system Node.js and no bundled Node.js
+                if (!file_exists($bundled_node)) {
+                    $this->log_message('Error: No bundled Node.js found either. Please install Node.js or include it in the bin directory.');
+                    $this->log_message('System environment: ' . php_uname());
+                    $this->log_message('Web server user: ' . exec('whoami'));
+                    $this->log_message('Current working directory: ' . getcwd());
+                    return false;
+                }
+                
+                // We have bundled Node.js but didn't detect it earlier (permissions issue?)
+                $this->log_message('Found bundled Node.js after second check');
+                chmod($bundled_node, 0755);
+                $use_bundled = true;
+            }
+        }
+        
+        // Check node version
+        $node_cmd = $use_bundled ? $bundled_node : 'node';
+        exec($node_cmd . ' -v', $version_output, $version_return_var);
+        
+        if ($version_return_var === 0 && !empty($version_output)) {
+            $this->log_message('Node.js version: ' . $version_output[0] . ($use_bundled ? ' (bundled)' : ' (system)'));
+        } else {
+            $this->log_message('Warning: Could not determine Node.js version.');
+            // Even if we can't determine the version, we'll still try to use the node executable
+        }
+        
+        // Update the server start command based on whether we're using bundled Node.js
+        if ($use_bundled) {
+            $this->node_executable = $bundled_node;
+        } else {
+            $this->node_executable = 'node';
+        }
+        
+        // We're skipping the npm and dependency check since all necessary dependencies 
+        // should be packaged with the plugin
+        $this->log_message('Using Node.js executable: ' . $this->node_executable);
+        
+        return true;
+    }
+    
+    /**
+     * Update a value in the .env file
+     *
+     * @since    1.0.0
+     * @param    string    $key      The key to update
+     * @param    string    $value    The new value
+     * @return   bool                True if successful, false otherwise
+     */
+    private function update_env_file($key, $value) {
+        $env_file = JACKALOPES_SERVER_PLUGIN_DIR . '.env';
+        
+        // Create .env file from example if it doesn't exist
+        if (!file_exists($env_file) && file_exists(JACKALOPES_SERVER_PLUGIN_DIR . '.env.example')) {
+            copy(JACKALOPES_SERVER_PLUGIN_DIR . '.env.example', $env_file);
+        }
+        
+        if (!file_exists($env_file)) {
+            $this->log_message('Error: .env file not found and could not be created.');
+            return false;
+        }
+        
+        // Read the current .env file
+        $env_content = file_get_contents($env_file);
+        
+        // Check if the key already exists
+        if (preg_match('/^' . preg_quote($key) . '=.*/m', $env_content)) {
+            // Replace the existing key
+            $env_content = preg_replace(
+                '/^' . preg_quote($key) . '=.*/m',
+                $key . '=' . $value,
+                $env_content
+            );
+        } else {
+            // Add the key
+            $env_content .= "\n" . $key . '=' . $value;
+        }
+        
+        // Write back to the file
+        if (file_put_contents($env_file, $env_content) === false) {
+            $this->log_message('Error: Failed to write to .env file.');
+            return false;
+        }
+        
+        $this->log_message('Updated ' . $key . ' in .env file to ' . $value);
+        return true;
     }
     
     /**
@@ -816,89 +996,6 @@ class JackalopesServerComponent implements MessageComponentInterface {
             $log_entry,
             FILE_APPEND
         );
-    }
-    
-    /**
-     * Update .env file with a key-value pair
-     *
-     * @since    1.0.0
-     * @param    string    $key      Environment variable key
-     * @param    string    $value    Environment variable value
-     */
-    private function update_env_file($key, $value) {
-        $env_file = JACKALOPES_SERVER_PLUGIN_DIR . '.env';
-        
-        if (!file_exists($env_file)) {
-            // If .env file doesn't exist, create it
-            $env_content = "# Server settings\n$key=$value\n";
-            file_put_contents($env_file, $env_content);
-            return;
-        }
-        
-        // Read the current .env file
-        $env_content = file_get_contents($env_file);
-        
-        // Check if the key already exists
-        if (preg_match("/^$key=.*$/m", $env_content)) {
-            // Replace the existing key-value pair
-            $env_content = preg_replace("/^$key=.*$/m", "$key=$value", $env_content);
-        } else {
-            // Add the key-value pair at the end of the file
-            $env_content .= "\n$key=$value\n";
-        }
-        
-        // Write the updated content back to the file
-        file_put_contents($env_file, $env_content);
-    }
-    
-    /**
-     * Check if Node.js is available on the system
-     *
-     * @since    1.0.0
-     * @return   bool    True if Node.js is available, false otherwise
-     */
-    private function check_nodejs() {
-        // Try in plugin directory first (for local Node.js installation)
-        $nodejs_paths = [
-            // Check node in the plugin directory (for custom installations)
-            JACKALOPES_SERVER_PLUGIN_DIR . 'node_modules/.bin/node',
-            // Check system default paths
-            'node',
-            '/usr/bin/node',
-            '/usr/local/bin/node',
-            '/opt/homebrew/bin/node',
-            // Add more paths as needed
-        ];
-        
-        foreach ($nodejs_paths as $node_path) {
-            $test_command = sprintf('%s -v', escapeshellcmd($node_path));
-            exec($test_command . ' 2>&1', $output, $return_var);
-            
-            if ($return_var === 0 && !empty($output) && strpos($output[0], 'v') === 0) {
-                $this->log_message('Found Node.js: ' . $output[0] . ' at ' . $node_path);
-                return true;
-            }
-        }
-        
-        $this->log_message('Error: Node.js not found. Please ensure Node.js is installed and available in PATH.');
-        
-        // Additional diagnostic information
-        exec('which node 2>&1', $which_output, $which_return);
-        if ($which_return === 0) {
-            $this->log_message('Node.js found at: ' . $which_output[0]);
-            
-            // Test if we can execute it
-            exec($which_output[0] . ' -v 2>&1', $node_output, $node_return);
-            if ($node_return === 0) {
-                $this->log_message('Node.js version: ' . $node_output[0]);
-            } else {
-                $this->log_message('Error executing Node.js: ' . implode("\n", $node_output));
-            }
-        } else {
-            $this->log_message('Node.js not found in PATH. Error: ' . implode("\n", $which_output));
-        }
-        
-        return false;
     }
 }
 PHP;
