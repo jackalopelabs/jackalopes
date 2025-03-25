@@ -881,7 +881,7 @@ export const MultiplayerManager: React.FC<{
     // Connection events
     connectionManager.on('connected', () => {
       console.log('Connected to multiplayer server');
-      setIsConnected(true);
+      // Don't set isConnected here, wait for auth & session join
     });
     
     connectionManager.on('disconnected', () => {
@@ -892,6 +892,15 @@ export const MultiplayerManager: React.FC<{
     connectionManager.on('initialized', (data: any) => {
       console.log('Initialized with ID:', data.id);
       setPlayerId(data.id);
+      // Don't set isConnected here, wait for session join confirmation
+    });
+
+    // Add specific handler for join_success
+    connectionManager.on('message_received', (message: any) => {
+      if (message.type === 'join_success') {
+        console.log('Successfully joined session:', message.session?.id);
+        setIsConnected(true);
+      }
     });
     
     // Connect to the server
@@ -901,6 +910,8 @@ export const MultiplayerManager: React.FC<{
       console.log('Cleaning up multiplayer connection...');
       // Ensure we disconnect properly when component unmounts
       connectionManager.disconnect();
+      // Remove specific message handler
+      connectionManager.off('message_received', (message: any) => {});
       // Reset states on unmount
       setIsConnected(false);
       setPlayerId(null);

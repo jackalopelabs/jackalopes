@@ -572,6 +572,15 @@ export class ConnectionManager extends EventEmitter {
             playerId: this.playerId,
             socketReady: this.socket?.readyState === WebSocket.OPEN
           });
+          
+          // If we received auth_success but not join_success, send join_session
+          if (message.type === 'auth_success') {
+            console.log('Auth successful, joining session...');
+            this.send({
+              type: 'join_session',
+              playerName: message.player.id // Use player ID as name
+            });
+          }
         }
         
         // Use any message response for latency measurement
@@ -631,45 +640,56 @@ export class ConnectionManager extends EventEmitter {
         
       case 'player_update':
         // Handle both our own updates and updates from other players
-        const updatePlayerId = message.id || message.player_id;
+        const updatePlayerId = message.id || message.player_id || message.player;
         
         // Skip processing updates from ourselves
         if (updatePlayerId !== this.playerId) {
-          // Check if this is a player we don't know about yet
-          if (!this.gameState.players[updatePlayerId]) {
-            console.log(`New player detected from player_update: ${updatePlayerId}`);
-            // Create a player joined event for this new player
-            const newPlayerState = {
-              position: message.position,
-              rotation: message.rotation,
-              health: 100
-            };
+          // Extract position and rotation, handling different server formats
+          const position = message.position || (message.state && message.state.position);
+          const rotation = message.rotation || (message.state && message.state.rotation);
+          
+          // Only proceed if we have valid position data
+          if (position) {
+            // Check if this is a player we don't know about yet
+            if (!this.gameState.players[updatePlayerId]) {
+              console.log(`New player detected from player_update: ${updatePlayerId}`);
+              // Create a player joined event for this new player
+              const newPlayerState = {
+                position: position,
+                rotation: rotation || [0, 0, 0, 1], // Default quaternion if missing
+                health: 100
+              };
+              
+              // Add to our game state
+              this.gameState.players[updatePlayerId] = newPlayerState;
+              
+              // Emit a player_joined event
+              this.emit('player_joined', { 
+                id: updatePlayerId, 
+                state: newPlayerState
+              });
+            }
             
-            // Add to our game state
-            this.gameState.players[updatePlayerId] = newPlayerState;
+            // Update the player in our game state
+            this.gameState.players[updatePlayerId].position = position;
+            if (rotation) {
+              this.gameState.players[updatePlayerId].rotation = rotation;
+            }
             
-            // Emit a player_joined event
-            this.emit('player_joined', { 
+            // Emit player_update for this remote player
+            this.emit('player_update', { 
               id: updatePlayerId, 
-              state: newPlayerState
+              position: position, 
+              rotation: rotation || this.gameState.players[updatePlayerId].rotation 
             });
+          } else {
+            console.warn('Received player_update without position data:', message);
           }
-          
-          // Update the player in our game state
-          this.gameState.players[updatePlayerId].position = message.position;
-          this.gameState.players[updatePlayerId].rotation = message.rotation;
-          
-          // Emit player_update for this remote player
-          this.emit('player_update', { 
-            id: updatePlayerId, 
-            position: message.position, 
-            rotation: message.rotation 
-          });
-        } else if (updatePlayerId === this.playerId && message.sequence !== undefined) {
+        } else {
           // If message is for local player, emit server_state_update for reconciliation
           this.emit('server_state_update', {
-            position: message.position,
-            rotation: message.rotation,
+            position: message.position || (message.state && message.state.position),
+            rotation: message.rotation || (message.state && message.state.rotation),
             timestamp: message.timestamp || Date.now(), // Use server timestamp if available
             sequence: message.sequence,
             positionError: message.positionError, // Server reported error
@@ -684,10 +704,12 @@ export class ConnectionManager extends EventEmitter {
         
         // Check for shot events
         if (message.event_type === 'player_shoot' || 
+            (message.event && message.event.event_type === 'player_shoot') ||
             (message.data && message.data.event_type === 'player_shoot')) {
           
-          const eventData = message.data || message;
-          const shooterId = eventData.player_id || eventData.id;
+          // Handle different server formats
+          const eventData = message.data || message.event || message;
+          const shooterId = eventData.player_id || eventData.player || eventData.id;
           
           // Make sure we don't process our own shots
           if (shooterId !== this.playerId) {
