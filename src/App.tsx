@@ -650,10 +650,10 @@ export function App() {
             vignetteOffset: { value: 0.5, min: 0, max: 1, step: 0.1 },
             vignetteDarkness: { value: 0.5, min: 0, max: 1, step: 0.1 },
             chromaticAberrationEnabled: true,
-            chromaticAberrationOffset: { value: 0.0005, min: 0, max: 0.01, step: 0.0001 },
+            chromaticAberrationOffset: { value: 0.0025, min: 0, max: 0.01, step: 0.0001 },
             brightnessContrastEnabled: true,
-            brightness: { value: 0.1, min: -1, max: 1, step: 0.1 },
-            contrast: { value: 0.1, min: -1, max: 1, step: 0.1 },
+            brightness: { value: -0.3, min: -1, max: 1, step: 0.1 },
+            contrast: { value: 0, min: -1, max: 1, step: 0.1 },
             colorGradingEnabled: true,
             toneMapping: { 
                 value: THREE.ACESFilmicToneMapping,
