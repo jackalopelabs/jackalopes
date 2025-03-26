@@ -691,34 +691,53 @@ export class ConnectionManager extends EventEmitter {
                 id: updatePlayerId, 
                 state: newPlayerState
               });
+            } else {
+              // Get existing position/rotation
+              const existingPlayer = this.gameState.players[updatePlayerId];
+              const existingPos = existingPlayer.position;
+              const existingRot = existingPlayer.rotation;
+              
+              // Calculate position change
+              const positionChanged = !existingPos ||
+                Math.abs(existingPos[0] - position[0]) > 0.001 ||
+                Math.abs(existingPos[1] - position[1]) > 0.001 ||
+                Math.abs(existingPos[2] - position[2]) > 0.001;
+              
+              // Calculate rotation change
+              const rotationChanged = !existingRot || !rotation || 
+                Math.abs(existingRot[0] - rotation[0]) > 0.001 ||
+                Math.abs(existingRot[1] - rotation[1]) > 0.001 ||
+                Math.abs(existingRot[2] - rotation[2]) > 0.001 ||
+                Math.abs(existingRot[3] - rotation[3]) > 0.001;
+              
+              // Update the player in our game state (always)
+              this.gameState.players[updatePlayerId].position = position;
+              if (rotation) {
+                this.gameState.players[updatePlayerId].rotation = rotation;
+              }
+              
+              // Only emit player_update if actual changes occurred
+              if (positionChanged || rotationChanged) {
+                this.emit('player_update', { 
+                  id: updatePlayerId, 
+                  position: position, 
+                  rotation: rotation || this.gameState.players[updatePlayerId].rotation 
+                });
+              }
             }
-            
-            // Update the player in our game state
-            this.gameState.players[updatePlayerId].position = position;
-            if (rotation) {
-              this.gameState.players[updatePlayerId].rotation = rotation;
-            }
-            
-            // Emit player_update for this remote player
-            this.emit('player_update', { 
-              id: updatePlayerId, 
-              position: position, 
-              rotation: rotation || this.gameState.players[updatePlayerId].rotation 
-            });
           } else {
             console.warn('Received player_update without position data:', message);
           }
-        } else {
-          // If message is for local player, emit server_state_update for reconciliation
-          this.emit('server_state_update', {
-            position: message.position || (message.state && message.state.position),
-            rotation: message.rotation || (message.state && message.state.rotation),
-            timestamp: message.timestamp || Date.now(), // Use server timestamp if available
-            sequence: message.sequence,
-            positionError: message.positionError, // Server reported error
-            serverCorrection: message.serverCorrection // Whether server made a major correction
-          });
         }
+        // If message is for local player, emit server_state_update for reconciliation
+        this.emit('server_state_update', {
+          position: message.position || (message.state && message.state.position),
+          rotation: message.rotation || (message.state && message.state.rotation),
+          timestamp: message.timestamp || Date.now(), // Use server timestamp if available
+          sequence: message.sequence,
+          positionError: message.positionError, // Server reported error
+          serverCorrection: message.serverCorrection // Whether server made a major correction
+        });
         break;
         
       case 'game_event':

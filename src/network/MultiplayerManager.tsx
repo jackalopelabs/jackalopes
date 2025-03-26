@@ -607,10 +607,34 @@ export const useMultiplayer = (
         if (position && position.x !== undefined && 
             rotation && rotation.x !== undefined) {
           
+          // Normalize the quaternion before sending to avoid cross-browser issues
+          // Create a temporary quaternion to normalize without modifying the original
+          const normalizedRotation = new THREE.Quaternion(
+            rotation.x, 
+            rotation.y, 
+            rotation.z, 
+            rotation.w
+          ).normalize();
+          
+          // Create a properly formatted array
+          const rotationArray: [number, number, number, number] = [
+            normalizedRotation.x,
+            normalizedRotation.y,
+            normalizedRotation.z,
+            normalizedRotation.w
+          ];
+          
+          // Position should also be properly formatted as an array
+          const positionArray: [number, number, number] = [
+            position.x,
+            position.y,
+            position.z
+          ];
+          
           // Send to server
           connectionManager.sendPlayerUpdate(
-            [position.x, position.y, position.z],
-            [rotation.x, rotation.y, rotation.z, rotation.w]
+            positionArray,
+            rotationArray
           );
         } else {
           console.log('Player position or rotation not available yet:', {
@@ -822,6 +846,12 @@ export const RemotePlayers = React.memo(({
   const playerRefsMap = useRef<Record<string, React.RefObject<RemotePlayerMethods>>>({});
   const [playerList, setPlayerList] = useState<string[]>([]);
   
+  // Store initial positions/rotations for each player to prevent remounting on updates
+  const initialValuesRef = useRef<Record<string, {
+    position: [number, number, number], 
+    rotation: [number, number, number, number]
+  }>>({});
+
   // Create refs for new players without re-rendering
   // This effect handles adding new refs and updating player list
   useEffect(() => {
@@ -830,11 +860,18 @@ export const RemotePlayers = React.memo(({
     const updatedRefs = {...playerRefsMap.current};
     let refsChanged = false;
     
-    // Create refs for new players
+    // Create refs for new players and store their initial values
     playerIds.forEach(id => {
       if (!updatedRefs[id]) {
         console.log(`Creating ref for new player: ${id}`);
         updatedRefs[id] = React.createRef<RemotePlayerMethods>();
+        
+        // Store initial position/rotation values
+        initialValuesRef.current[id] = {
+          position: [...players[id].position],
+          rotation: [...players[id].rotation]
+        };
+        
         refsChanged = true;
       }
     });
@@ -844,6 +881,7 @@ export const RemotePlayers = React.memo(({
       if (!playerIds.includes(id)) {
         console.log(`Removing ref for departed player: ${id}`);
         delete updatedRefs[id];
+        delete initialValuesRef.current[id];
         refsChanged = true;
       }
     });
@@ -898,15 +936,21 @@ export const RemotePlayers = React.memo(({
   
   return (
     <>
-      {playerList.map(id => (
-        <RemotePlayer
-          key={id}
-          id={id}
-          initialPosition={players[id].position}
-          initialRotation={players[id].rotation}
-          ref={playerRefsMap.current[id]}
-        />
-      ))}
+      {playerList.map(id => {
+        // Only return null if we don't have initial values yet
+        if (!initialValuesRef.current[id]) return null;
+        
+        // Use stable initial values to prevent remounting
+        return (
+          <RemotePlayer
+            key={id}
+            id={id}
+            initialPosition={initialValuesRef.current[id].position}
+            initialRotation={initialValuesRef.current[id].rotation}
+            ref={playerRefsMap.current[id]}
+          />
+        );
+      })}
     </>
   );
 });
@@ -1148,10 +1192,34 @@ export const MultiplayerManager: React.FC<{
         if (position && position.x !== undefined && 
             rotation && rotation.x !== undefined) {
           
+          // Normalize the quaternion before sending to avoid cross-browser issues
+          // Create a temporary quaternion to normalize without modifying the original
+          const normalizedRotation = new THREE.Quaternion(
+            rotation.x, 
+            rotation.y, 
+            rotation.z, 
+            rotation.w
+          ).normalize();
+          
+          // Create a properly formatted array
+          const rotationArray: [number, number, number, number] = [
+            normalizedRotation.x,
+            normalizedRotation.y,
+            normalizedRotation.z,
+            normalizedRotation.w
+          ];
+          
+          // Position should also be properly formatted as an array
+          const positionArray: [number, number, number] = [
+            position.x,
+            position.y,
+            position.z
+          ];
+          
           // Send to server
           connectionManager.sendPlayerUpdate(
-            [position.x, position.y, position.z],
-            [rotation.x, rotation.y, rotation.z, rotation.w]
+            positionArray,
+            rotationArray
           );
         } else {
           console.log('Player position or rotation not available yet:', {
