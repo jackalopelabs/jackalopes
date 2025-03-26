@@ -46,7 +46,7 @@ export const RemotePlayer = React.memo(
         };
       }>({
         lastUpdateTime: 0,
-        minTimeBetweenUpdates: 70, // 70ms = ~14 updates per second max, more conservative rate
+        minTimeBetweenUpdates: 35, // Reduced from 70ms to 35ms - faster updates
         pendingUpdate: null
       });
       
@@ -101,10 +101,10 @@ export const RemotePlayer = React.memo(
         // Check for identity quaternion [0,0,0,1], which seems to be a default value
         // If we're getting an identity quaternion, don't update rotation as it's likely a default value
         const isIdentityQuaternion = 
-          newRotation[0] === 0 && 
-          newRotation[1] === 0 && 
-          newRotation[2] === 0 && 
-          newRotation[3] === 1;
+          Math.abs(newRotation[0]) < 0.0001 && 
+          Math.abs(newRotation[1]) < 0.0001 && 
+          Math.abs(newRotation[2]) < 0.0001 && 
+          Math.abs(Math.abs(newRotation[3]) - 1) < 0.0001;
         
         // Skip rotation update for identity quaternion to avoid "facing reset"
         if (isIdentityQuaternion) {
@@ -113,7 +113,7 @@ export const RemotePlayer = React.memo(
           // Only update position, keep current rotation
           targetPosition.current = newPosition;
           
-          // Calculate velocity for prediction
+          // Calculate velocity for better prediction - use higher weight for smoother movement
           const currentPosition = new THREE.Vector3(...positionRef.current);
           const newPositionVec = new THREE.Vector3(...newPosition);
           const timeDelta = Date.now() - lastUpdateRef.current;
@@ -124,8 +124,8 @@ export const RemotePlayer = React.memo(
               .subVectors(newPositionVec, lastPositionRef.current)
               .divideScalar(timeDelta);
             
-            // Mix with previous velocity for smoothing
-            velocityRef.current.lerp(newVelocity, 0.8);
+            // Use higher interpolation factor for smoother movement (increased from 0.8 to 0.9)
+            velocityRef.current.lerp(newVelocity, 0.9);
           }
           
           // Update last position for next velocity calculation
@@ -309,11 +309,11 @@ export const RemotePlayer = React.memo(
         }
         
         // MUCH slower rotation speed - key to smooth movement
-        const rotationSpeed = 1.5; 
+        const rotationSpeed = 3; // Increased from 1.5 to 3 for faster rotation updates
         
         // Calculate smoothing factor with delta time
         // This makes rotation speed independent of frame rate
-        const rotationSmoothingFactor = Math.min(0.05, delta * rotationSpeed);
+        const rotationSmoothingFactor = Math.min(0.1, delta * rotationSpeed); // Increased from 0.05 to 0.1
         
         // Create a new quaternion and slerp with very small step
         // This creates extremely smooth, stable rotation

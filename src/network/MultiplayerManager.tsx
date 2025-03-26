@@ -489,7 +489,7 @@ export const useMultiplayer = (
       if (!playerUpdateThrottleRef.current[data.id]) {
         playerUpdateThrottleRef.current[data.id] = { 
           lastTime: 0, 
-          minInterval: 50 // 50ms = max 20 updates/second per player
+          minInterval: 25 // Reduced from 50ms to 25ms = max 40 updates/second per player
         };
       }
       
@@ -638,7 +638,7 @@ export const useMultiplayer = (
     
     // Create a throttle mechanism to avoid sending too many updates
     let lastRotationUpdateTime = 0;
-    const MIN_ROTATION_UPDATE_INTERVAL = 500; // Increased from 250ms to 500ms - much less frequent
+    const MIN_ROTATION_UPDATE_INTERVAL = 250; // Reduced from 500ms to 250ms - more frequent rotation updates
     
     // Track rotation stability
     let isRotationStable = true;
@@ -712,24 +712,24 @@ export const useMultiplayer = (
         lastRotationCheckTime = now;
       }
       
-      // Position change detection - threshold of 5cm
+      // Position change detection - threshold of 3cm (reduced from 5cm)
       const lastPos = lastSentPosition.current;
       const posChanged = !lastPos || 
-        Math.abs(position.x - lastPos[0]) > 0.05 || 
-        Math.abs(position.y - lastPos[1]) > 0.05 || 
-        Math.abs(position.z - lastPos[2]) > 0.05;
+        Math.abs(position.x - lastPos[0]) > 0.03 || 
+        Math.abs(position.y - lastPos[1]) > 0.03 || 
+        Math.abs(position.z - lastPos[2]) > 0.03;
       
-      // Rotation change detection - more strict (3% threshold)
-      // Higher threshold means we send fewer rotation updates
+      // Rotation change detection - slightly less strict (2.5% threshold)
+      // Lower threshold means we'll send more rotation updates
       const rotationChanged = 
-        Math.abs(rotation.x - lastSentRotation.x) > 0.03 || 
-        Math.abs(rotation.y - lastSentRotation.y) > 0.03 || 
-        Math.abs(rotation.z - lastSentRotation.z) > 0.03 || 
-        Math.abs(rotation.w - lastSentRotation.w) > 0.03;
+        Math.abs(rotation.x - lastSentRotation.x) > 0.025 || 
+        Math.abs(rotation.y - lastSentRotation.y) > 0.025 || 
+        Math.abs(rotation.z - lastSentRotation.z) > 0.025 || 
+        Math.abs(rotation.w - lastSentRotation.w) > 0.025;
       
-      // Force update minimum every 3 seconds (increased from 2 seconds)
+      // Force update minimum every 2 seconds (reduced from 3 seconds)
       const timeSinceLastUpdate = now - (lastUpdateTime.current || 0);
-      const shouldSendForTime = timeSinceLastUpdate > 3000;
+      const shouldSendForTime = timeSinceLastUpdate > 2000;
       
       // Check if enough time has passed since last rotation update
       const timeSinceLastRotation = now - lastRotationUpdateTime;
@@ -775,7 +775,7 @@ export const useMultiplayer = (
           }
         }
       }
-    }, 50); // Increased from 30ms to 50ms (20fps instead of 33fps) - less network traffic
+    }, 30); // Reduced from 50ms to 30ms - back to 33fps for more responsive updates
     
     return () => {
       clearInterval(intervalId);
@@ -1296,7 +1296,7 @@ export const MultiplayerManager: React.FC<{
       if (!playerUpdateThrottleRef.current[data.id]) {
         playerUpdateThrottleRef.current[data.id] = { 
           lastTime: 0, 
-          minInterval: 50 // 50ms = max 20 updates/second per player
+          minInterval: 25 // Reduced from 50ms to 25ms = max 40 updates/second per player
         };
       }
       
@@ -1418,7 +1418,7 @@ export const MultiplayerManager: React.FC<{
     
     // Create a throttle mechanism to avoid sending too many updates
     let lastRotationUpdateTime = 0;
-    const MIN_ROTATION_UPDATE_INTERVAL = 500; // Increased from 250ms to 500ms - much less frequent
+    const MIN_ROTATION_UPDATE_INTERVAL = 250; // Reduced from 500ms to 250ms - more frequent rotation updates
     
     // Track rotation stability
     let isRotationStable = true;
@@ -1492,24 +1492,24 @@ export const MultiplayerManager: React.FC<{
         lastRotationCheckTime = now;
       }
       
-      // Position change detection - threshold of 5cm
+      // Position change detection - threshold of 3cm (reduced from 5cm)
       const lastPos = lastSentPosition.current;
       const posChanged = !lastPos || 
-        Math.abs(position.x - lastPos[0]) > 0.05 || 
-        Math.abs(position.y - lastPos[1]) > 0.05 || 
-        Math.abs(position.z - lastPos[2]) > 0.05;
+        Math.abs(position.x - lastPos[0]) > 0.03 || 
+        Math.abs(position.y - lastPos[1]) > 0.03 || 
+        Math.abs(position.z - lastPos[2]) > 0.03;
       
-      // Rotation change detection - more strict (3% threshold)
-      // Higher threshold means we send fewer rotation updates
+      // Rotation change detection - slightly less strict (2.5% threshold)
+      // Lower threshold means we'll send more rotation updates
       const rotationChanged = 
-        Math.abs(rotation.x - lastSentRotation.x) > 0.03 || 
-        Math.abs(rotation.y - lastSentRotation.y) > 0.03 || 
-        Math.abs(rotation.z - lastSentRotation.z) > 0.03 || 
-        Math.abs(rotation.w - lastSentRotation.w) > 0.03;
+        Math.abs(rotation.x - lastSentRotation.x) > 0.025 || 
+        Math.abs(rotation.y - lastSentRotation.y) > 0.025 || 
+        Math.abs(rotation.z - lastSentRotation.z) > 0.025 || 
+        Math.abs(rotation.w - lastSentRotation.w) > 0.025;
       
-      // Force update minimum every 3 seconds (increased from 2 seconds)
+      // Force update minimum every 2 seconds (reduced from 3 seconds)
       const timeSinceLastUpdate = now - (lastUpdateTime.current || 0);
-      const shouldSendForTime = timeSinceLastUpdate > 3000;
+      const shouldSendForTime = timeSinceLastUpdate > 2000;
       
       // Check if enough time has passed since last rotation update
       const timeSinceLastRotation = now - lastRotationUpdateTime;
@@ -1555,7 +1555,7 @@ export const MultiplayerManager: React.FC<{
           }
         }
       }
-    }, 50); // Increased from 30ms to 50ms (20fps instead of 33fps) - less network traffic
+    }, 30); // Reduced from 50ms to 30ms - back to 33fps for more responsive updates
     
     return () => {
       clearInterval(intervalId);
