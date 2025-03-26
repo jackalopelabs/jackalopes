@@ -1,5 +1,15 @@
 import { EventEmitter } from 'events';
 
+// Debug level enum
+enum LogLevel {
+  NONE = 0,
+  ERROR = 1,
+  WARN = 2,
+  INFO = 3,
+  DEBUG = 4,
+  VERBOSE = 5
+}
+
 type GameState = {
   players: Record<string, {
     position: [number, number, number];
@@ -55,6 +65,9 @@ export class ConnectionManager extends EventEmitter {
     lastCorrection: 0,
     active: true
   };
+
+  // Logging level control
+  private logLevel: LogLevel = LogLevel.INFO; // Default to INFO level
   
   constructor(private serverUrl: string = 'ws://localhost:8082') {
     super();
@@ -67,14 +80,41 @@ export class ConnectionManager extends EventEmitter {
         const [, protocol, host, port] = urlParts;
         // Rebuild the URL with the /websocket/ path
         this.serverUrl = `${protocol}${host}${port ? `:${port}` : ''}/websocket/`;
-        console.log('Updated server URL to include websocket path:', this.serverUrl);
+        this.log(LogLevel.INFO, 'Updated server URL to include websocket path:', this.serverUrl);
       }
     }
+  }
+
+  // Helper methods for logging with different levels
+  private log(level: LogLevel, ...args: any[]): void {
+    if (level <= this.logLevel) {
+      switch (level) {
+        case LogLevel.ERROR:
+          console.error(...args);
+          break;
+        case LogLevel.WARN:
+          console.warn(...args);
+          break;
+        case LogLevel.INFO:
+          console.info(...args);
+          break;
+        case LogLevel.DEBUG:
+        case LogLevel.VERBOSE:
+          console.log(...args);
+          break;
+      }
+    }
+  }
+
+  // Method to set log level
+  setLogLevel(level: LogLevel): void {
+    this.logLevel = level;
+    this.log(LogLevel.INFO, `Log level set to: ${LogLevel[level]}`);
   }
   
   connect(): void {
     try {
-      console.log('Connecting to WebSocket server at', this.serverUrl);
+      this.log(LogLevel.INFO, 'Connecting to WebSocket server at', this.serverUrl);
       
       // Cleanup any existing socket first
       if (this.socket) {
@@ -87,14 +127,14 @@ export class ConnectionManager extends EventEmitter {
       
       // For staging.games.bonsai.so, check if it's even reachable first
       if (this.serverUrl.includes('staging.games.bonsai.so')) {
-        console.log('Trying to connect to staging server - checking availability first...');
+        this.log(LogLevel.INFO, 'Trying to connect to staging server - checking availability first...');
         this.checkServerAvailability();
       } else {
         // For other servers, proceed with normal connection
         this.createWebSocketConnection();
       }
     } catch (error) {
-      console.error('Error connecting to WebSocket server:', error);
+      this.log(LogLevel.ERROR, 'Error connecting to WebSocket server:', error);
       // If we failed to connect, attempt reconnect
       this.handleDisconnect();
     }
@@ -105,7 +145,7 @@ export class ConnectionManager extends EventEmitter {
     // Extract domain from the serverUrl
     const urlMatch = this.serverUrl.match(/^(ws:\/\/|wss:\/\/)([^\/]*)/);
     if (!urlMatch) {
-      console.error('Invalid server URL format');
+      this.log(LogLevel.ERROR, 'Invalid server URL format');
       this.handleDisconnect();
       return;
     }
@@ -120,12 +160,12 @@ export class ConnectionManager extends EventEmitter {
     })
     .then(() => {
       // If we can reach the domain, try the WebSocket connection
-      console.log(`Domain ${domain} is reachable, attempting WebSocket connection...`);
+      this.log(LogLevel.INFO, `Domain ${domain} is reachable, attempting WebSocket connection...`);
       this.createWebSocketConnection();
     })
     .catch((error) => {
       // If we can't reach the domain, go to offline mode immediately
-      console.error(`Cannot reach ${domain}, switching to offline mode:`, error);
+      this.log(LogLevel.ERROR, `Cannot reach ${domain}, switching to offline mode:`, error);
       this.connectionFailed = true;
       this.offlineMode = true;
       this.emit('server_unreachable', { server: this.serverUrl });
@@ -135,7 +175,7 @@ export class ConnectionManager extends EventEmitter {
     // Also set a short timeout in case fetch hangs
     setTimeout(() => {
       if (!this.isConnected && !this.offlineMode) {
-        console.log('Server availability check timed out, creating WebSocket connection anyway...');
+        this.log(LogLevel.INFO, 'Server availability check timed out, creating WebSocket connection anyway...');
         this.createWebSocketConnection();
       }
     }, 3000);
@@ -148,7 +188,7 @@ export class ConnectionManager extends EventEmitter {
     // Set a timeout to handle cases where the connection hangs
     const connectionTimeout = setTimeout(() => {
       if (this.socket && this.socket.readyState !== WebSocket.OPEN) {
-        console.log('Connection timeout after 5 seconds, closing socket');
+        this.log(LogLevel.INFO, 'Connection timeout after 5 seconds, closing socket');
         // Force close the socket
         if (this.socket.readyState === WebSocket.CONNECTING) {
           this.socket.close();
@@ -159,7 +199,7 @@ export class ConnectionManager extends EventEmitter {
     
     this.socket.onopen = () => {
       clearTimeout(connectionTimeout);
-      console.log('Connected to server');
+      this.log(LogLevel.INFO, 'Connected to server');
       this.isConnected = true;
       this.reconnectAttempts = 0; // Reset reconnect counter on successful connection
       this.emit('connected');
@@ -177,7 +217,7 @@ export class ConnectionManager extends EventEmitter {
     this.socket.onclose = (event) => {
       clearTimeout(connectionTimeout);
       // Log close code and reason
-      console.log(`WebSocket closed with code ${event.code}, reason: ${event.reason || 'No reason given'}`);
+      this.log(LogLevel.INFO, `WebSocket closed with code ${event.code}, reason: ${event.reason || 'No reason given'}`);
       
       // Use our improved handleDisconnect method
       this.handleDisconnect();
@@ -193,7 +233,7 @@ export class ConnectionManager extends EventEmitter {
         const message = JSON.parse(event.data);
         this.handleMessage(message);
       } catch (error) {
-        console.error('Error parsing message:', error);
+        this.log(LogLevel.ERROR, 'Error parsing message:', error);
       }
     };
   }
@@ -224,7 +264,7 @@ export class ConnectionManager extends EventEmitter {
     
     this.isConnected = false;
     this.emit('disconnected');
-    console.log('Disconnected from server');
+    this.log(LogLevel.INFO, 'Disconnected from server');
   }
   
   // Starts a keep-alive interval to maintain the connection
@@ -261,7 +301,7 @@ export class ConnectionManager extends EventEmitter {
         
         // Check if we've received a pong since the last ping
         if (!this.pongReceived && this.useServerPong) {
-          console.log('No pong received from server, switching to client-side latency estimation');
+          this.log(LogLevel.INFO, 'No pong received from server, switching to client-side latency estimation');
           this.useServerPong = false;
         }
         
@@ -293,7 +333,7 @@ export class ConnectionManager extends EventEmitter {
       });
     } else {
       // For client-side estimation, just measure time to next server message
-      console.log('Using client-side latency estimation');
+      this.log(LogLevel.INFO, 'Using client-side latency estimation');
       
       // Simulate a pong response after a brief delay
       setTimeout(() => {
@@ -342,7 +382,7 @@ export class ConnectionManager extends EventEmitter {
     // If connection failed after max attempts, go to offline mode automatically
     if (this.connectionFailed && this.reconnectAttempts >= this.maxReconnectAttempts) {
       if (!this.offlineMode) {
-        console.log('Connection failed after max attempts, forcing offline mode');
+        this.log(LogLevel.INFO, 'Connection failed after max attempts, forcing offline mode');
         this.forceReady();
       }
       return true;
@@ -353,7 +393,7 @@ export class ConnectionManager extends EventEmitter {
     
     // For better debugging, log detailed connection state
     if (!socketReady || !this.isConnected || !authReady) {
-      console.debug('Connection status check:', {
+      this.log(LogLevel.DEBUG, 'Connection status check:', {
         offlineMode: this.offlineMode,
         connectionFailed: this.connectionFailed,
         reconnectAttempts: this.reconnectAttempts,
@@ -370,18 +410,18 @@ export class ConnectionManager extends EventEmitter {
 
   // Add a method to force the connection ready state (for testing)
   forceReady(): void {
-    console.log('⚠️ Forcing offline mode for cross-browser communication');
+    this.log(LogLevel.INFO, '⚠️ Forcing offline mode for cross-browser communication');
     this.offlineMode = true;
     
     if (!this.playerId) {
       // Generate a temporary player ID to allow sending
       this.playerId = `offline-player-${Date.now()}`;
-      console.log('⚠️ Forcing ready state with temporary player ID:', this.playerId);
+      this.log(LogLevel.INFO, '⚠️ Forcing ready state with temporary player ID:', this.playerId);
     }
     
     if (!this.isConnected) {
       this.isConnected = true;
-      console.log('⚠️ Forcing connection state to connected');
+      this.log(LogLevel.INFO, '⚠️ Forcing connection state to connected');
       this.emit('connected');
     }
     
@@ -410,7 +450,7 @@ export class ConnectionManager extends EventEmitter {
         // Ignore localStorage errors
       }
       
-      console.log('Cannot send player update: not connected to server or not authenticated yet');
+      this.log(LogLevel.INFO, 'Cannot send player update: not connected to server or not authenticated yet');
       return;
     }
     
@@ -441,7 +481,7 @@ export class ConnectionManager extends EventEmitter {
         
         // Store in localStorage for cross-browser communication
         localStorage.setItem('jackalopes_shot_events', JSON.stringify(shotData));
-        console.log('Shot saved to localStorage as fallback:', shotData);
+        this.log(LogLevel.INFO, 'Shot saved to localStorage as fallback:', shotData);
         
         // Broadcast the event locally
         this.emit('player_shoot', shotData);
@@ -452,14 +492,14 @@ export class ConnectionManager extends EventEmitter {
         // Continue with normal error handling if localStorage fails
       }
       
-      console.log('Cannot send shoot event: not connected to server or not authenticated yet');
+      this.log(LogLevel.INFO, 'Cannot send shoot event: not connected to server or not authenticated yet');
       return;
     }
     
     // Generate a unique ID for this shot
     const shotId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     
-    console.log('ConnectionManager sending shoot event to server:', { 
+    this.log(LogLevel.INFO, 'ConnectionManager sending shoot event to server:', { 
       shotId,
       origin, 
       direction,
@@ -502,15 +542,15 @@ export class ConnectionManager extends EventEmitter {
     if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       try {
         const jsonData = JSON.stringify(data);
-        console.log(`Sending data to server (${data.type}):`, data);
+        this.log(LogLevel.INFO, `Sending data to server (${data.type}):`, data);
         this.socket.send(jsonData);
         this.emit('message_sent', data);
       } catch (error) {
-        console.error('Error sending data to server:', error);
+        this.log(LogLevel.ERROR, 'Error sending data to server:', error);
         
         // If send failed, check if socket is still open
         if (this.socket.readyState !== WebSocket.OPEN) {
-          console.log('Socket state changed during send, reconnecting...');
+          this.log(LogLevel.INFO, 'Socket state changed during send, reconnecting...');
           this.handleDisconnect();
         }
       }
@@ -519,7 +559,7 @@ export class ConnectionManager extends EventEmitter {
         ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][this.socket.readyState] : 
         'NO_SOCKET';
       
-      console.warn(`Cannot send data: socket not available or not in OPEN state (${state})`, {
+      this.log(LogLevel.WARN, `Cannot send data: socket not available or not in OPEN state (${state})`, {
         socketExists: !!this.socket,
         socketState: state,
         isConnected: this.isConnected
@@ -527,20 +567,20 @@ export class ConnectionManager extends EventEmitter {
       
       // If socket is closed but we think we're connected, try to reconnect
       if (this.socket && this.socket.readyState === WebSocket.CLOSED && this.isConnected) {
-        console.log('Socket is closed but connection flag is true, reconnecting...');
+        this.log(LogLevel.INFO, 'Socket is closed but connection flag is true, reconnecting...');
         this.handleDisconnect();
       }
     }
   }
   
   private handleMessage(message: any): void {
-    console.log(`Received message from server (${message.type}):`, message);
+    this.log(LogLevel.INFO, `Received message from server (${message.type}):`, message);
     this.emit('message_received', message);
     
     // Any message from the server is a sign that the connection is active,
     // even if it's an error message
     if (!this.isConnected) {
-      console.log('Received message while disconnected - reconnecting state');
+      this.log(LogLevel.INFO, 'Received message while disconnected - reconnecting state');
       this.isConnected = true;
       this.emit('connected');
     }
@@ -556,12 +596,12 @@ export class ConnectionManager extends EventEmitter {
       case 'connection':
         this.playerId = message.id;
         this.gameState = message.gameState;
-        console.log('📣 CONNECTION: Set player ID to', this.playerId);
+        this.log(LogLevel.INFO, '📣 CONNECTION: Set player ID to', this.playerId);
         this.emit('initialized', { id: this.playerId, gameState: this.gameState });
         break;
         
       case 'welcome':
-        console.log('Received welcome message from server');
+        this.log(LogLevel.INFO, 'Received welcome message from server');
         // Server is up, but we still need to authenticate
         if (!this.playerId) {
           this.initializeSession();
@@ -570,14 +610,14 @@ export class ConnectionManager extends EventEmitter {
         
       case 'auth_success':
       case 'join_success':
-        console.log('Authentication/join successful');
+        this.log(LogLevel.INFO, 'Authentication/join successful');
         if (message.player && message.player.id) {
           this.playerId = message.player.id;
-          console.log('📣 AUTH_SUCCESS: Set player ID to', this.playerId);
+          this.log(LogLevel.INFO, '📣 AUTH_SUCCESS: Set player ID to', this.playerId);
           if (message.session) {
-            console.log('Joined session:', message.session.id);
+            this.log(LogLevel.INFO, 'Joined session:', message.session.id);
             // Add more detailed session diagnostics
-            console.log('📊 Session diagnostics:', {
+            this.log(LogLevel.INFO, '📊 Session diagnostics:', {
               requestedSession: 'JACKALOPES-TEST-SESSION',
               assignedSession: message.session.id,
               sessionKey: message.session.key,
@@ -589,7 +629,7 @@ export class ConnectionManager extends EventEmitter {
           this.emit('initialized', { id: this.playerId, gameState: this.gameState });
           
           // After initialization, immediately log connection state for debugging
-          console.log('📣 Connection state after auth success:', this.isReadyToSend(), {
+          this.log(LogLevel.INFO, '📣 Connection state after auth success:', this.isReadyToSend(), {
             isConnected: this.isConnected,
             playerId: this.playerId,
             socketReady: this.socket?.readyState === WebSocket.OPEN
@@ -597,7 +637,7 @@ export class ConnectionManager extends EventEmitter {
           
           // If we received auth_success but not join_success, send join_session
           if (message.type === 'auth_success') {
-            console.log('Auth successful, joining session...');
+            this.log(LogLevel.INFO, 'Auth successful, joining session...');
             this.send({
               type: 'join_session',
               playerName: message.player.id, // Use player ID as name
@@ -613,7 +653,7 @@ export class ConnectionManager extends EventEmitter {
         break;
         
       case 'player_joined':
-        console.log('👤 Player joined event received:', message);
+        this.log(LogLevel.INFO, '👤 Player joined event received:', message);
         // Handle both formats the server might send
         const playerId = message.id || message.player_id;
         const playerState = message.initialState || {
@@ -624,7 +664,7 @@ export class ConnectionManager extends EventEmitter {
         
         // Skip if this is our own player ID
         if (playerId === this.playerId) {
-          console.log('Ignoring player_joined for our own player ID');
+          this.log(LogLevel.INFO, 'Ignoring player_joined for our own player ID');
           break;
         }
         
@@ -633,12 +673,12 @@ export class ConnectionManager extends EventEmitter {
         
         // Emit the event so the UI can update
         this.emit('player_joined', { id: playerId, state: playerState });
-        console.log('🎮 Updated player list - current players:', Object.keys(this.gameState.players));
+        this.log(LogLevel.INFO, '🎮 Updated player list - current players:', Object.keys(this.gameState.players));
         break;
         
       case 'player_list':
         // Some servers might send a complete player list instead of individual join/leave events
-        console.log('Received player list from server:', message.players);
+        this.log(LogLevel.INFO, 'Received player list from server:', message.players);
         if (message.players && typeof message.players === 'object') {
           // Update our game state with all players
           Object.entries(message.players).forEach(([id, playerData]: [string, any]) => {
@@ -652,7 +692,7 @@ export class ConnectionManager extends EventEmitter {
             this.emit('player_joined', { id, state: playerData });
           });
           
-          console.log('🎮 Updated player list from server - current players:', Object.keys(this.gameState.players));
+          this.log(LogLevel.INFO, '🎮 Updated player list from server - current players:', Object.keys(this.gameState.players));
         }
         break;
         
@@ -675,7 +715,7 @@ export class ConnectionManager extends EventEmitter {
           if (position) {
             // Check if this is a player we don't know about yet
             if (!this.gameState.players[updatePlayerId]) {
-              console.log(`New player detected from player_update: ${updatePlayerId}`);
+              this.log(LogLevel.INFO, `New player detected from player_update: ${updatePlayerId}`);
               // Create a player joined event for this new player
               const newPlayerState = {
                 position: position,
@@ -726,7 +766,7 @@ export class ConnectionManager extends EventEmitter {
               }
             }
           } else {
-            console.warn('Received player_update without position data:', message);
+            this.log(LogLevel.WARN, 'Received player_update without position data:', message);
           }
         }
         // If message is for local player, emit server_state_update for reconciliation
@@ -742,7 +782,7 @@ export class ConnectionManager extends EventEmitter {
         
       case 'game_event':
         // Handle game events - could be various types including shots
-        console.log('Game event received:', message);
+        this.log(LogLevel.INFO, 'Game event received:', message);
         
         // Check for shot events
         if (message.event_type === 'player_shoot' || 
@@ -755,7 +795,7 @@ export class ConnectionManager extends EventEmitter {
           
           // Make sure we don't process our own shots
           if (shooterId !== this.playerId) {
-            console.log('Emitting player_shoot event for shot from player:', shooterId);
+            this.log(LogLevel.INFO, 'Emitting player_shoot event for shot from player:', shooterId);
             this.emit('player_shoot', {
               id: shooterId,
               shotId: eventData.shotId || 'server-' + Date.now(),
@@ -764,16 +804,16 @@ export class ConnectionManager extends EventEmitter {
               timestamp: eventData.timestamp || Date.now()
             });
           } else {
-            console.log('Ignoring our own shot event from server (player ID:', this.playerId, ')');
+            this.log(LogLevel.INFO, 'Ignoring our own shot event from server (player ID:', this.playerId, ')');
           }
         }
         break;
         
       case 'shoot':
-        console.log('Received shot event:', message);
+        this.log(LogLevel.INFO, 'Received shot event:', message);
         // Make sure we don't process our own shots
         if (message.id !== this.playerId) {
-          console.log('Emitting player_shoot event for shot from player:', message.id);
+          this.log(LogLevel.INFO, 'Emitting player_shoot event for shot from player:', message.id);
           this.emit('player_shoot', {
             id: message.id,
             shotId: message.shotId || 'no-id',
@@ -781,7 +821,7 @@ export class ConnectionManager extends EventEmitter {
             direction: message.direction
           });
         } else {
-          console.log('Ignoring our own shot event from server (player ID:', this.playerId, ')');
+          this.log(LogLevel.INFO, 'Ignoring our own shot event from server (player ID:', this.playerId, ')');
         }
         break;
         
@@ -796,18 +836,18 @@ export class ConnectionManager extends EventEmitter {
         break;
         
       case 'error':
-        console.error('Error from server:', message.message);
+        this.log(LogLevel.ERROR, 'Error from server:', message.message);
         
         // If it's an unknown message type, don't consider it a connection error
         if (message.message && message.message.includes('Unknown message type')) {
-          console.log('Server does not recognize a message type, but connection is still active');
+          this.log(LogLevel.INFO, 'Server does not recognize a message type, but connection is still active');
           
           // Switch to client-side estimation if our ping attempts are failing
           this.useServerPong = false;
-          console.log('Switching to client-side latency estimation due to server error');
+          this.log(LogLevel.INFO, 'Switching to client-side latency estimation due to server error');
         } else {
           // Some other error
-          console.error('Server error:', message.message);
+          this.log(LogLevel.ERROR, 'Server error:', message.message);
           this.emit('server_error', message.message);
         }
         break;
@@ -815,7 +855,7 @@ export class ConnectionManager extends EventEmitter {
   }
   
   private handleClose(): void {
-    console.log('Disconnected from server');
+    this.log(LogLevel.INFO, 'Disconnected from server');
     this.isConnected = false;
     this.emit('disconnected');
     
@@ -830,12 +870,12 @@ export class ConnectionManager extends EventEmitter {
   }
   
   private handleError(error: Event): void {
-    console.error('WebSocket error:', error);
+    this.log(LogLevel.ERROR, 'WebSocket error:', error);
     // Don't emit error if we're not connected yet - this is expected if server isn't running
     if (this.isConnected) {
       this.emit('error', error);
     } else {
-      console.log('WebSocket connection failed - server might not be running');
+      this.log(LogLevel.INFO, 'WebSocket connection failed - server might not be running');
     }
   }
   
@@ -879,7 +919,7 @@ export class ConnectionManager extends EventEmitter {
   private handleDisconnect(): void {
     this.isConnected = false;
     this.emit('disconnected');
-    console.log('Disconnected from server');
+    this.log(LogLevel.INFO, 'Disconnected from server');
     
     // Stop ping interval
     this.stopPingInterval();
@@ -892,7 +932,7 @@ export class ConnectionManager extends EventEmitter {
     
     // For staging server, switch to offline mode immediately after first attempt
     if (this.serverUrl.includes('staging.games.bonsai.so') && this.reconnectAttempts >= 2) {
-      console.log('Staging server unreachable after attempt, switching to offline mode');
+      this.log(LogLevel.INFO, 'Staging server unreachable after attempt, switching to offline mode');
       this.connectionFailed = true;
       this.forceReady();
       return;
@@ -906,10 +946,10 @@ export class ConnectionManager extends EventEmitter {
       const jitter = Math.random() * 1000; // Add up to 1 second of jitter
       const delay = Math.min(exponentialBackoff + jitter, 30000); // Cap at 30 seconds
       
-      console.log(`Reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${Math.round(delay)}ms`);
+      this.log(LogLevel.INFO, `Reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${Math.round(delay)}ms`);
       this.reconnectTimeout = setTimeout(() => this.connect(), delay);
     } else {
-      console.log(`Max reconnect attempts (${this.maxReconnectAttempts}) reached. Switching to offline mode.`);
+      this.log(LogLevel.INFO, `Max reconnect attempts (${this.maxReconnectAttempts}) reached. Switching to offline mode.`);
       // Mark as failed
       this.connectionFailed = true;
       // Switch to offline mode after max reconnect attempts
@@ -920,7 +960,7 @@ export class ConnectionManager extends EventEmitter {
   // Add server-side game snapshot for state synchronization
   sendGameSnapshot(snapshot: GameSnapshot): void {
     if (!this.isConnected) {
-      console.log('Cannot send game snapshot: not connected to server');
+      this.log(LogLevel.INFO, 'Cannot send game snapshot: not connected to server');
       return;
     }
     
@@ -947,7 +987,7 @@ export class ConnectionManager extends EventEmitter {
   addTestPlayer(): string {
     const testPlayerId = `test-player-${Math.floor(Math.random() * 10000)}`;
     
-    console.log('Adding simulated test player for debugging:', testPlayerId);
+    this.log(LogLevel.INFO, 'Adding simulated test player for debugging:', testPlayerId);
     
     // Create initial position
     const startPosition: [number, number, number] = [
@@ -1044,7 +1084,7 @@ export class ConnectionManager extends EventEmitter {
   removeTestPlayer(testPlayerId: string): void {
     // Check if this is a test player
     if (!this._testPlayers || !this._testPlayers[testPlayerId]) {
-      console.warn(`Not a test player: ${testPlayerId}`);
+      this.log(LogLevel.WARN, `Not a test player: ${testPlayerId}`);
       return;
     }
     
@@ -1062,7 +1102,7 @@ export class ConnectionManager extends EventEmitter {
       id: testPlayerId
     });
     
-    console.log(`Removed test player: ${testPlayerId}`);
+    this.log(LogLevel.INFO, `Removed test player: ${testPlayerId}`);
   }
   
   // Remove all test players
@@ -1080,7 +1120,7 @@ export class ConnectionManager extends EventEmitter {
   
   // Initialize session with the server
   private initializeSession(): void {
-    console.log('Initializing session...');
+    this.log(LogLevel.INFO, 'Initializing session...');
     
     // Generate a random player name if none exists
     const playerName = `player-${Math.floor(Math.random() * 10000)}`;
@@ -1095,7 +1135,7 @@ export class ConnectionManager extends EventEmitter {
     setTimeout(() => {
       // Only send if we're still connected but not authenticated
       if (this.socket && this.socket.readyState === WebSocket.OPEN && !this.playerId) {
-        console.log('Auth not successful, trying join_session as fallback...');
+        this.log(LogLevel.INFO, 'Auth not successful, trying join_session as fallback...');
         this.send({
           type: 'join_session',
           playerName: playerName,
@@ -1107,7 +1147,7 @@ export class ConnectionManager extends EventEmitter {
     // Check connection state after a delay
     setTimeout(() => {
       if (this.socket && this.socket.readyState === WebSocket.OPEN && !this.playerId) {
-        console.log('Still no player ID after auth attempts, connection may be partially broken');
+        this.log(LogLevel.INFO, 'Still no player ID after auth attempts, connection may be partially broken');
         // Try to reset connection
         this.disconnect();
         setTimeout(() => this.connect(), 1000);
