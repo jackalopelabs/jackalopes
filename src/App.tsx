@@ -22,6 +22,56 @@ import { ConnectionManager } from './network/ConnectionManager'
 import { ConnectionTest } from './components/ConnectionTest'
 import { VirtualGamepad } from './components/VirtualGamepad'
 
+// Add Moon component
+const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height: number, orbitSpeed: number }) => {
+    const moonRef = useRef<THREE.Mesh>(null);
+    const angle = useRef(0);
+    
+    // Create moon light
+    const moonLightRef = useRef<THREE.PointLight>(null);
+    
+    useFrame(() => {
+        if (!moonRef.current || !moonLightRef.current) return;
+        
+        // Increment angle for orbit
+        angle.current += orbitSpeed * 0.01;
+        
+        // Calculate moon position in orbit around the center of the level
+        const x = Math.sin(angle.current) * orbitRadius;
+        const z = Math.cos(angle.current) * orbitRadius;
+        
+        // Set moon position
+        moonRef.current.position.set(x, height, z);
+        
+        // Light follows moon with slight offset to avoid z-fighting
+        moonLightRef.current.position.set(x, height - 2, z);
+    });
+    
+    return (
+        <>
+            {/* Moon mesh */}
+            <mesh ref={moonRef} position={[orbitRadius, height, 0]} castShadow>
+                <sphereGeometry args={[3, 32, 32]} />
+                <meshStandardMaterial color="#f0f8ff" emissive="#f0f8ff" emissiveIntensity={1.0} />
+            </mesh>
+            
+            {/* Moon light */}
+            <pointLight 
+                ref={moonLightRef}
+                position={[orbitRadius, height - 2, 0]}
+                intensity={5}
+                color="#f0f8ff"
+                distance={200}
+                castShadow
+                shadow-mapSize={[4096, 4096]}
+                shadow-bias={-0.001}
+                shadow-camera-near={1}
+                shadow-camera-far={150}
+            />
+        </>
+    );
+};
+
 const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     const texture = useTexture('/final-texture.png')
     texture.wrapS = texture.wrapT = THREE.RepeatWrapping
@@ -52,7 +102,7 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
             <CuboidCollider position={[0, 2, 25]} args={[25, 2, 1]} />
             <CuboidCollider position={[0, 2, -25]} args={[25, 2, 1]} />
             
-            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
+            <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
                 <planeGeometry args={[50, 50]} />
                 <MeshReflectorMaterial
                     map={groundTexture}
@@ -66,19 +116,19 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
             </mesh>
             
             {/* Border walls */}
-            <mesh position={[25, 2, 0]}>
+            <mesh position={[25, 2, 0]} castShadow receiveShadow>
                 <boxGeometry args={[2, 4, 50]} />
                 <meshStandardMaterial map={sideWallTexture} side={THREE.DoubleSide} />
             </mesh>
-            <mesh position={[-25, 2, 0]}>
+            <mesh position={[-25, 2, 0]} castShadow receiveShadow>
                 <boxGeometry args={[2, 4, 50]} />
                 <meshStandardMaterial map={sideWallTexture} side={THREE.DoubleSide} />
             </mesh>
-            <mesh position={[0, 2, 25]}>
+            <mesh position={[0, 2, 25]} castShadow receiveShadow>
                 <boxGeometry args={[50, 4, 2]} />
                 <meshStandardMaterial map={frontWallTexture} side={THREE.DoubleSide} />
             </mesh>
-            <mesh position={[0, 2, -25]}>
+            <mesh position={[0, 2, -25]} castShadow receiveShadow>
                 <boxGeometry args={[50, 4, 2]} />
                 <meshStandardMaterial map={frontWallTexture} side={THREE.DoubleSide} />
             </mesh>
@@ -913,7 +963,9 @@ export function App() {
         contrast,
         colorGradingEnabled,
         toneMapping,
-        toneMappingExposure
+        toneMappingExposure,
+        moonOrbit,
+        moonOrbitSpeed
     } = useControls({
         fog: folder({
             fogEnabled: true,
@@ -922,10 +974,12 @@ export function App() {
             fogFar: { value: 95, min: 0, max: 100, step: 1 }
         }, { collapsed: true }),
         lighting: folder({
-            ambientIntensity: { value: 1.3, min: 0, max: 2, step: 0.1 },
-            directionalIntensity: { value: 1, min: 0, max: 2, step: 0.1 },
+            ambientIntensity: { value: 0, min: 0, max: 2, step: 0.1 },
+            directionalIntensity: { value: 1.5, min: 0, max: 2, step: 0.1 },
             directionalHeight: { value: 20, min: 5, max: 50, step: 1 },
-            directionalDistance: { value: 10, min: 5, max: 30, step: 1 }
+            directionalDistance: { value: 10, min: 5, max: 30, step: 1 },
+            moonOrbit: { value: true, label: 'Moon Orbits Level' },
+            moonOrbitSpeed: { value: 0.05, min: 0.01, max: 0.5, step: 0.01, label: 'Orbit Speed' },
         }, { collapsed: true }),
         postProcessing: folder({
             enablePostProcessing: true,
@@ -1234,14 +1288,49 @@ export function App() {
         directionalLightRef.current.target.position.set(position.x, position.y, position.z);
         directionalLightRef.current.target.updateMatrixWorld();
         
-        // Only update light position, not target - more stable for shadows
-        directionalLightRef.current.position.set(
-            position.x + directionalDistance,
-            directionalHeight,
-            position.z + directionalDistance
-        );
+        // Position calculation is now handled by MoonOrbit if enabled
+        if (!moonOrbit) {
+            // Only update light position, not target - more stable for shadows
+            directionalLightRef.current.position.set(
+                position.x + directionalDistance,
+                directionalHeight,
+                position.z + directionalDistance
+            );
+        }
     };
     
+    // Add moon orbit component
+    const MoonOrbit = () => {
+        const angle = useRef(0);
+        
+        useFrame(() => {
+            if (!moonOrbit || !directionalLightRef.current) return;
+            
+            // Increment angle for orbit
+            angle.current += moonOrbitSpeed * 0.01;
+            
+            // Calculate light position in orbit around the center of the level
+            const orbitRadius = Math.max(directionalDistance, 15);
+            const x = Math.sin(angle.current) * orbitRadius;
+            const z = Math.cos(angle.current) * orbitRadius;
+            
+            // Set light position
+            directionalLightRef.current.position.set(
+                x,
+                directionalHeight,
+                z
+            );
+            
+            // Keep shadows sharp
+            directionalLightRef.current.shadow.bias = -0.001;
+            directionalLightRef.current.shadow.normalBias = 0.05;
+            directionalLightRef.current.shadow.mapSize.width = 4096;
+            directionalLightRef.current.shadow.mapSize.height = 4096;
+        });
+        
+        return null;
+    };
+
     // Update the light position in useFrame via PlayerPositionTracker
     // This is more stable than the onMove handler which can be sporadic
     const StableLightUpdater = () => {
@@ -1322,9 +1411,17 @@ export function App() {
                     shadow-camera-bottom={-30}
                     shadow-camera-near={1}
                     shadow-camera-far={150}
-                    shadow-bias={-0.0001}
-                    shadow-normalBias={0.02}
+                    shadow-bias={-0.001}
+                    shadow-normalBias={0.05}
+                    color="#f0f8ff"
                 />
+
+                {/* Add visible moon */}
+                {moonOrbit && <Moon 
+                    orbitRadius={Math.max(directionalDistance, 20)} 
+                    height={directionalHeight + 5} 
+                    orbitSpeed={moonOrbitSpeed} 
+                />}
 
                 <Physics 
                     debug={false} 
@@ -1473,6 +1570,9 @@ export function App() {
                         />
                     </EffectComposer>
                 )}
+
+                {/* Add MoonOrbit component */}
+                <MoonOrbit />
 
                 {/* Add stable light updater for third-person view */}
                 {thirdPersonView && <StableLightUpdater />}
