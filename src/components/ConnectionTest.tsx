@@ -220,112 +220,262 @@ export const ConnectionTest: React.FC<ConnectionTestProps> = ({ sharedConnection
     }
   };
 
+  // Return a styled UI that matches the Multiplayer Debug Panel
   return (
-    <div className="fixed bottom-4 right-4 bg-black/80 text-white p-4 rounded-lg shadow-lg max-w-md z-50">
-      <div className="flex justify-between items-center mb-2">
-        <h2 className="text-lg font-bold">Connection Test</h2>
+    <div style={{
+      position: 'fixed',
+      bottom: expanded ? '350px' : '10px', // Move up when expanded
+      left: '10px', // Position on the left side
+      backgroundColor: connectionStatus === 'offline' ? 'rgba(128, 0, 128, 0.8)' : 
+                      connectionStatus === 'connected' ? 'rgba(0, 128, 0, 0.8)' : 
+                      connectionStatus === 'connecting' ? 'rgba(255, 165, 0, 0.8)' : 
+                      'rgba(0, 0, 0, 0.7)',
+      padding: '10px',
+      borderRadius: '4px',
+      zIndex: 1000,
+      maxWidth: '400px',
+      maxHeight: expanded ? '80vh' : 'auto',
+      overflowY: expanded ? 'auto' : 'hidden',
+      border: connectionStatus === 'offline' ? '1px solid #d8bfd8' : 
+              connectionStatus === 'connected' ? '1px solid #90ee90' : 
+              connectionStatus === 'connecting' ? '1px solid #ffd700' :
+              connectionStatus === 'disconnected' ? '1px solid #ff8a80' : 'none',
+    }}>
+      <div style={{ 
+        fontSize: '14px', 
+        color: 'white', 
+        marginBottom: '10px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
+        <span>
+          {getStatusLabel()} {latency ? `(${latency}ms)` : ''}
+        </span>
         <button 
           onClick={() => setExpanded(!expanded)}
-          className="text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600"
+          style={{
+            backgroundColor: '#333',
+            color: 'white',
+            border: 'none',
+            padding: '3px 6px',
+            borderRadius: '2px',
+            fontSize: '10px',
+            cursor: 'pointer',
+          }}
         >
           {expanded ? 'Collapse' : 'Expand'}
         </button>
       </div>
       
-      {expanded && (
-        <div className="mb-4">
-          <label className="block text-sm mb-1">Server URL:</label>
-          <input
-            type="text"
-            value={serverUrl}
-            onChange={(e) => setServerUrl(e.target.value)}
-            className="w-full bg-gray-700 text-white px-2 py-1 rounded mb-2"
-            disabled={!!sharedConnectionManager}
-          />
-          <div className="flex flex-wrap gap-2 text-xs">
-            <button 
-              onClick={() => setServerPreset('staging')} 
-              className="bg-gray-700 px-2 py-1 rounded hover:bg-gray-600"
-              disabled={!!sharedConnectionManager}
-            >
-              Staging (ws://)
-            </button>
-            <button 
-              onClick={() => setServerPreset('staging-secure')}
-              className="bg-gray-700 px-2 py-1 rounded hover:bg-gray-600"
-              disabled={!!sharedConnectionManager}
-            >
-              Staging (wss://)
-            </button>
-            <button 
-              onClick={() => setServerPreset('local')}
-              className="bg-gray-700 px-2 py-1 rounded hover:bg-gray-600"
-              disabled={!!sharedConnectionManager}
-            >
-              Local
-            </button>
-            <button 
-              onClick={() => setServerPreset('offline')}
-              className={`${connectionStatus === 'offline' ? 'bg-purple-800' : 'bg-purple-700'} px-2 py-1 rounded hover:bg-purple-600`}
-            >
-              Offline Mode
-            </button>
-          </div>
-          {sharedConnectionManager && (
-            <div className="mt-2 text-xs text-yellow-300">
-              ⚠️ Using shared connection manager - URL changes disabled
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="mb-4 p-2 rounded" style={{ backgroundColor: connectionStatus === 'offline' ? 'rgba(147, 51, 234, 0.2)' : 'transparent' }}>
-        <span className={`inline-block w-3 h-3 rounded-full mr-2 ${getStatusColor()}`}></span>
-        <span className="font-medium">{getStatusLabel()}</span>
-        {playerId && <span className="ml-2 text-gray-300 text-sm"> | ID: {playerId.substring(0, 10)}...</span>}
-        <span className="ml-2 text-gray-300 text-sm"> | Latency: {latency}ms</span>
-      </div>
-
-      <div className="flex flex-wrap gap-2 mb-4 text-sm">
+      {/* Connection controls */}
+      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
         <button
           onClick={handleConnect}
-          className="bg-green-600 hover:bg-green-700 px-3 py-1 rounded"
+          style={{
+            backgroundColor: '#2196F3',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            opacity: connectionStatus === 'connecting' ? 0.7 : 1,
+          }}
+          disabled={connectionStatus === 'connecting' || !!sharedConnectionManager}
         >
           Connect
         </button>
         <button
           onClick={handleDisconnect}
-          className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded"
+          style={{
+            backgroundColor: '#f44336',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            opacity: connectionStatus === 'disconnected' ? 0.7 : 1,
+          }}
+          disabled={connectionStatus === 'disconnected' || !!sharedConnectionManager}
         >
           Disconnect
         </button>
         <button
           onClick={handleTestShot}
-          className="bg-blue-600 hover:bg-blue-700 px-3 py-1 rounded"
+          style={{
+            backgroundColor: '#4CAF50',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+          disabled={!connectionManagerRef.current?.isReadyToSend()}
         >
           Test Shot
         </button>
         <button
           onClick={handleForceOfflineMode}
-          className={`${connectionStatus === 'offline' ? 'bg-purple-800 opacity-70' : 'bg-purple-600 hover:bg-purple-700'} px-3 py-1 rounded`}
+          style={{
+            backgroundColor: connectionStatus === 'offline' ? '#666' : '#9C27B0',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            opacity: connectionStatus === 'offline' ? 0.7 : 1,
+          }}
           disabled={connectionStatus === 'offline'}
         >
           Force Offline
         </button>
-        <button
-          onClick={handleGetConnectionState}
-          className="bg-gray-600 hover:bg-gray-700 px-3 py-1 rounded"
-        >
-          Debug State
-        </button>
       </div>
-
+      
+      {/* Expanded content */}
       {expanded && (
-        <div className="h-48 overflow-y-auto bg-gray-900 p-2 rounded text-sm">
-          {logs.map((log, i) => (
-            <div key={i} className="font-mono whitespace-normal break-words">{log}</div>
-          ))}
-        </div>
+        <>
+          {/* Server URL input (only if not using shared connection) */}
+          {!sharedConnectionManager && (
+            <div style={{ marginTop: '10px' }}>
+              <div style={{ fontSize: '12px', color: 'white', marginBottom: '5px' }}>
+                Server URL:
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <input
+                  type="text"
+                  value={serverUrl}
+                  onChange={(e) => setServerUrl(e.target.value)}
+                  style={{ 
+                    flex: 1,
+                    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                    color: 'white',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                    padding: '5px',
+                    borderRadius: '4px',
+                    fontSize: '12px'
+                  }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
+                <button
+                  onClick={() => setServerPreset('staging')}
+                  style={{
+                    backgroundColor: '#333',
+                    color: 'white',
+                    border: 'none',
+                    padding: '3px 6px',
+                    borderRadius: '2px',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Staging (ws://)
+                </button>
+                <button
+                  onClick={() => setServerPreset('staging-secure')}
+                  style={{
+                    backgroundColor: '#333',
+                    color: 'white',
+                    border: 'none',
+                    padding: '3px 6px',
+                    borderRadius: '2px',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Staging (wss://)
+                </button>
+                <button
+                  onClick={() => setServerPreset('local')}
+                  style={{
+                    backgroundColor: '#333',
+                    color: 'white',
+                    border: 'none',
+                    padding: '3px 6px',
+                    borderRadius: '2px',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Local
+                </button>
+                <button
+                  onClick={() => setServerPreset('offline')}
+                  style={{
+                    backgroundColor: '#333',
+                    color: 'white',
+                    border: 'none',
+                    padding: '3px 6px',
+                    borderRadius: '2px',
+                    fontSize: '10px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Offline Mode
+                </button>
+              </div>
+            </div>
+          )}
+          
+          {/* Connection details */}
+          <div style={{
+            marginTop: '10px',
+            fontSize: '12px',
+            color: 'white',
+            backgroundColor: 'rgba(0, 0, 0, 0.3)',
+            padding: '8px',
+            borderRadius: '4px',
+          }}>
+            <p style={{ margin: '5px 0' }}>
+              <strong>Status:</strong> {getStatusLabel()}
+            </p>
+            <p style={{ margin: '5px 0' }}>
+              <strong>Player ID:</strong> {playerId || 'None'}
+            </p>
+            <p style={{ margin: '5px 0' }}>
+              <strong>Latency:</strong> {latency}ms
+            </p>
+            <p style={{ margin: '5px 0' }}>
+              <strong>Connection:</strong> {sharedConnectionManager ? 'Shared' : 'Standalone'}
+            </p>
+          </div>
+          
+          {/* Log messages */}
+          <div style={{ marginTop: '10px' }}>
+            <div style={{ fontSize: '12px', color: 'white', marginBottom: '5px', display: 'flex', justifyContent: 'space-between' }}>
+              <span>Connection Log:</span>
+              <button
+                onClick={() => setLogs([])}
+                style={{
+                  backgroundColor: '#666',
+                  color: 'white',
+                  border: 'none',
+                  padding: '2px 4px',
+                  borderRadius: '2px',
+                  fontSize: '9px',
+                  cursor: 'pointer',
+                }}
+              >
+                Clear
+              </button>
+            </div>
+            <div style={{ 
+              backgroundColor: 'rgba(0, 0, 0, 0.5)',
+              height: '150px',
+              overflowY: 'auto',
+              padding: '8px',
+              borderRadius: '4px',
+              fontSize: '10px',
+              fontFamily: 'monospace'
+            }}>
+              {logs.length > 0 ? logs.map((log, i) => (
+                <div key={i} style={{ marginBottom: '4px' }}>{log}</div>
+              )) : (
+                <div style={{ color: '#888', fontStyle: 'italic' }}>No log messages yet</div>
+              )}
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

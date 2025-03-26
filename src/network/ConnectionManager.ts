@@ -374,38 +374,16 @@ export class ConnectionManager extends EventEmitter {
   
   // Check if we're ready to send data (both connected and authenticated)
   isReadyToSend(): boolean {
-    // If we're in offline mode, use localStorage for communication
-    if (this.offlineMode) {
-      return true;
-    }
-    
-    // If connection failed after max attempts, go to offline mode automatically
-    if (this.connectionFailed && this.reconnectAttempts >= this.maxReconnectAttempts) {
-      if (!this.offlineMode) {
-        this.log(LogLevel.INFO, 'Connection failed after max attempts, forcing offline mode');
-        this.forceReady();
-      }
-      return true;
-    }
-    
-    const socketReady = this.socket !== null && this.socket.readyState === WebSocket.OPEN;
+    const socketReady = this.socket && this.socket.readyState === WebSocket.OPEN;
     const authReady = this.playerId !== null;
     
-    // For better debugging, log detailed connection state
-    if (!socketReady || !this.isConnected || !authReady) {
-      this.log(LogLevel.DEBUG, 'Connection status check:', {
-        offlineMode: this.offlineMode,
-        connectionFailed: this.connectionFailed,
-        reconnectAttempts: this.reconnectAttempts,
-        socketExists: this.socket !== null,
-        socketReadyState: this.socket ? this.socket.readyState : 'no socket',
-        isConnected: this.isConnected,
-        hasPlayerId: this.playerId !== null,
-        playerId: this.playerId
-      });
+    // If we're in offline mode with a player ID, consider the connection ready
+    if (this.offlineMode && this.playerId) {
+      return true;
     }
     
-    return (socketReady && this.isConnected && authReady) || this.offlineMode;
+    // Otherwise, require socket and auth to be ready
+    return socketReady && this.isConnected && authReady;
   }
 
   // Add a method to force the connection ready state (for testing)
@@ -432,37 +410,45 @@ export class ConnectionManager extends EventEmitter {
     });
   }
   
-  // Update sendPlayerUpdate to include sequence number
-  sendPlayerUpdate(position: [number, number, number], rotation: [number, number, number, number], sequence?: number): void {
+  // New version of sendPlayerUpdate that accepts a single updateData object
+  sendPlayerUpdate(updateData: {
+    position: [number, number, number],
+    rotation: [number, number, number, number],
+    velocity?: [number, number, number],
+    sequence?: number
+  }): void {
     if (!this.isReadyToSend()) {
-      // Try localStorage fallback for cross-browser testing
-      try {
-        // Store position update in localStorage as a fallback if server isn't available
-        const updateData = {
-          type: 'player_update',
-          id: this.playerId || `local-player-${Date.now()}`,
-          position,
-          rotation,
-          timestamp: Date.now()
-        };
-        localStorage.setItem('jackalopes_player_update', JSON.stringify(updateData));
-      } catch (e) {
-        // Ignore localStorage errors
-      }
-      
       this.log(LogLevel.INFO, 'Cannot send player update: not connected to server or not authenticated yet');
       return;
     }
     
-    // FIXED: Wrap position and rotation inside state object to match server expectations
-    this.send({
-      type: 'player_update',
-      state: {
-        position,
-        rotation,
-        sequence: sequence || 0
+    if (!this.offlineMode) { 
+      // For online mode, send to server
+      this.send({
+        type: 'player_update',
+        state: {
+          position: updateData.position,
+          rotation: updateData.rotation,
+          velocity: updateData.velocity || [0, 0, 0],
+          sequence: updateData.sequence || Date.now()
+        }
+      });
+    } else {
+      // In offline mode, immediately update local game state and emit event
+      if (this.playerId) {
+        // Update our own player in the game state
+        if (!this.gameState.players[this.playerId]) {
+          this.gameState.players[this.playerId] = {
+            position: updateData.position,
+            rotation: updateData.rotation,
+            health: 100
+          };
+        } else {
+          this.gameState.players[this.playerId].position = updateData.position;
+          this.gameState.players[this.playerId].rotation = updateData.rotation;
+        }
       }
-    });
+    }
   }
   
   // Update sendShootEvent to use a compatible message format with the staging server
@@ -1153,5 +1139,10 @@ export class ConnectionManager extends EventEmitter {
         setTimeout(() => this.connect(), 1000);
       }
     }, 5000);
+  }
+
+  // Check if we're in offline mode
+  isOfflineMode(): boolean {
+    return this.offlineMode;
   }
 } 

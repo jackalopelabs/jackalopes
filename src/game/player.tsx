@@ -290,23 +290,21 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             camera.updateProjectionMatrix()
         }
 
-        // Send position updates to the server for multiplayer
-        if (connectionManager && (Date.now() - lastStateTime.current > 50)) { // 20 updates per second
+        // Send position to multiplayer system if connected
+        if (connectionManager && connectionManager.isReadyToSend() && 
+            (Date.now() - lastStateTime.current > 50)) { // 20 updates per second
             lastStateTime.current = Date.now();
             
-            // Get current position and rotation
-            const position = characterRigidBody.translation() as THREE.Vector3;
-            const rotation = camera.quaternion;
+            const position = characterRigidBody.translation();
+            const rotation = characterRigidBody.rotation(); 
+            const velocity = characterRigidBody.linvel();
             
-            // Generate a sequence number locally
-            const sequence = Date.now(); // Simple sequence based on timestamp
-            
-            // Basic multiplayer update with standard ConnectionManager
-            connectionManager.sendPlayerUpdate(
-                [position.x, position.y, position.z],
-                [rotation.x, rotation.y, rotation.z, rotation.w],
-                sequence
-            );
+            connectionManager.sendPlayerUpdate({
+                position: [position.x, position.y, position.z],
+                rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
+                velocity: [velocity.x, velocity.y, velocity.z],
+                sequence: Date.now()
+            });
         }
     })
     

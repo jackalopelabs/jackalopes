@@ -84,20 +84,44 @@ export const TestConnection: React.FC = () => {
     log('Connecting to server...');
     connectionManager.connect();
 
-    // Send a random position update every 2 seconds
+    // Generate random position every 500ms to simulate movement
     const intervalId = setInterval(() => {
-      if (isConnected) {
+      if (isConnected && connectionManager && connectionManager.isReadyToSend()) {
+        // Generate a random position within the arena
         const randomPos: [number, number, number] = [
-          Math.random() * 10 - 5,
-          Math.random() * 10,
-          Math.random() * 10 - 5
+          10 * (Math.random() - 0.5),
+          Math.random() * 2 + 1, // 1-3 units high
+          10 * (Math.random() - 0.5)
         ];
-        const randomRot: [number, number, number, number] = [0, 0, 0, 1];
         
-        connectionManager.sendPlayerUpdate(randomPos, randomRot);
-        log(`Sent position update: ${JSON.stringify(randomPos)}`);
+        // Generate a random rotation
+        const randomRot: [number, number, number, number] = [
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+          Math.random() - 0.5,
+          Math.random() - 0.5
+        ];
+        
+        // Normalize the rotation quaternion
+        const length = Math.sqrt(
+          randomRot[0] * randomRot[0] + 
+          randomRot[1] * randomRot[1] + 
+          randomRot[2] * randomRot[2] + 
+          randomRot[3] * randomRot[3]
+        );
+        randomRot[0] /= length;
+        randomRot[1] /= length;
+        randomRot[2] /= length;
+        randomRot[3] /= length;
+        
+        // Send the update
+        connectionManager.sendPlayerUpdate({
+          position: randomPos,
+          rotation: randomRot,
+          sequence: Date.now()
+        });
       }
-    }, 2000);
+    }, 500);
 
     return () => {
       clearInterval(intervalId);

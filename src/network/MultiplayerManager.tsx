@@ -88,6 +88,14 @@ type PlayerData = {
   health: number;
 };
 
+// Add this near the beginning of the file, where other interfaces are defined
+interface PlayerUpdateData {
+  position: [number, number, number];
+  rotation: [number, number, number, number];
+  velocity?: [number, number, number];
+  sequence?: number;
+}
+
 // ReconciliationDebugOverlay component to show reconciliation metrics
 const ReconciliationDebugOverlay = ({ metrics }: { metrics: {
   totalCorrections: number,
@@ -155,6 +163,10 @@ export const useMultiplayer = (
   const remotePlayerRefs = useRef<Record<string, RemotePlayerData>>({});
   const updateMethodsRef = useRef<Record<string, RemotePlayerMethods>>({});
   const { camera } = useThree();
+  
+  // Add refs for optimization
+  const lastSentPosition = useRef<[number, number, number] | null>(null);
+  const nextSequence = useRef<number>(0);
   
   // Get server time with offset
   const getServerTime = () => {
@@ -604,20 +616,23 @@ export const useMultiplayer = (
     
     console.log('Starting position update interval');
     
-    // Send position update at regular intervals  
+    // Send position update more frequently for smoother movement
     const updateInterval = setInterval(() => {
       if (localPlayerRef.current && connectionManager.isReadyToSend()) {
         let position;
         let rotation;
+        let velocity;
         
         // Try different ways to get position data based on player implementation
-        if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
-          // Direct position property
-          position = localPlayerRef.current.position;
-          rotation = localPlayerRef.current.quaternion;
+        if (localPlayerRef.current.body && localPlayerRef.current.body.translation) {
+          // Get position from rapier body
+          position = localPlayerRef.current.body.translation();
+          rotation = localPlayerRef.current.body.rotation();
+          velocity = localPlayerRef.current.body.linvel();
         } else if (localPlayerRef.current.rigidBody && localPlayerRef.current.rigidBody.translation) {
-          // Rapier physics rigidBody
+          // Legacy rapier physics rigidBody
           position = localPlayerRef.current.rigidBody.translation();
+          velocity = localPlayerRef.current.rigidBody.linvel();
           
           // For rotation, use camera quaternion if player doesn't have one
           if (localPlayerRef.current.rigidBody.rotation) {
@@ -626,50 +641,76 @@ export const useMultiplayer = (
             // Use camera quaternion as fallback for rotation
             rotation = camera.quaternion; 
           }
+        } else if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
+          // Direct position property
+          position = localPlayerRef.current.position;
+          rotation = localPlayerRef.current.quaternion;
         }
         
         // Only send update if we have valid position and rotation data
         if (position && position.x !== undefined && 
             rotation && rotation.x !== undefined) {
           
-          // Normalize the quaternion before sending to avoid cross-browser issues
-          // Create a temporary quaternion to normalize without modifying the original
-          const normalizedRotation = new THREE.Quaternion(
-            rotation.x, 
-            rotation.y, 
-            rotation.z, 
-            rotation.w
-          ).normalize();
+          // Only send if we've moved significantly to reduce traffic
+          const lastPos = lastSentPosition.current;
+          const posChanged = !lastPos || 
+            Math.abs(position.x - lastPos[0]) > 0.05 || 
+            Math.abs(position.y - lastPos[1]) > 0.05 || 
+            Math.abs(position.z - lastPos[2]) > 0.05;
           
-          // Create a properly formatted array
-          const rotationArray: [number, number, number, number] = [
-            normalizedRotation.x,
-            normalizedRotation.y,
-            normalizedRotation.z,
-            normalizedRotation.w
-          ];
-          
-          // Position should also be properly formatted as an array
-          const positionArray: [number, number, number] = [
-            position.x,
-            position.y,
-            position.z
-          ];
-          
-          // Send to server
-          connectionManager.sendPlayerUpdate(
-            positionArray,
-            rotationArray
-          );
-        } else {
-          console.log('Player position or rotation not available yet:', {
-            hasPosition: !!position,
-            hasRotation: !!rotation,
-            playerProps: Object.keys(localPlayerRef.current)
-          });
+          if (posChanged) {
+            // Normalize the quaternion before sending to avoid cross-browser issues
+            // Create a temporary quaternion to normalize without modifying the original
+            const normalizedRotation = new THREE.Quaternion(
+              rotation.x, 
+              rotation.y, 
+              rotation.z, 
+              rotation.w
+            ).normalize();
+            
+            // Create a properly formatted array for rotation
+            const rotationArray: [number, number, number, number] = [
+              normalizedRotation.x,
+              normalizedRotation.y,
+              normalizedRotation.z,
+              normalizedRotation.w
+            ];
+            
+            // Position should also be properly formatted as an array
+            const positionArray: [number, number, number] = [
+              position.x,
+              position.y,
+              position.z
+            ];
+            
+            // Velocity array if available
+            const velocityArray = velocity ? [
+              velocity.x,
+              velocity.y,
+              velocity.z
+            ] as [number, number, number] : undefined;
+            
+            // Create update data object
+            const updateData: PlayerUpdateData = {
+              position: positionArray,
+              rotation: rotationArray,
+              sequence: nextSequence.current++
+            };
+            
+            // Add velocity if available
+            if (velocityArray) {
+              updateData.velocity = velocityArray;
+            }
+            
+            // Send to server
+            connectionManager.sendPlayerUpdate(updateData);
+            
+            // Update last sent position
+            lastSentPosition.current = positionArray;
+          }
         }
       }
-    }, 50); // 20 updates per second
+    }, 25); // 40 updates per second for smoother movement
     
     return () => {
       console.log('Clearing position update interval');
@@ -1212,84 +1253,49 @@ export const MultiplayerManager: React.FC<{
     };
   }, [connectionManager]);
   
-  // Set up position updates
+  // Set up position update interval
   useEffect(() => {
-    if (!connectionManager || !localPlayerRef.current || !isConnected) return;
+    if (!connectionManager || !localPlayerRef.current || connectionManager.isOfflineMode()) {
+      return;
+    }
     
     console.log('Starting position update interval');
     
-    // Send position update at regular intervals  
-    const updateInterval = setInterval(() => {
+    // Send our position more frequently (20ms instead of 50ms) for smoother updates
+    const intervalId = setInterval(() => {
       if (localPlayerRef.current && connectionManager.isReadyToSend()) {
-        let position;
-        let rotation;
+        const position = localPlayerRef.current.body.translation();
+        const rotation = localPlayerRef.current.body.rotation();
         
-        // Try different ways to get position data based on player implementation
-        if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
-          // Direct position property
-          position = localPlayerRef.current.position;
-          rotation = localPlayerRef.current.quaternion;
-        } else if (localPlayerRef.current.rigidBody && localPlayerRef.current.rigidBody.translation) {
-          // Rapier physics rigidBody
-          position = localPlayerRef.current.rigidBody.translation();
-          
-          // For rotation, use camera quaternion if player doesn't have one
-          if (localPlayerRef.current.rigidBody.rotation) {
-            rotation = localPlayerRef.current.rigidBody.rotation();
-          } else {
-            // Use camera quaternion as fallback for rotation
-            rotation = camera.quaternion; 
-          }
-        }
+        // Get velocity for prediction
+        const velocity = localPlayerRef.current.body.linvel();
         
-        // Only send update if we have valid position and rotation data
-        if (position && position.x !== undefined && 
-            rotation && rotation.x !== undefined) {
-          
-          // Normalize the quaternion before sending to avoid cross-browser issues
-          // Create a temporary quaternion to normalize without modifying the original
-          const normalizedRotation = new THREE.Quaternion(
-            rotation.x, 
-            rotation.y, 
-            rotation.z, 
-            rotation.w
-          ).normalize();
-          
-          // Create a properly formatted array
-          const rotationArray: [number, number, number, number] = [
-            normalizedRotation.x,
-            normalizedRotation.y,
-            normalizedRotation.z,
-            normalizedRotation.w
-          ];
-          
-          // Position should also be properly formatted as an array
-          const positionArray: [number, number, number] = [
-            position.x,
-            position.y,
-            position.z
-          ];
-          
-          // Send to server
-          connectionManager.sendPlayerUpdate(
-            positionArray,
-            rotationArray
-          );
-        } else {
-          console.log('Player position or rotation not available yet:', {
-            hasPosition: !!position,
-            hasRotation: !!rotation,
-            playerProps: Object.keys(localPlayerRef.current)
+        // Only send if we've moved significantly to reduce traffic
+        const lastPos = lastSentPosition.current;
+        const posChanged = !lastPos || 
+          Math.abs(position.x - lastPos[0]) > 0.05 || 
+          Math.abs(position.y - lastPos[1]) > 0.05 || 
+          Math.abs(position.z - lastPos[2]) > 0.05;
+        
+        if (posChanged) {
+          connectionManager.sendPlayerUpdate({
+            position: [position.x, position.y, position.z],
+            rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
+            velocity: [velocity.x, velocity.y, velocity.z],
+            sequence: nextSequence.current++
           });
+          
+          // Update last sent position
+          lastSentPosition.current = [position.x, position.y, position.z];
         }
       }
-    }, 50); // 20 updates per second
+    }, 20); // Reduced from 50ms to 20ms for smoother updates
     
     return () => {
-      console.log('Clearing position update interval');
-      clearInterval(updateInterval);
+      clearInterval(intervalId);
+      console.log('Cleared position update interval');
     };
-  }, [connectionManager, localPlayerRef, isConnected, camera]);
+  }, [connectionManager, localPlayerRef]);
 
   // Render remote players
   return (

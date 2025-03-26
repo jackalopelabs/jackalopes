@@ -505,7 +505,7 @@ export function App() {
     const { enableMultiplayer } = useControls('Multiplayer', {
         enableMultiplayer: {
             value: true,
-            label: 'Enable Multiplayer'
+            label: 'Enable Connection'
         }
     }, {
         collapsed: false,
@@ -522,21 +522,20 @@ export function App() {
         
         if (enableMultiplayer) {
             // When enabling, set immediately
-            setShowMultiplayerTools(true);
             console.log('Multiplayer enabled');
             
-            // Add a fallback for connection issues by forcing ready state after 4 seconds
+            // Add a fallback for connection issues by forcing ready state after 8 seconds (increased from 4)
             forceReadyTimeoutId = setTimeout(() => {
                 console.log('Checking if connection is ready, forcing if needed...');
                 if (connectionManager && !connectionManager.isReadyToSend()) {
-                    console.log('⚠️ Connection not fully established after 4s, forcing ready state for testing');
+                    console.log('⚠️ Connection not fully established after 8s, forcing ready state for testing');
                     connectionManager.forceReady();
                     setIsOfflineMode(true);
                     setShowOfflineNotification(true);
                     // Auto-hide notification after 5 seconds
                     setTimeout(() => setShowOfflineNotification(false), 5000);
                 }
-            }, 4000); // Reduced to 4 seconds to give faster feedback
+            }, 8000); // Increased from 4000 to 8000ms for slower connections
             
             // Cleanup function to clear both timeouts
             return () => {
@@ -551,7 +550,6 @@ export function App() {
             // When disabling, add a delay to allow for cleanup
             console.log('Disabling multiplayer with cleanup delay...');
             timeoutId = window.setTimeout(() => {
-                setShowMultiplayerTools(false);
                 console.log('Multiplayer disabled after cleanup');
             }, 500); // Half-second delay for proper cleanup
             
@@ -641,33 +639,18 @@ export function App() {
         order: 995
     })
 
-    // Get remote shots from the connection manager (always call the hook to maintain hook order)
-    const allRemoteShots = useRemoteShots(connectionManager);
-    // Only use the shots when multiplayer is enabled
-    const remoteShots = showMultiplayerTools ? allRemoteShots : [];
-    
-    // Debug logging for remote shots
-    useEffect(() => {
-        if (remoteShots.length > 0) {
-            console.log('Remote shots in App:', remoteShots);
-        }
-    }, [remoteShots]);
-
-    const { showDebug } = useControls('Game Settings', {
-        showDebug: { value: false }
-    }, {
-        collapsed: true,
-        order: 999
-    });
-
     // Add a toggle for the multiplayer tools panel
-    const { showTools } = useControls('Multiplayer', {
+    const { showTools, showConnectionTest } = useControls('Game UI', {
         showTools: {
-            value: true,
-            label: 'Show Tools Panel'
+            value: false,
+            label: 'Show Multiplayer Tools'
+        },
+        showConnectionTest: {
+            value: false,
+            label: 'Show Connection Test UI'
         },
         logLevel: {
-            value: 3, // Default to INFO level
+            value: 0,
             label: 'Log Level (0=None, 5=Verbose)',
             min: 0,
             max: 5,
@@ -686,8 +669,28 @@ export function App() {
     
     // Set showMultiplayerTools based on the control panel toggle
     useEffect(() => {
-        setShowMultiplayerTools(showTools && enableMultiplayer);
-    }, [showTools, enableMultiplayer]);
+        // Only update the UI visibility, not the connection status
+        setShowMultiplayerTools(showTools);
+    }, [showTools]);
+
+    // Get remote shots from the connection manager (always call the hook to maintain hook order)
+    const allRemoteShots = useRemoteShots(connectionManager);
+    // Only use the shots when multiplayer is enabled, not affected by UI visibility
+    const remoteShots = enableMultiplayer ? allRemoteShots : [];
+    
+    // Debug logging for remote shots
+    useEffect(() => {
+        if (remoteShots.length > 0) {
+            console.log('Remote shots in App:', remoteShots);
+        }
+    }, [remoteShots]);
+
+    const { showDebug } = useControls('Game Settings', {
+        showDebug: { value: false }
+    }, {
+        collapsed: true,
+        order: 999
+    });
 
     return (
         <>
@@ -766,7 +769,7 @@ export function App() {
                             walkSpeed={walkSpeed}
                             runSpeed={runSpeed}
                             jumpForce={jumpForce}
-                            connectionManager={showMultiplayerTools ? connectionManager : undefined}
+                            connectionManager={enableMultiplayer ? connectionManager : undefined}
                             onMove={(position) => {
                                 if (directionalLightRef.current) {
                                     const light = directionalLightRef.current
@@ -785,7 +788,7 @@ export function App() {
                     
                     {/* Show SphereTool - always render it but pass remote shots when multiplayer is enabled */}
                     <SphereTool 
-                        onShoot={showMultiplayerTools ? 
+                        onShoot={enableMultiplayer ? 
                             (origin, direction) => {
                                 console.log('App: onShoot called with', { origin, direction });
                                 try {
@@ -800,8 +803,8 @@ export function App() {
                         remoteShots={remoteShots} 
                     />
 
-                    {/* Use showMultiplayerTools instead of enableMultiplayer for conditional rendering */}
-                    {showMultiplayerTools && playerRefReady && (
+                    {/* Use enableMultiplayer instead of showMultiplayerTools for the actual multiplayer functionality */}
+                    {enableMultiplayer && playerRefReady && (
                         <MultiplayerManager 
                             localPlayerRef={playerRef} 
                             connectionManager={connectionManager}
@@ -848,8 +851,8 @@ export function App() {
 
             <Crosshair />
             
-            {/* Add NetworkStats component */}
-            {showMultiplayerTools && (
+            {/* Add NetworkStats component - only affects UI visibility */}
+            {showMultiplayerTools && enableMultiplayer && (
                 <NetworkStats connectionManager={connectionManager} visible={true} />
             )}
 
@@ -877,8 +880,8 @@ export function App() {
                 />
             )}
 
-            {/* Offline Mode Notification */}
-            {showMultiplayerTools && showOfflineNotification && (
+            {/* Offline Mode Notification - tied to enableMultiplayer for functionality, showMultiplayerTools for visibility */}
+            {enableMultiplayer && showMultiplayerTools && showOfflineNotification && (
                 <div style={{
                     position: 'fixed',
                     top: '50px',
@@ -905,10 +908,12 @@ export function App() {
 
             <Instructions>Please use WASD to move and mouse to look around</Instructions>
             {/* Pass the shared connection manager to ConnectionTest */}
-            <ConnectionTest sharedConnectionManager={connectionManager} />
+            {showConnectionTest && (
+                <ConnectionTest sharedConnectionManager={connectionManager} />
+            )}
             
-            {/* Add debugging panel for multiplayer testing */}
-            {showMultiplayerTools && (
+            {/* Add debugging panel for multiplayer testing - only affects UI visibility */}
+            {showMultiplayerTools && enableMultiplayer && (
                 <MultiplayerDebugPanel 
                     connectionManager={connectionManager} 
                     visible={true} 
