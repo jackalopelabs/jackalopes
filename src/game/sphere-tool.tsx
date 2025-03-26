@@ -23,9 +23,9 @@ const SPHERE_OFFSET = {
 }
 
 // Maximum number of spheres per player to prevent performance issues
-const MAX_SPHERES_PER_PLAYER = 10
+const MAX_SPHERES_PER_PLAYER = 5
 // Total maximum spheres allowed in the scene at once
-const MAX_TOTAL_SPHERES = 30
+const MAX_TOTAL_SPHERES = 20
 
 // Extended type to include player ID for multiplayer
 type SphereProps = {
@@ -301,6 +301,9 @@ export const SphereTool = ({
     // Keep track of processed remote shots to avoid duplicates
     const processedRemoteShots = useRef<Set<string>>(new Set());
     
+    // Process remote shots with throttling to avoid overwhelming the system
+    const pendingRemoteShots = useRef<RemoteShot[]>([]);
+    
     // Debug logging for component props
     useEffect(() => {
         console.log('SphereTool mounted with props:', { 
@@ -332,8 +335,8 @@ export const SphereTool = ({
             // Sort player's spheres by timestamp (oldest first)
             const sortedPlayerSpheres = [...playerSpheres].sort((a, b) => a.timestamp - b.timestamp);
             
-            // Get the IDs of the oldest spheres to remove
-            const numToRemove = playerSpheres.length - MAX_SPHERES_PER_PLAYER;
+            // Get the IDs of the oldest spheres to remove - only remove one at a time to avoid visual glitches
+            const numToRemove = Math.min(1, playerSpheres.length - MAX_SPHERES_PER_PLAYER);
             console.log(`Removing ${numToRemove} old spheres for player ${playerID}`);
             
             // Create a set of timestamps to remove (the oldest ones)
@@ -352,8 +355,8 @@ export const SphereTool = ({
             // Sort all spheres by timestamp (oldest first)
             const sortedSpheres = [...newSpheres].sort((a, b) => a.timestamp - b.timestamp);
             
-            // Identify the specific timestamps to remove
-            const excessSpheres = newSpheres.length - MAX_TOTAL_SPHERES;
+            // Identify the specific timestamps to remove - only remove one at a time to avoid visual glitches
+            const excessSpheres = Math.min(1, newSpheres.length - MAX_TOTAL_SPHERES);
             console.log(`Global sphere limit reached. Removing ${excessSpheres} oldest spheres.`);
             
             // Create a set of timestamps to remove (the oldest ones)
@@ -367,45 +370,58 @@ export const SphereTool = ({
         
         return newSpheres;
     };
-    
+
     // Process remote shots - ensure we use the exact direction from the shot data
     useEffect(() => {
         if (!remoteShots || remoteShots.length === 0) return;
         
         console.log('Processing remote shots:', remoteShots);
         
-        // Get shots that haven't been processed yet
-        const newShots = remoteShots.filter(shot => {
-            // Create a unique ID for this shot to avoid duplicates
-            const shotId = `${shot.id}-${shot.origin.join(',')}-${shot.direction.join(',')}`;
+        // IMPORTANT: Create a Map to track shots by their ID before processing
+        // This ensures we only process each unique position once
+        const shotMap = new Map<string, RemoteShot>();
+        
+        // First pass: organize shots by their position (rounded)
+        remoteShots.forEach(shot => {
+            // Create a unique ID for this shot with only player ID and approximate position
+            // Round position to 1 decimal place to handle minor variations
+            const roundedPos = shot.origin.map(coord => Math.round(coord * 10) / 10);
+            const shotId = `${shot.id}--${roundedPos.join(',')}`;
+            
+            // Check if this shot has already been processed
             const isProcessed = processedRemoteShots.current.has(shotId);
             console.log(`Shot ${shotId} already processed: ${isProcessed}`);
-            return !isProcessed;
+            
+            // Only add unprocessed shots to our map (and avoid duplicates within the current batch)
+            if (!isProcessed && !shotMap.has(shotId)) {
+                shotMap.set(shotId, shot);
+                // Mark as processed immediately to prevent duplicates
+                processedRemoteShots.current.add(shotId);
+            }
         });
         
-        if (newShots.length === 0) {
+        // No new shots to process
+        if (shotMap.size === 0) {
             console.log('No new shots to process');
             return;
         }
         
-        console.log('Adding new remote shots:', newShots.length);
+        console.log(`Processing ${shotMap.size} new remote shots`);
         
-        // Process new shots
-        newShots.forEach(shot => {
-            // Create a unique ID for this shot to avoid duplicates
-            const shotId = `${shot.id}-${shot.origin.join(',')}-${shot.direction.join(',')}`;
+        // Second pass: create spheres from the unique shots
+        setSpheres(prev => {
+            let newSpheres = [...prev];
             
-            // Mark as processed
-            processedRemoteShots.current.add(shotId);
-            console.log('Adding new remote shot from player:', shot.id, 'with shotId:', shotId);
-            
-            // Add remote player's shot with fire color
-            const fireColor = FIRE_COLORS[Math.floor(Math.random() * FIRE_COLORS.length)];
-            
-            // Use the exact direction from the shot data
-            const exactDirection = [...shot.direction] as [number, number, number];
-            
-            setSpheres(prev => {
+            // Process each unique shot
+            for (const [shotId, shot] of shotMap.entries()) {
+                console.log('Processing shot from player:', shot.id);
+                
+                // Add remote player's shot with fire color
+                const fireColor = FIRE_COLORS[Math.floor(Math.random() * FIRE_COLORS.length)];
+                
+                // Use the exact direction from the shot data
+                const exactDirection = [...shot.direction] as [number, number, number];
+                
                 // Create the new sphere with unique ID
                 const uniqueId = `sphere_${shot.id}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
                 const newSphere = {
@@ -420,26 +436,36 @@ export const SphereTool = ({
                 };
                 
                 // Add the new sphere
-                let newSpheres = [...prev, newSphere];
+                newSpheres.push(newSphere);
                 
                 // Remove old spheres if we exceed the limit
                 if (shot.id) {
                     newSpheres = removeOldSpheresIfNeeded(shot.id, newSpheres);
                 }
-                
-                console.log(`Updated spheres array, new length: ${newSpheres.length}`);
-                return newSpheres;
-            });
+            }
+            
+            console.log(`Updated spheres array, new length: ${newSpheres.length}`);
+            return newSpheres;
         });
         
         // Limit the size of our processed shots set to avoid memory leaks
         if (processedRemoteShots.current.size > 100) {
-            // Keep only the last 50 shots
+            const oldSize = processedRemoteShots.current.size;
             processedRemoteShots.current = new Set(
                 Array.from(processedRemoteShots.current).slice(-50)
             );
+            console.log(`Trimmed processed shots set from ${oldSize} to ${processedRemoteShots.current.size}`);
         }
     }, [remoteShots, sphereRadius]);
+
+    // Remove the interval processing as it's no longer needed
+    // The main useEffect above now handles all processing in batch
+    useEffect(() => {
+        // Clean up any remaining shots in the queue when component unmounts
+        return () => {
+            pendingRemoteShots.current = [];
+        };
+    }, []);
 
     const reload = () => {
         if (isReloading) return
@@ -582,7 +608,17 @@ export const SphereTool = ({
                 if (prev.length === 0) return prev;
                 
                 // Remove spheres older than 10 seconds (reduced from 15)
-                const filteredSpheres = prev.filter(sphere => now - sphere.timestamp < 10000);
+                const filteredSpheres = prev.filter(sphere => {
+                    const age = now - sphere.timestamp;
+                    
+                    // Remove very old spheres regardless of state
+                    if (age > 10000) return false;
+                    
+                    // Remove stuck spheres sooner
+                    if (sphere.isStuck && age > 5000) return false;
+                    
+                    return true;
+                });
                 
                 // Log cleanup if we actually removed any spheres
                 if (filteredSpheres.length < prev.length) {
@@ -591,6 +627,15 @@ export const SphereTool = ({
                 
                 return filteredSpheres;
             });
+            
+            // Also clean up processed shots to keep memory usage low
+            if (processedRemoteShots.current.size > 200) {
+                console.log(`Cleaning up processed shots. Before: ${processedRemoteShots.current.size}`);
+                processedRemoteShots.current = new Set(
+                    Array.from(processedRemoteShots.current).slice(-100)
+                );
+                console.log(`After cleanup: ${processedRemoteShots.current.size}`);
+            }
         }, 2000); // Check every 2 seconds (reduced from 3)
         
         return () => clearInterval(cleanup);
