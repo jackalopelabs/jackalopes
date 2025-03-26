@@ -12,6 +12,7 @@ import { useTexture } from '@react-three/drei'
 import { useRef, useEffect, useState } from 'react'
 import * as THREE from 'three'
 import { Player, PlayerControls } from './game/player'
+import { Jackalope } from './game/jackalope'
 import { Ball } from './game/ball'
 import { SphereTool } from './game/sphere-tool'
 import { Platforms } from './game/platforms'
@@ -954,7 +955,7 @@ export function App() {
     })
 
     // Update the Game UI controls to include virtual gamepad toggle
-    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView } = useControls('Game UI', {
+    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType } = useControls('Game UI', {
         showTools: {
             value: false,
             label: 'Show Multiplayer Tools'
@@ -970,6 +971,11 @@ export function App() {
         thirdPersonView: {
             value: false,
             label: 'Third-Person View'
+        },
+        characterType: {
+            value: 'merc',
+            label: 'Character Type',
+            options: ['merc', 'jackalope']
         },
         logLevel: {
             value: 0,
@@ -1247,6 +1253,12 @@ export function App() {
         return null;
     };
 
+    // Add this inside the App component
+    useEffect(() => {
+        // Log when character type changes
+        console.log(`Character type changed to ${characterType}`);
+    }, [characterType]);
+
     return (
         <>
             <div style={{
@@ -1272,18 +1284,21 @@ export function App() {
                 </div>
             </div>
             
-            <div id="ammo-display" style={{
-                position: 'absolute',
-                top: '10px',
-                right: '10px',
-                color: 'rgba(255, 255, 255, 0.75)',
-                fontSize: '14px',
-                fontFamily: 'monospace',
-                userSelect: 'none',
-                zIndex: 1000
-            }}>
-                AMMO: 50/50
-            </div>
+            {/* Only show ammo display for merc character */}
+            {characterType === 'merc' && (
+                <div id="ammo-display" style={{
+                    position: 'absolute',
+                    top: '10px',
+                    right: '10px',
+                    color: 'rgba(255, 255, 255, 0.75)',
+                    fontSize: '14px',
+                    fontFamily: 'monospace',
+                    userSelect: 'none',
+                    zIndex: 1000
+                }}>
+                    AMMO: 50/50
+                </div>
+            )}
             
             <Canvas>
                 {fogEnabled && <fog attach="fog" args={[fogColor, fogNear, fogFar]} />}
@@ -1319,51 +1334,78 @@ export function App() {
                     gravity={[0, -9.81, 0]}
                 >
                     <PlayerControls thirdPersonView={thirdPersonView}>
-                        <Player 
-                            ref={playerRef}
-                            position={[0, 7, 10]}
-                            walkSpeed={walkSpeed}
-                            runSpeed={runSpeed}
-                            jumpForce={jumpForce}
-                            visible={thirdPersonView}
-                            thirdPersonView={thirdPersonView}
-                            connectionManager={enableMultiplayer ? connectionManager : undefined}
-                            onMove={(position) => {
-                                if (directionalLightRef.current && !thirdPersonView) {
-                                    // Only update light directly in first-person mode
-                                    // In third-person, StableLightUpdater handles it
-                                    const light = directionalLightRef.current;
-                                    light.position.x = position.x + directionalDistance;
-                                    light.position.z = position.z + directionalDistance;
-                                    light.target.position.copy(position);
-                                    light.target.updateMatrixWorld();
-                                }
-                            }}
-                        />
+                        {/* Conditionally render either the Player (merc) or Jackalope */}
+                        {characterType === 'merc' ? (
+                            <Player 
+                                ref={playerRef}
+                                position={[0, 7, 10]}
+                                walkSpeed={walkSpeed}
+                                runSpeed={runSpeed}
+                                jumpForce={jumpForce}
+                                visible={thirdPersonView}
+                                thirdPersonView={thirdPersonView}
+                                connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                onMove={(position) => {
+                                    if (directionalLightRef.current && !thirdPersonView) {
+                                        // Only update light directly in first-person mode
+                                        // In third-person, StableLightUpdater handles it
+                                        const light = directionalLightRef.current;
+                                        light.position.x = position.x + directionalDistance;
+                                        light.position.z = position.z + directionalDistance;
+                                        light.target.position.copy(position);
+                                        light.target.updateMatrixWorld();
+                                    }
+                                }}
+                            />
+                        ) : (
+                            <Jackalope
+                                ref={playerRef}
+                                position={[0, 1, 10]} // Lower position for the jackalope to start on the ground
+                                walkSpeed={walkSpeed}
+                                runSpeed={runSpeed}
+                                jumpForce={jumpForce * 1.2} // Higher jump for jackalope
+                                visible={thirdPersonView}
+                                thirdPersonView={thirdPersonView}
+                                connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                onMove={(position) => {
+                                    if (directionalLightRef.current && !thirdPersonView) {
+                                        // Only update light directly in first-person mode
+                                        // In third-person, StableLightUpdater handles it
+                                        const light = directionalLightRef.current;
+                                        light.position.x = position.x + directionalDistance;
+                                        light.position.z = position.z + directionalDistance;
+                                        light.target.position.copy(position);
+                                        light.target.updateMatrixWorld();
+                                    }
+                                }}
+                            />
+                        )}
                     </PlayerControls>
                     <Platforms />
                     <Ball />
 
                     <Scene playerRef={playerRef} />
                     
-                    {/* Show SphereTool - always render it but pass remote shots when multiplayer is enabled */}
-                    <SphereTool 
-                        onShoot={enableMultiplayer ? 
-                            (origin, direction) => {
-                                console.log('App: onShoot called with', { origin, direction });
-                                try {
-                                    connectionManager.sendShootEvent(origin, direction);
-                                    console.log('App: successfully sent shoot event');
-                                } catch (error) {
-                                    console.error('App: error sending shoot event:', error);
-                                }
-                            } 
-                            : undefined
-                        }
-                        remoteShots={remoteShots}
-                        thirdPersonView={thirdPersonView}
-                        playerPosition={thirdPersonView ? playerPosition.current : null}
-                    />
+                    {/* Show SphereTool only for merc character - jackalobes don't shoot */}
+                    {characterType === 'merc' && (
+                        <SphereTool 
+                            onShoot={enableMultiplayer ? 
+                                (origin, direction) => {
+                                    console.log('App: onShoot called with', { origin, direction });
+                                    try {
+                                        connectionManager.sendShootEvent(origin, direction);
+                                        console.log('App: successfully sent shoot event');
+                                    } catch (error) {
+                                        console.error('App: error sending shoot event:', error);
+                                    }
+                                } 
+                                : undefined
+                            }
+                            remoteShots={remoteShots}
+                            thirdPersonView={thirdPersonView}
+                            playerPosition={thirdPersonView ? playerPosition.current : null}
+                        />
+                    )}
 
                     {/* Use enableMultiplayer instead of showMultiplayerTools for the actual multiplayer functionality */}
                     {enableMultiplayer && playerRefReady && (
