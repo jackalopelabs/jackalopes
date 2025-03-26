@@ -24,7 +24,7 @@ import { VirtualGamepad } from './components/VirtualGamepad'
 
 // Add Moon component
 const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height: number, orbitSpeed: number }) => {
-    const moonRef = useRef<THREE.Mesh>(null);
+    const moonRef = useRef<THREE.Group>(null);
     const angle = useRef(0);
     
     // Create moon light
@@ -33,12 +33,15 @@ const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height
     useFrame(() => {
         if (!moonRef.current || !moonLightRef.current) return;
         
-        // Increment angle for orbit
-        angle.current += orbitSpeed * 0.01;
+        // Increment angle for orbit - significantly slower
+        angle.current += orbitSpeed * 0.005;
         
         // Calculate moon position in orbit around the center of the level
-        const x = Math.sin(angle.current) * orbitRadius;
-        const z = Math.cos(angle.current) * orbitRadius;
+        // Using an elliptical orbit to spread on the x-axis
+        const xRadius = orbitRadius * 2.5; // Make x-axis much wider for longer shadows
+        const zRadius = orbitRadius * 1.2; // Also increase z-radius for more distance
+        const x = Math.sin(angle.current) * xRadius;
+        const z = Math.cos(angle.current) * zRadius;
         
         // Set moon position
         moonRef.current.position.set(x, height, z);
@@ -47,26 +50,74 @@ const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height
         moonLightRef.current.position.set(x, height - 2, z);
     });
     
+    // Create glow effect using nested meshes with different sizes and transparency
+    const createGlowEffect = () => {
+        return (
+            <>
+                {/* Core moon */}
+                <mesh castShadow>
+                    <sphereGeometry args={[4, 32, 32]} />
+                    <meshStandardMaterial 
+                        color="#ffffff" 
+                        emissive="#ffffff" 
+                        emissiveIntensity={2.0} 
+                    />
+                </mesh>
+                
+                {/* Inner glow layer */}
+                <mesh>
+                    <sphereGeometry args={[4.5, 32, 32]} />
+                    <meshBasicMaterial 
+                        color="#f0f8ff" 
+                        transparent={true} 
+                        opacity={0.7}
+                    />
+                </mesh>
+                
+                {/* Middle glow layer */}
+                <mesh>
+                    <sphereGeometry args={[5.2, 32, 32]} />
+                    <meshBasicMaterial 
+                        color="#f0f8ff" 
+                        transparent={true} 
+                        opacity={0.4}
+                    />
+                </mesh>
+                
+                {/* Outer glow layer */}
+                <mesh>
+                    <sphereGeometry args={[6.5, 32, 32]} />
+                    <meshBasicMaterial 
+                        color="#f0f8ff" 
+                        transparent={true} 
+                        opacity={0.2}
+                    />
+                </mesh>
+            </>
+        );
+    };
+    
     return (
         <>
-            {/* Moon mesh */}
-            <mesh ref={moonRef} position={[orbitRadius, height, 0]} castShadow>
-                <sphereGeometry args={[3, 32, 32]} />
-                <meshStandardMaterial color="#f0f8ff" emissive="#f0f8ff" emissiveIntensity={1.0} />
-            </mesh>
+            {/* Moon with glow effect */}
+            <group ref={moonRef} position={[orbitRadius, height, 0]}>
+                {createGlowEffect()}
+            </group>
             
             {/* Moon light */}
             <pointLight 
                 ref={moonLightRef}
                 position={[orbitRadius, height - 2, 0]}
-                intensity={5}
+                intensity={9}
                 color="#f0f8ff"
-                distance={200}
+                distance={400}
+                decay={1.5} // Lower decay for harder shadows (less falloff)
                 castShadow
                 shadow-mapSize={[4096, 4096]}
                 shadow-bias={-0.001}
                 shadow-camera-near={1}
                 shadow-camera-far={150}
+                shadow-radius={1} // Smaller shadow radius for harder edges
             />
         </>
     );
@@ -975,11 +1026,11 @@ export function App() {
         }, { collapsed: true }),
         lighting: folder({
             ambientIntensity: { value: 0, min: 0, max: 2, step: 0.1 },
-            directionalIntensity: { value: 1.5, min: 0, max: 2, step: 0.1 },
-            directionalHeight: { value: 20, min: 5, max: 50, step: 1 },
-            directionalDistance: { value: 10, min: 5, max: 30, step: 1 },
+            directionalIntensity: { value: 2.5, min: 0, max: 5, step: 0.1 },
+            directionalHeight: { value: 30, min: 5, max: 60, step: 1 }, // Increased height
+            directionalDistance: { value: 45, min: 5, max: 70, step: 1 }, // Increased distance
             moonOrbit: { value: true, label: 'Moon Orbits Level' },
-            moonOrbitSpeed: { value: 0.05, min: 0.01, max: 0.5, step: 0.01, label: 'Orbit Speed' },
+            moonOrbitSpeed: { value: 0.01, min: 0.001, max: 0.1, step: 0.001, label: 'Orbit Speed' },
         }, { collapsed: true }),
         postProcessing: folder({
             enablePostProcessing: true,
@@ -1299,20 +1350,22 @@ export function App() {
         }
     };
     
-    // Add moon orbit component
+    // Add moon orbit component - update for wider orbit
     const MoonOrbit = () => {
         const angle = useRef(0);
         
         useFrame(() => {
             if (!moonOrbit || !directionalLightRef.current) return;
             
-            // Increment angle for orbit
-            angle.current += moonOrbitSpeed * 0.01;
+            // Increment angle for orbit - significantly slower
+            angle.current += moonOrbitSpeed * 0.005;
             
             // Calculate light position in orbit around the center of the level
-            const orbitRadius = Math.max(directionalDistance, 15);
-            const x = Math.sin(angle.current) * orbitRadius;
-            const z = Math.cos(angle.current) * orbitRadius;
+            // Using an elliptical orbit to spread on the x-axis
+            const xRadius = Math.max(directionalDistance * 2.5, 50); // Much wider on x-axis
+            const zRadius = Math.max(directionalDistance * 1.2, 25); // Also wider on z-axis
+            const x = Math.sin(angle.current) * xRadius;
+            const z = Math.cos(angle.current) * zRadius;
             
             // Set light position
             directionalLightRef.current.position.set(
@@ -1323,7 +1376,8 @@ export function App() {
             
             // Keep shadows sharp
             directionalLightRef.current.shadow.bias = -0.001;
-            directionalLightRef.current.shadow.normalBias = 0.05;
+            directionalLightRef.current.shadow.normalBias = 0.02;
+            directionalLightRef.current.shadow.radius = 1; // Harder shadows
             directionalLightRef.current.shadow.mapSize.width = 4096;
             directionalLightRef.current.shadow.mapSize.height = 4096;
         });
@@ -1405,21 +1459,22 @@ export function App() {
                     ref={directionalLightRef}
                     intensity={directionalIntensity}
                     shadow-mapSize={[4096, 4096]}
-                    shadow-camera-left={-30}
-                    shadow-camera-right={30}
-                    shadow-camera-top={30}
-                    shadow-camera-bottom={-30}
+                    shadow-camera-left={-50} // Increased to capture wider shadows
+                    shadow-camera-right={50} // Increased to capture wider shadows
+                    shadow-camera-top={50} // Increased to capture wider shadows
+                    shadow-camera-bottom={-50} // Increased to capture wider shadows
                     shadow-camera-near={1}
-                    shadow-camera-far={150}
+                    shadow-camera-far={200} // Increased to ensure full shadow coverage
                     shadow-bias={-0.001}
-                    shadow-normalBias={0.05}
+                    shadow-normalBias={0.02}
+                    shadow-radius={1} // Harder shadows
                     color="#f0f8ff"
                 />
 
                 {/* Add visible moon */}
                 {moonOrbit && <Moon 
-                    orbitRadius={Math.max(directionalDistance, 20)} 
-                    height={directionalHeight + 5} 
+                    orbitRadius={Math.max(directionalDistance, 50)} 
+                    height={directionalHeight + 10} 
                     orbitSpeed={moonOrbitSpeed} 
                 />}
 
