@@ -467,6 +467,14 @@ export function App() {
     const [showVirtualGamepad, setShowVirtualGamepad] = useState(false);
     const [isMobile, setIsMobile] = useState(false);
     
+    // Current key state tracking for gamepad
+    const currentKeys = useRef<Record<string, boolean>>({
+        'w': false, 's': false, 'a': false, 'd': false, ' ': false
+    });
+    
+    // Use a ref to track if shoot is on cooldown
+    const shootCooldownRef = useRef(false);
+    
     // Detect mobile devices
     useEffect(() => {
         const checkMobile = () => {
@@ -719,14 +727,41 @@ export function App() {
         
         // Helper to update key states
         const updateKey = (key: string | null, isPressed: boolean) => {
-            if (!key) return;
+            if (!key) {
+                // Release all keys that might be in this direction
+                if (key === forwardKey) {
+                    if (currentKeys.current['w']) {
+                        window.dispatchEvent(new KeyboardEvent('keyup', { key: 'w', bubbles: true }));
+                        currentKeys.current['w'] = false;
+                    }
+                } else if (key === backwardKey) {
+                    if (currentKeys.current['s']) {
+                        window.dispatchEvent(new KeyboardEvent('keyup', { key: 's', bubbles: true }));
+                        currentKeys.current['s'] = false;
+                    }
+                } else if (key === leftKey) {
+                    if (currentKeys.current['a']) {
+                        window.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+                        currentKeys.current['a'] = false;
+                    }
+                } else if (key === rightKey) {
+                    if (currentKeys.current['d']) {
+                        window.dispatchEvent(new KeyboardEvent('keyup', { key: 'd', bubbles: true }));
+                        currentKeys.current['d'] = false;
+                    }
+                }
+                return;
+            }
             
-            if (isPressed) {
+            // Only send event if the state changed
+            if (isPressed && !currentKeys.current[key]) {
                 // Dispatch keydown event
                 window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
-            } else {
+                currentKeys.current[key] = true;
+            } else if (!isPressed && currentKeys.current[key]) {
                 // Dispatch keyup event
                 window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
+                currentKeys.current[key] = false;
             }
         };
         
@@ -735,34 +770,96 @@ export function App() {
         updateKey('s', !!backwardKey);
         updateKey('a', !!leftKey);
         updateKey('d', !!rightKey);
+        
+        // If joystick is released (x and y are 0), release all keys
+        if (Math.abs(x) < 0.1 && Math.abs(y) < 0.1) {
+            if (currentKeys.current['w']) {
+                window.dispatchEvent(new KeyboardEvent('keyup', { key: 'w', bubbles: true }));
+                currentKeys.current['w'] = false;
+            }
+            if (currentKeys.current['s']) {
+                window.dispatchEvent(new KeyboardEvent('keyup', { key: 's', bubbles: true }));
+                currentKeys.current['s'] = false;
+            }
+            if (currentKeys.current['a']) {
+                window.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+                currentKeys.current['a'] = false;
+            }
+            if (currentKeys.current['d']) {
+                window.dispatchEvent(new KeyboardEvent('keyup', { key: 'd', bubbles: true }));
+                currentKeys.current['d'] = false;
+            }
+        }
     };
     
     const handleVirtualJump = () => {
-        // Trigger space key for jump
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        console.log("Virtual jump handler triggered!");
         
-        // Release key after a short delay
-        setTimeout(() => {
-            window.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
-        }, 100);
+        // Prevent repeated keydown events
+        if (!currentKeys.current[' ']) {
+            // Trigger space key for jump
+            const keydownEvent = new KeyboardEvent('keydown', { 
+                key: ' ', 
+                code: 'Space',
+                bubbles: true,
+                cancelable: true
+            });
+            window.dispatchEvent(keydownEvent);
+            document.dispatchEvent(keydownEvent); // Also dispatch to document in case game is listening there
+            currentKeys.current[' '] = true;
+            
+            console.log("Sent jump keydown event (space)");
+            
+            // Release key after a short delay
+            setTimeout(() => {
+                const keyupEvent = new KeyboardEvent('keyup', { 
+                    key: ' ', 
+                    code: 'Space',
+                    bubbles: true,
+                    cancelable: true
+                });
+                window.dispatchEvent(keyupEvent);
+                document.dispatchEvent(keyupEvent); // Also dispatch to document
+                currentKeys.current[' '] = false;
+                console.log("Sent jump keyup event (space)");
+            }, 200);
+        }
     };
     
     const handleVirtualShoot = () => {
-        // Simulate mouse click for shooting
-        document.dispatchEvent(new MouseEvent('mousedown', {
-            bubbles: true,
-            cancelable: true,
-            button: 0 // Left button
-        }));
+        console.log("Virtual shoot handler triggered!");
         
-        // Release after a short delay
-        setTimeout(() => {
-            document.dispatchEvent(new MouseEvent('mouseup', {
+        // Prevent rapid-fire
+        if (!shootCooldownRef.current) {
+            shootCooldownRef.current = true;
+            
+            // Simulate mouse click for shooting
+            const mouseDownEvent = new MouseEvent('mousedown', {
                 bubbles: true,
                 cancelable: true,
-                button: 0
-            }));
-        }, 100);
+                button: 0, // Left button
+                view: window
+            });
+            document.dispatchEvent(mouseDownEvent);
+            console.log("Sent shoot mousedown event");
+            
+            // Release after a short delay
+            setTimeout(() => {
+                const mouseUpEvent = new MouseEvent('mouseup', {
+                    bubbles: true,
+                    cancelable: true,
+                    button: 0,
+                    view: window
+                });
+                document.dispatchEvent(mouseUpEvent);
+                console.log("Sent shoot mouseup event");
+                
+                // Add cooldown to prevent spamming
+                setTimeout(() => {
+                    shootCooldownRef.current = false;
+                }, 300);
+            }, 100);
+        }
     };
 
     // Get remote shots from the connection manager (always call the hook to maintain hook order)
