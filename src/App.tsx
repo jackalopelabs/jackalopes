@@ -19,6 +19,7 @@ import { MultiplayerManager, useRemoteShots } from './network/MultiplayerManager
 import { NetworkStats } from './network/NetworkStats'
 import { ConnectionManager } from './network/ConnectionManager'
 import { ConnectionTest } from './components/ConnectionTest'
+import { VirtualGamepad } from './components/VirtualGamepad'
 
 const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     const texture = useTexture('/final-texture.png')
@@ -462,6 +463,29 @@ export function App() {
     // Track if notification is visible
     const [showOfflineNotification, setShowOfflineNotification] = useState(false);
     
+    // Add state for the virtual gamepad
+    const [showVirtualGamepad, setShowVirtualGamepad] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
+    
+    // Detect mobile devices
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
+        };
+        
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+    
+    // Auto-show gamepad on mobile devices
+    useEffect(() => {
+        if (isMobile) {
+            setShowVirtualGamepad(true);
+        }
+    }, [isMobile]);
+    
     // Use an effect to track when the playerRef becomes available
     useEffect(() => {
         if (playerRef.current && !playerRefReady) {
@@ -639,8 +663,8 @@ export function App() {
         order: 995
     })
 
-    // Add a toggle for the multiplayer tools panel
-    const { showTools, showConnectionTest } = useControls('Game UI', {
+    // Update the Game UI controls to include virtual gamepad toggle
+    const { showTools, showConnectionTest, virtualGamepad } = useControls('Game UI', {
         showTools: {
             value: false,
             label: 'Show Multiplayer Tools'
@@ -648,6 +672,10 @@ export function App() {
         showConnectionTest: {
             value: false,
             label: 'Show Connection Test UI'
+        },
+        virtualGamepad: {
+            value: false,
+            label: 'Virtual Gamepad'
         },
         logLevel: {
             value: 0,
@@ -672,6 +700,70 @@ export function App() {
         // Only update the UI visibility, not the connection status
         setShowMultiplayerTools(showTools);
     }, [showTools]);
+    
+    // Update virtual gamepad visibility based on the control panel toggle
+    useEffect(() => {
+        setShowVirtualGamepad(virtualGamepad);
+    }, [virtualGamepad]);
+    
+    // Handle virtual gamepad inputs
+    const handleVirtualMove = (x: number, y: number) => {
+        // Map virtual joystick to keyboard events for WASD movement
+        // Forward/backward (W/S) mapped to Y axis
+        const forwardKey = y < -0.3 ? 'w' : null;
+        const backwardKey = y > 0.3 ? 's' : null;
+        
+        // Left/right (A/D) mapped to X axis
+        const leftKey = x < -0.3 ? 'a' : null;
+        const rightKey = x > 0.3 ? 'd' : null;
+        
+        // Helper to update key states
+        const updateKey = (key: string | null, isPressed: boolean) => {
+            if (!key) return;
+            
+            if (isPressed) {
+                // Dispatch keydown event
+                window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+            } else {
+                // Dispatch keyup event
+                window.dispatchEvent(new KeyboardEvent('keyup', { key, bubbles: true }));
+            }
+        };
+        
+        // Update WASD keys based on joystick position
+        updateKey('w', !!forwardKey);
+        updateKey('s', !!backwardKey);
+        updateKey('a', !!leftKey);
+        updateKey('d', !!rightKey);
+    };
+    
+    const handleVirtualJump = () => {
+        // Trigger space key for jump
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
+        
+        // Release key after a short delay
+        setTimeout(() => {
+            window.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true }));
+        }, 100);
+    };
+    
+    const handleVirtualShoot = () => {
+        // Simulate mouse click for shooting
+        document.dispatchEvent(new MouseEvent('mousedown', {
+            bubbles: true,
+            cancelable: true,
+            button: 0 // Left button
+        }));
+        
+        // Release after a short delay
+        setTimeout(() => {
+            document.dispatchEvent(new MouseEvent('mouseup', {
+                bubbles: true,
+                cancelable: true,
+                button: 0
+            }));
+        }, 100);
+    };
 
     // Get remote shots from the connection manager (always call the hook to maintain hook order)
     const allRemoteShots = useRemoteShots(connectionManager);
@@ -919,6 +1011,31 @@ export function App() {
                     visible={true} 
                     isOfflineMode={isOfflineMode}
                 />
+            )}
+
+            {/* Add Virtual Gamepad */}
+            <VirtualGamepad
+                visible={showVirtualGamepad}
+                onMove={handleVirtualMove}
+                onJump={handleVirtualJump}
+                onShoot={handleVirtualShoot}
+            />
+            
+            {/* Mobile detected indicator */}
+            {isMobile && (
+                <div style={{
+                    position: 'fixed',
+                    top: '10px',
+                    left: '10px',
+                    background: 'rgba(0,0,0,0.5)',
+                    color: 'white',
+                    padding: '5px 8px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    zIndex: 1000
+                }}>
+                    Mobile device detected
+                </div>
             )}
         </>
     )
