@@ -1362,6 +1362,7 @@ export function App() {
                         }
                         remoteShots={remoteShots}
                         thirdPersonView={thirdPersonView}
+                        playerPosition={thirdPersonView ? playerPosition.current : null}
                     />
 
                     {/* Use enableMultiplayer instead of showMultiplayerTools for the actual multiplayer functionality */}

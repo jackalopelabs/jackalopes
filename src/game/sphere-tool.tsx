@@ -307,11 +307,13 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
 export const SphereTool = ({ 
     onShoot,
     remoteShots = [],
-    thirdPersonView = false
+    thirdPersonView = false,
+    playerPosition = null // Add optional player position for third-person shooting
 }: { 
     onShoot?: (origin: [number, number, number], direction: [number, number, number]) => void,
     remoteShots?: RemoteShot[],
-    thirdPersonView?: boolean
+    thirdPersonView?: boolean,
+    playerPosition?: THREE.Vector3 | null
 }) => {
     const sphereRadius = 0.15 // Slightly larger size for fireballs
     const MAX_AMMO = 50
@@ -564,14 +566,44 @@ export const SphereTool = ({
             // Create offset vector in camera's local space
             const offset = new THREE.Vector3(SPHERE_OFFSET.x, SPHERE_OFFSET.y, SPHERE_OFFSET.z);
             
-            if (thirdPersonView) {
-                // In third-person, move the starting position forward and up a bit
-                // to prevent collisions with the player model
-                offset.set(0, 1.0, -1.0); // Start above and in front of the player
-            }
+            let position: THREE.Vector3;
             
-            offset.applyQuaternion(camera.quaternion);
-            const position = camera.position.clone().add(offset);
+            if (thirdPersonView && playerPosition) {
+                // If playerPosition is provided in third-person mode,
+                // use the actual player position as the base for shooting
+                position = playerPosition.clone();
+                
+                // Add a slight offset forward and up from the player's center
+                position.y += 1.0; // Chest height
+                
+                // Calculate a forward offset based on direction
+                const forwardOffset = new THREE.Vector3()
+                    .copy(direction)
+                    .multiplyScalar(0.5); // Forward offset distance
+                
+                // Only use the X and Z components for forward movement
+                forwardOffset.y = 0;
+                
+                // Add the forward offset to position
+                position.add(forwardOffset);
+                
+                console.log('Third-person shooting from player position:', position.toArray());
+            } else {
+                // For first-person or when player position is not available
+                if (thirdPersonView) {
+                    // In third-person but no player position, adjust the offset
+                    offset.set(0, 0.3, -0.5);
+                }
+                
+                // Apply offset to camera position
+                offset.applyQuaternion(camera.quaternion);
+                position = camera.position.clone().add(offset);
+                
+                // Debug log for third-person shooting from camera
+                if (thirdPersonView) {
+                    console.log('Third-person shooting from camera (fallback):', position.toArray());
+                }
+            }
             
             // Validate vectors
             if (isNaN(direction.x) || isNaN(direction.y) || isNaN(direction.z) ||
