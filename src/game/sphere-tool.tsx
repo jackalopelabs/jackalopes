@@ -1,5 +1,5 @@
 import { useThree } from '@react-three/fiber'
-import { RigidBody, useRapier, RapierRigidBody, CollisionEnterPayload } from '@react-three/rapier'
+import { RigidBody, useRapier, RapierRigidBody, CollisionEnterPayload, BallCollider } from '@react-three/rapier'
 import { useEffect, useState, useRef, useMemo } from 'react'
 import { useGamepad } from '../common/hooks/use-gamepad'
 import * as THREE from 'three'
@@ -138,6 +138,10 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     const [canCollide, setCanCollide] = useState(false)
     const distanceTraveled = useRef(0)
     const startPosition = useRef(new THREE.Vector3(...position))
+    // Add scale state for growth animation
+    const [scale, setScale] = useState(1)
+    const startTime = useRef(Date.now())
+    const isGrowing = useRef(true)
     
     // Track stuck state for parent component
     const stuckRef = useRef(stuck)
@@ -155,10 +159,24 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         }
     }, [initialIsStuck, position]);
     
-    // Pulse animation for glow effect
+    // Pulse animation for glow effect and handle growth animation
     useFrame(() => {
         // Animate glow
         setIntensity(1.5 + Math.sin(Date.now() * 0.005) * 0.5)
+        
+        // Handle growth animation
+        if (isGrowing.current) {
+            const elapsed = (Date.now() - startTime.current) / 1000 // Convert to seconds
+            if (elapsed >= 1) {
+                // Animation complete
+                setScale(10)
+                isGrowing.current = false
+            } else {
+                // Smooth growth from 1 to 10 over 1 second
+                const newScale = 1 + (10 - 1) * elapsed
+                setScale(newScale)
+            }
+        }
         
         // Don't process further if stuck or not initialized
         if (stuck || !rigidBodyRef.current) return
@@ -253,14 +271,18 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 angularDamping={0.8}
                 linearDamping={0.05} // Lower damping for longer travel
                 restitution={0.1}
-                colliders="ball"
+                colliders={false} // Changed from "ball" to false so we can add our own collider
                 mass={0.3} // Even lower mass
                 ccd={true}
                 onCollisionEnter={handleCollision}
                 linearVelocity={stuck ? [0, 0, 0] : [direction[0] * SHOOT_FORCE, direction[1] * SHOOT_FORCE, direction[2] * SHOOT_FORCE]}
                 type={stuck ? "fixed" : "dynamic"}
                 gravityScale={0.3} // Reduce gravity effect
+                scale={scale} // Apply the scale for growth animation
             >
+                {/* Custom ball collider that updates with scale */}
+                <BallCollider args={[radius]} />
+                
                 {/* Inner core */}
                 <mesh castShadow receiveShadow>
                     <sphereGeometry args={[radius * 0.7, 16, 16]} />
@@ -274,8 +296,10 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 </mesh>
             </RigidBody>
             
-            {/* Add fire particles */}
-            <FireballParticles position={finalPosition} color={color} />
+            {/* Add fire particles - scale with the fireball */}
+            <group position={finalPosition} scale={scale}>
+                <FireballParticles position={[0, 0, 0]} color={color} />
+            </group>
         </>
     )
 }
