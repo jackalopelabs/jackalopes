@@ -1009,26 +1009,24 @@ export function App() {
                     far={1000}
                 />
 
-                {/* Temporarily disable post-processing due to TypeScript errors */}
-                {/* 
-                    Post-processing is disabled due to TypeScript errors.
-                    Uncomment this block and fix the TypeScript errors when debugging.
-                */}
-                {false && enablePostProcessing && (
+                {enablePostProcessing && (
                     <EffectComposer>
                         <Vignette
-                            offset={vignetteOffset}
-                            darkness={vignetteDarkness}
+                            offset={vignetteEnabled ? vignetteOffset : 0}
+                            darkness={vignetteEnabled ? vignetteDarkness : 0}
                             eskil={false}
                         />
                         <ChromaticAberration
-                            offset={new THREE.Vector2(chromaticAberrationOffset, chromaticAberrationOffset)}
+                            offset={new THREE.Vector2(
+                                chromaticAberrationEnabled ? chromaticAberrationOffset : 0,
+                                chromaticAberrationEnabled ? chromaticAberrationOffset : 0
+                            )}
                             radialModulation={false}
                             modulationOffset={0}
                         />
                         <BrightnessContrast
-                            brightness={brightness}
-                            contrast={contrast} 
+                            brightness={brightnessContrastEnabled ? brightness : 0}
+                            contrast={brightnessContrastEnabled ? contrast : 0} 
                         />
                         <ToneMapping
                             blendFunction={BlendFunction.NORMAL}
@@ -1043,23 +1041,6 @@ export function App() {
             {/* Add NetworkStats component - only affects UI visibility */}
             {showMultiplayerTools && enableMultiplayer && (
                 <NetworkStats connectionManager={connectionManager} visible={true} />
-            )}
-
-            {/* Post-processing disabled warning */}
-            {enablePostProcessing && (
-                <div style={{
-                    position: 'fixed',
-                    top: '20px',
-                    right: '20px',
-                    background: 'rgba(0,0,0,0.7)',
-                    color: 'white',
-                    padding: '10px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    zIndex: 1000
-                }}>
-                    Post-processing effects temporarily disabled
-                </div>
             )}
 
             {showMultiplayerTools && showDebug && connectionManager?.snapshots && (
