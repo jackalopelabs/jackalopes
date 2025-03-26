@@ -7,7 +7,7 @@ declare global {
   }
 }
 
-import React, { useState, useEffect, useRef, useImperativeHandle } from 'react';
+import React, { useState, useEffect, useRef, useImperativeHandle, useMemo } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { ConnectionManager } from './ConnectionManager';
 import { RemotePlayer, RemotePlayerMethods } from '../game/RemotePlayer';
@@ -813,56 +813,103 @@ export const useMultiplayer = (
   };
 };
 
-// Render remote players
-export const RemotePlayers: React.FC<{ 
+// Render remote players - use React.memo to prevent unnecessary re-renders
+export const RemotePlayers = React.memo(({ 
+  players 
+}: { 
   players: Record<string, RemotePlayerData> 
-}> = ({ players }) => {
+}) => {
   const playerRefsMap = useRef<Record<string, React.RefObject<RemotePlayerMethods>>>({});
+  const [playerList, setPlayerList] = useState<string[]>([]);
   
-  // Create refs for new players
-  Object.keys(players).forEach(id => {
-    if (!playerRefsMap.current[id]) {
-      playerRefsMap.current[id] = React.createRef<RemotePlayerMethods>();
-    }
-  });
-  
-  // Clean up removed players
+  // Create refs for new players without re-rendering
+  // This effect handles adding new refs and updating player list
   useEffect(() => {
-    const currentIds = Object.keys(players);
-    const storedIds = Object.keys(playerRefsMap.current);
+    // Find players that don't have refs yet
+    const playerIds = Object.keys(players);
+    const updatedRefs = {...playerRefsMap.current};
+    let refsChanged = false;
     
-    // Remove refs for players that no longer exist
-    storedIds.forEach(id => {
-      if (!currentIds.includes(id)) {
-        delete playerRefsMap.current[id];
+    // Create refs for new players
+    playerIds.forEach(id => {
+      if (!updatedRefs[id]) {
+        console.log(`Creating ref for new player: ${id}`);
+        updatedRefs[id] = React.createRef<RemotePlayerMethods>();
+        refsChanged = true;
       }
     });
-  }, [players]);
+    
+    // Clean up removed players
+    Object.keys(updatedRefs).forEach(id => {
+      if (!playerIds.includes(id)) {
+        console.log(`Removing ref for departed player: ${id}`);
+        delete updatedRefs[id];
+        refsChanged = true;
+      }
+    });
+    
+    // Only update refs if they've changed
+    if (refsChanged) {
+      playerRefsMap.current = updatedRefs;
+    }
+    
+    // Update player list only when players are added/removed (not on position changes)
+    const newPlayerIds = Object.keys(players);
+    if (JSON.stringify(newPlayerIds.sort()) !== JSON.stringify(playerList.sort())) {
+      console.log('Player list changed, updating component list');
+      setPlayerList(newPlayerIds);
+    }
+  }, [players, playerList]);
   
   // Direct updates to the player refs
+  // This effect runs on every update but doesn't trigger re-renders
   useEffect(() => {
-    Object.entries(players).forEach(([id, data]) => {
-      const ref = playerRefsMap.current[id];
-      if (ref && ref.current) {
-        ref.current.updateTransform(data.position, data.rotation);
-      }
-    });
-  }, [players]);
+    let animationId: number;
+    
+    const updatePlayerPositions = () => {
+      // Only update existing players (avoid errors)
+      Object.entries(players).forEach(([id, data]) => {
+        const ref = playerRefsMap.current[id];
+        if (ref && ref.current) {
+          // Update via ref instead of re-rendering
+          ref.current.updateTransform(data.position, data.rotation);
+        }
+      });
+      
+      // Continue updates on next frame
+      animationId = requestAnimationFrame(updatePlayerPositions);
+    };
+    
+    // Start the update loop
+    animationId = requestAnimationFrame(updatePlayerPositions);
+    
+    // Clean up animation frame on unmount or when deps change
+    return () => {
+      cancelAnimationFrame(animationId);
+    };
+  }, [players]); // This dependency still triggers effect runs but not re-renders
+  
+  // Reduce debug logging frequency
+  const renderCount = useRef(0);
+  renderCount.current++;
+  if (renderCount.current % 10 === 1) {
+    console.log(`RemotePlayers rendering #${renderCount.current} with ${playerList.length} players`);
+  }
   
   return (
     <>
-      {Object.entries(players).map(([id, data]) => (
+      {playerList.map(id => (
         <RemotePlayer
           key={id}
           id={id}
-          initialPosition={data.position}
-          initialRotation={data.rotation}
+          initialPosition={players[id].position}
+          initialRotation={players[id].rotation}
           ref={playerRefsMap.current[id]}
         />
       ))}
     </>
   );
-};
+});
 
 // Export main MultiplayerManager component
 export const MultiplayerManager: React.FC<{ 

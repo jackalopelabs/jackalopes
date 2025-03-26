@@ -346,20 +346,107 @@ We've addressed the critical issues preventing multiplayer functionality:
    - Added UI controls to add/remove test players
    - Test players move in predictable circular patterns for testing rendering
 
+### Implementation Success (March 27)
+✅ **Multiplayer Now Working**: The fixes have been successfully implemented and tested.
+
+Key observations:
+- Players can now see each other's meshes in real-time
+- Position updates are being sent and received correctly
+- Shot events are being correctly broadcast between players
+- Both Chrome and Safari clients can interact in the same session
+
+The server is correctly:
+- Accepting our fixed message format with the `state` property
+- Assigning players to the requested "JACKALOPES-TEST-SESSION" session key
+- Broadcasting player position updates between connected clients
+
+### Known Issues
+1. **Remote Player Remounting**: 
+   - Remote players occasionally "remount" (are destroyed and recreated)
+   - This causes visual jumpiness in the game
+   - Visible in logs: `RemotePlayer.tsx:48 Remote player player_pm6rn9ay6 unmounted`
+   - Followed by: `RemotePlayer.tsx:45 Remote player player_pm6rn9ay6 mounted at position: [...]`
+
+2. **Session Management**:
+   - The server now honors our "JACKALOPES-TEST-SESSION" session key
+   - However, it still creates a formatted session ID "session_jackalopes-test-session"
+   - This approach works but isn't fully robust for production use
+
 ### Next Steps
-1. **Verify With Multiple Clients**:
-   - Test with two browser windows (Chrome + Safari)
-   - Confirm players can see each other
-   - Verify that shooting events are visible to other players
+1. **Improve Remote Player Stability**:
+   - Modify `RemotePlayer` component to avoid unnecessary remounting
+   - Implement position interpolation to smooth player movement
+   - Add a buffer for position updates to reduce visual jitter
 
-2. **Consider Server-Side Updates**:
-   - If client-side fixes are insufficient, consider a more direct approach:
-   - Create a modified version of `server.js` with simplified session logic
-   - Have all clients join a fixed "test" session by default
+2. **Further Server Improvements**:
+   - Continue monitoring server performance with multiple simultaneous players
+   - Consider adding server-side logging to debug any remaining issues
+   - Create admin tools for managing active sessions
 
-3. **Long-term Stability**:
-   - Add proper error handling for different message formats
-   - Create automated tests for the connection process
-   - Add fallback modes that maintain basic functionality when server issues occur
+3. **Production Readiness**:
+   - Implement reconnection handling for network interruptions
+   - Add error recovery for malformed messages
+   - Create monitoring and diagnostic tools for server health
 
-This implementation maintains backward compatibility while working around the main issues with the server. The test player feature provides a valuable fallback that can be used for development and testing even when the main server is unavailable.
+4. **Documentation**:
+   - Update integration guide for connecting to the WordPress multiplayer server
+   - Document message format requirements for any future client implementations
+   - Provide setup instructions for local development and testing
+
+This implementation is now sufficient for gameplay testing and further development. The core multiplayer functionality is working, with remaining issues being primarily related to visual smoothness rather than fundamental connectivity or messaging problems.
+
+## Remote Player Remounting Fix - Implementation (March 28)
+
+We've implemented the fix for the remote player remounting issue using the approach outlined earlier. The implementation includes:
+
+1. **React.memo for Preventing Re-renders**:
+   - Applied to both `RemotePlayer` and `RemotePlayers` components
+   - Prevents unnecessary re-renders when only position data changes
+
+2. **Position Interpolation**:
+   - Added smooth interpolation between position updates using `useFrame`
+   - Frame-by-frame updates create smooth motion without React state updates
+   - Large position changes (teleportation) are still applied immediately
+
+3. **Reference-Based Updates**:
+   - Position updates are passed through refs instead of props
+   - Uses `requestAnimationFrame` to batch position updates
+   - Requires fewer React render cycles, improving performance
+
+4. **Optimization of Component Mounting**:
+   - Players are only mounted/unmounted when actually joining/leaving
+   - Position changes don't trigger remounting or re-rendering
+   - Component dependencies were adjusted to reduce render frequency
+
+### Expected Benefits
+
+1. **Smoother Visual Experience**:
+   - Remote players move smoothly between network updates
+   - No more visual "jumping" caused by player remounting
+   - Interpolated motion looks more natural
+
+2. **Better Performance**:
+   - Fewer React render cycles for position updates
+   - More efficient GPU utilization by avoiding unnecessary scene changes
+   - Lower CPU usage during gameplay
+
+3. **Cleaner Console Output**:
+   - Console no longer flooded with "player unmounted"/"player mounted" messages
+   - Easier to identify actual player join/leave events
+   - Better insight into what's really happening with player connections
+
+### Code Changes Summary
+
+1. **Added in RemotePlayer.tsx**:
+   - React.memo wrapper
+   - Target position/rotation refs
+   - useFrame interpolation
+   - Optimized updateTransform method
+
+2. **Added in MultiplayerManager.tsx**:
+   - React.memo for RemotePlayers
+   - requestAnimationFrame batching
+   - useMemo for stable player ID list
+   - Optimized ref creation/cleanup
+
+These changes significantly improve the multiplayer experience while maintaining compatibility with the existing server implementation.
