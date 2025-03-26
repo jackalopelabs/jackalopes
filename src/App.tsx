@@ -454,19 +454,21 @@ const ThirdPersonCameraControls = ({
     cameraRef,
     enabled,
     distance,
-    height
+    height,
+    invertY = false, // Add invert Y option with default = false
 }: { 
     player: THREE.Vector3, 
     cameraRef: React.RefObject<THREE.PerspectiveCamera>,
     enabled: boolean,
     distance: number,
-    height: number
+    height: number,
+    invertY?: boolean,
 }) => {
     // For tracking target position and rotation
     const targetRef = useRef(new THREE.Vector3());
     const isInitializedRef = useRef(false);
     const rotationRef = useRef({ x: 0, y: 0 });
-    const mouseDownRef = useRef(false);
+    const pointerLockActiveRef = useRef(false);
     const lastMouseRef = useRef({ x: 0, y: 0 });
     
     // Set up initial camera position based on player position
@@ -500,52 +502,74 @@ const ThirdPersonCameraControls = ({
             rotationRef.current = { x: 0, y: 0 };
         }
         
-        // Add mouse event listeners
-        const handleMouseDown = (e: MouseEvent) => {
-            mouseDownRef.current = true;
-            lastMouseRef.current = { x: e.clientX, y: e.clientY };
+        // Handle pointer lock for fps-style mouse movement
+        const requestPointerLock = () => {
+            document.body.requestPointerLock();
         };
         
-        const handleMouseUp = () => {
-            mouseDownRef.current = false;
+        const handlePointerLockChange = () => {
+            pointerLockActiveRef.current = document.pointerLockElement === document.body;
+            console.log("Pointer lock state:", pointerLockActiveRef.current ? "ACTIVE" : "INACTIVE");
         };
         
         const handleMouseMove = (e: MouseEvent) => {
-            if (!mouseDownRef.current) return;
-            
-            // Calculate mouse delta
-            const deltaX = e.clientX - lastMouseRef.current.x;
-            const deltaY = e.clientY - lastMouseRef.current.y;
-            
-            // Update rotation based on mouse movement
-            rotationRef.current.y -= deltaX * 0.005; // horizontal rotation
-            rotationRef.current.x -= deltaY * 0.005; // vertical rotation
-            
-            // Clamp vertical rotation to avoid flipping
-            rotationRef.current.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rotationRef.current.x));
-            
-            // Update last mouse position
-            lastMouseRef.current = { x: e.clientX, y: e.clientY };
+            if (pointerLockActiveRef.current) {
+                // Use movementX/Y for pointer lock (fps style)
+                const deltaX = e.movementX;
+                const deltaY = e.movementY;
+                
+                // Update rotation based on mouse movement
+                rotationRef.current.y -= deltaX * 0.002; // horizontal rotation
+                
+                // Apply Y rotation with or without inversion
+                if (invertY) {
+                    rotationRef.current.x -= deltaY * 0.002; // inverted (old behavior)
+                } else {
+                    rotationRef.current.x += deltaY * 0.002; // non-inverted
+                }
+                
+                // Clamp vertical rotation to avoid flipping
+                rotationRef.current.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rotationRef.current.x));
+            }
         };
         
-        document.addEventListener('mousedown', handleMouseDown);
-        document.addEventListener('mouseup', handleMouseUp);
-        document.addEventListener('mousemove', handleMouseMove);
+        // Set up pointer lock when third person mode is enabled
+        if (enabled) {
+            // Request pointer lock on first click
+            document.addEventListener('click', requestPointerLock);
+            document.addEventListener('pointerlockchange', handlePointerLockChange);
+            document.addEventListener('mousemove', handleMouseMove);
+            
+            // Request pointer lock immediately if it's not active yet
+            if (!pointerLockActiveRef.current) {
+                document.body.requestPointerLock();
+            }
+        }
         
         // Clean up
         return () => {
             console.log("Cleaning up simplified third-person camera");
-            document.removeEventListener('mousedown', handleMouseDown);
-            document.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('click', requestPointerLock);
+            document.removeEventListener('pointerlockchange', handlePointerLockChange);
             document.removeEventListener('mousemove', handleMouseMove);
+            
+            // Exit pointer lock when component unmounts
+            if (pointerLockActiveRef.current && document.exitPointerLock) {
+                document.exitPointerLock();
+            }
         };
-    }, [enabled, player, cameraRef, distance, height]);
+    }, [enabled, player, cameraRef, distance, height, invertY]);
     
     // Reset initialization when disabled
     useEffect(() => {
         if (!enabled) {
             isInitializedRef.current = false;
-            mouseDownRef.current = false;
+            
+            // Exit pointer lock when disabled
+            if (pointerLockActiveRef.current && document.exitPointerLock) {
+                document.exitPointerLock();
+                pointerLockActiveRef.current = false;
+            }
         }
     }, [enabled]);
     
@@ -1146,11 +1170,13 @@ export function App() {
     const { 
         cameraDistance, 
         cameraHeight, 
-        cameraSmoothing 
+        cameraSmoothing,
+        invertYAxis 
     } = useControls('Third Person Camera', {
         cameraDistance: { value: 5, min: 2, max: 10, step: 0.5 },
         cameraHeight: { value: 2.5, min: 1, max: 5, step: 0.5 },
-        cameraSmoothing: { value: 0.1, min: 0.01, max: 1, step: 0.01 }
+        cameraSmoothing: { value: 0.1, min: 0.01, max: 1, step: 0.01 },
+        invertYAxis: { value: false, label: 'Invert Y-Axis' }
     }, {
         collapsed: true,
         order: 994
@@ -1213,7 +1239,7 @@ export function App() {
                     whiteSpace: 'nowrap'
                 }}>
                     WASD to move | SPACE to jump | SHIFT to run
-                    {thirdPersonView ? ' | Mouse Drag to rotate camera' : ''}
+                    {thirdPersonView ? ' | Mouse to rotate camera | ESC to release mouse' : ''}
                 </div>
             </div>
             
@@ -1347,6 +1373,7 @@ export function App() {
                         enabled={thirdPersonView}
                         distance={cameraDistance}
                         height={cameraHeight}
+                        invertY={invertYAxis}
                     />
                 )}
 
