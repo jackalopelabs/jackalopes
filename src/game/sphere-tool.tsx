@@ -536,13 +536,42 @@ export const SphereTool = ({
         })
         
         try {
-            const direction = camera.getWorldDirection(new THREE.Vector3())
+            let direction: THREE.Vector3;
+            
+            if (thirdPersonView) {
+                // In third-person mode, shoot straight forward from the camera
+                // But modify the Y component to shoot more horizontally
+                direction = camera.getWorldDirection(new THREE.Vector3());
+                
+                // Adjust the Y component to shoot more horizontally (level with the ground)
+                // This prevents shooting into the ground in third-person view
+                direction.y = Math.max(0, direction.y); // Prevent shooting downward
+                
+                // If shooting too upward, adjust to be more horizontal
+                if (direction.y > 0.5) {
+                    direction.y = 0.5;
+                }
+                
+                // Re-normalize after adjustments
+                direction.normalize();
+                
+                console.log('Third-person shooting direction adjusted:', direction);
+            } else {
+                // In first-person mode, use the exact camera direction
+                direction = camera.getWorldDirection(new THREE.Vector3());
+            }
             
             // Create offset vector in camera's local space
-            const offset = new THREE.Vector3(SPHERE_OFFSET.x, SPHERE_OFFSET.y, SPHERE_OFFSET.z)
-            offset.applyQuaternion(camera.quaternion)
+            const offset = new THREE.Vector3(SPHERE_OFFSET.x, SPHERE_OFFSET.y, SPHERE_OFFSET.z);
             
-            const position = camera.position.clone().add(offset)
+            if (thirdPersonView) {
+                // In third-person, move the starting position forward and up a bit
+                // to prevent collisions with the player model
+                offset.set(0, 1.0, -1.0); // Start above and in front of the player
+            }
+            
+            offset.applyQuaternion(camera.quaternion);
+            const position = camera.position.clone().add(offset);
             
             // Validate vectors
             if (isNaN(direction.x) || isNaN(direction.y) || isNaN(direction.z) ||
@@ -552,9 +581,9 @@ export const SphereTool = ({
             }
             
             // Keep direction normalized
-            direction.normalize()
+            direction.normalize();
 
-            const fireColor = FIRE_COLORS[Math.floor(Math.random() * FIRE_COLORS.length)]
+            const fireColor = FIRE_COLORS[Math.floor(Math.random() * FIRE_COLORS.length)];
             const originArray = position.toArray() as [number, number, number];
             const directionArray = direction.toArray() as [number, number, number];
             const localPlayerId = localPlayerIdRef.current;

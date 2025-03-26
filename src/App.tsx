@@ -519,13 +519,13 @@ const ThirdPersonCameraControls = ({
                 const deltaY = e.movementY;
                 
                 // Update rotation based on mouse movement
-                rotationRef.current.y -= deltaX * 0.002; // horizontal rotation
+                rotationRef.current.y -= deltaX * 0.003; // increased from 0.002 for faster rotation
                 
                 // Apply Y rotation with or without inversion
                 if (invertY) {
-                    rotationRef.current.x -= deltaY * 0.002; // inverted (old behavior)
+                    rotationRef.current.x -= deltaY * 0.003; // increased from 0.002
                 } else {
-                    rotationRef.current.x += deltaY * 0.002; // non-inverted
+                    rotationRef.current.x += deltaY * 0.003; // increased from 0.002
                 }
                 
                 // Clamp vertical rotation to avoid flipping
@@ -583,7 +583,7 @@ const ThirdPersonCameraControls = ({
                 !Number.isNaN(player.y) && !Number.isNaN(player.z)) {
                 
                 // Very slow interpolation for target position
-                targetRef.current.lerp(player, 0.03);
+                targetRef.current.lerp(player, 0.1);
                 
                 // Calculate camera position based on rotation around target
                 const cameraOffset = new THREE.Vector3(
@@ -592,7 +592,7 @@ const ThirdPersonCameraControls = ({
                     Math.cos(rotationRef.current.y) * distance
                 );
                 
-                // Position camera relative to target
+                // Position camera relative to target with faster response
                 cameraRef.current.position.copy(targetRef.current).add(cameraOffset);
                 
                 // Look at player
@@ -630,7 +630,7 @@ export function App() {
         const frameCountRef = useRef(0);
         const positionStabilityRef = useRef(new THREE.Vector3());
         const positionHistoryRef = useRef<THREE.Vector3[]>([]);
-        const MAX_HISTORY = 10; // Keep a history of 10 positions for smoothing
+        const MAX_HISTORY = 5; // Reduced from 10 to 5 for more responsive camera
         
         // This useFrame is now safely inside the Canvas component
         useFrame(() => {
@@ -712,7 +712,8 @@ export function App() {
                     
                     // More recent positions have higher weight
                     positionHistoryRef.current.forEach((pos, index) => {
-                        const weight = (index + 1) / positionHistoryRef.current.length;
+                        // Increase weight for recent positions to reduce lag
+                        const weight = Math.pow((index + 1) / positionHistoryRef.current.length, 2);
                         totalWeight += weight;
                         smoothedPosition.add(pos.clone().multiplyScalar(weight));
                     });
@@ -722,8 +723,8 @@ export function App() {
                         smoothedPosition.divideScalar(totalWeight);
                     }
                     
-                    // Apply very slow interpolation for third-person camera (0.05 instead of 0.1)
-                    const smoothingFactor = Math.min(0.05, deltaTime * 3);
+                    // Apply faster interpolation (0.15 instead of 0.05)
+                    const smoothingFactor = Math.min(0.15, deltaTime * 8);
                     playerPosition.current.lerp(smoothedPosition, smoothingFactor);
                     
                     // Update the last valid position
@@ -1218,6 +1219,34 @@ export function App() {
         }
     }, [thirdPersonView, playerRef]);
 
+    // Add a light position stabilization function
+    const updateDirectionalLight = (position: THREE.Vector3) => {
+        if (!directionalLightRef.current) return;
+        
+        // Use a more stable target position (player's center)
+        // This helps prevent shadow/light flickering
+        directionalLightRef.current.target.position.set(position.x, position.y, position.z);
+        directionalLightRef.current.target.updateMatrixWorld();
+        
+        // Only update light position, not target - more stable for shadows
+        directionalLightRef.current.position.set(
+            position.x + directionalDistance,
+            directionalHeight,
+            position.z + directionalDistance
+        );
+    };
+    
+    // Update the light position in useFrame via PlayerPositionTracker
+    // This is more stable than the onMove handler which can be sporadic
+    const StableLightUpdater = () => {
+        useFrame(() => {
+            if (playerPosition.current) {
+                updateDirectionalLight(playerPosition.current);
+            }
+        });
+        return null;
+    };
+
     return (
         <>
             <div style={{
@@ -1300,16 +1329,15 @@ export function App() {
                             thirdPersonView={thirdPersonView}
                             connectionManager={enableMultiplayer ? connectionManager : undefined}
                             onMove={(position) => {
-                                if (directionalLightRef.current) {
-                                    const light = directionalLightRef.current
-                                    light.position.x = position.x + directionalDistance
-                                    light.position.z = position.z + directionalDistance
-                                    light.target.position.copy(position)
-                                    light.target.updateMatrixWorld()
+                                if (directionalLightRef.current && !thirdPersonView) {
+                                    // Only update light directly in first-person mode
+                                    // In third-person, StableLightUpdater handles it
+                                    const light = directionalLightRef.current;
+                                    light.position.x = position.x + directionalDistance;
+                                    light.position.z = position.z + directionalDistance;
+                                    light.target.position.copy(position);
+                                    light.target.updateMatrixWorld();
                                 }
-                                
-                                // Don't update third-person camera position through this function
-                                // OrbitControls will handle camera positioning
                             }}
                         />
                     </PlayerControls>
@@ -1402,6 +1430,9 @@ export function App() {
                         />
                     </EffectComposer>
                 )}
+
+                {/* Add stable light updater for third-person view */}
+                {thirdPersonView && <StableLightUpdater />}
 
                 {/* Add position tracker component */}
                 <PlayerPositionTracker playerRef={playerRef} playerPosition={playerPosition} />
