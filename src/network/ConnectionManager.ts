@@ -44,6 +44,18 @@ export class ConnectionManager extends EventEmitter {
   private offlineMode: boolean = false; // Track if we're in offline mode
   private connectionFailed: boolean = false; // Track if connection failed after attempts
   
+  // Add test player properties
+  private _testPlayers: Record<string, number> = {};
+  
+  // Reconciliation metrics for debugging
+  private _reconciliationMetrics = {
+    totalCorrections: 0,
+    averageError: 0,
+    lastError: 0,
+    lastCorrection: 0,
+    active: true
+  };
+  
   constructor(private serverUrl: string = 'ws://localhost:8082') {
     super();
     
@@ -402,11 +414,14 @@ export class ConnectionManager extends EventEmitter {
       return;
     }
     
+    // FIXED: Wrap position and rotation inside state object to match server expectations
     this.send({
       type: 'player_update',
-      position,
-      rotation,
-      sequence: sequence || 0 // Include sequence number for reconciliation
+      state: {
+        position,
+        rotation,
+        sequence: sequence || 0
+      }
     });
   }
   
@@ -455,8 +470,8 @@ export class ConnectionManager extends EventEmitter {
     // So we'll use 'game_event' instead, which is more likely to be supported
     this.send({
       type: 'game_event',  // Use 'game_event' instead of 'shoot'
-      event_type: 'player_shoot', // Specify the event type in a field the server might understand
-      data: {              // Wrap the shot data in a data field
+      event: {             // Wrap in 'event' instead of event_type/data to match server expectations
+        event_type: 'player_shoot',
         shotId: shotId,
         origin,
         direction,
@@ -561,6 +576,13 @@ export class ConnectionManager extends EventEmitter {
           console.log('📣 AUTH_SUCCESS: Set player ID to', this.playerId);
           if (message.session) {
             console.log('Joined session:', message.session.id);
+            // Add more detailed session diagnostics
+            console.log('📊 Session diagnostics:', {
+              requestedSession: 'JACKALOPES-TEST-SESSION',
+              assignedSession: message.session.id,
+              sessionKey: message.session.key,
+              playerCount: message.playerCount || 'unknown'
+            });
           }
           // Explicitly set connected state to true on successful auth
           this.isConnected = true;
@@ -578,7 +600,8 @@ export class ConnectionManager extends EventEmitter {
             console.log('Auth successful, joining session...');
             this.send({
               type: 'join_session',
-              playerName: message.player.id // Use player ID as name
+              playerName: message.player.id, // Use player ID as name
+              sessionKey: 'JACKALOPES-TEST-SESSION' // Fixed session key for all players
             });
           }
         }
@@ -898,13 +921,142 @@ export class ConnectionManager extends EventEmitter {
   }
   
   get reconciliationMetrics(): any {
-    return {
-      totalCorrections: 0,
-      averageError: 0,
-      lastError: 0,
-      lastCorrection: 0,
-      active: true
+    return this._reconciliationMetrics;
+  }
+  
+  // Add debug test player that moves in a circle
+  addTestPlayer(): string {
+    const testPlayerId = `test-player-${Math.floor(Math.random() * 10000)}`;
+    
+    console.log('Adding simulated test player for debugging:', testPlayerId);
+    
+    // Create initial position
+    const startPosition: [number, number, number] = [
+      (Math.random() * 10) - 5,  // Random x position between -5 and 5
+      1,                          // Fixed height slightly above ground
+      (Math.random() * 10) - 5    // Random z position between -5 and 5
+    ];
+    
+    // Default rotation
+    const rotation: [number, number, number, number] = [0, 0, 0, 1];
+    
+    // Create a fake player joined event
+    this.emit('player_joined', {
+      id: testPlayerId,
+      state: {
+        position: startPosition,
+        rotation: rotation,
+        health: 100
+      }
+    });
+    
+    // Add to game state
+    this.gameState.players[testPlayerId] = {
+      position: startPosition,
+      rotation: rotation,
+      health: 100
     };
+    
+    // Create animation loop for this test player
+    let angle = 0;
+    const radius = 3;
+    const center = [...startPosition];
+    
+    // Store interval ID so we can clear it later
+    const intervalId = setInterval(() => {
+      // Move in a circle
+      angle += 0.02;
+      const newPosition: [number, number, number] = [
+        center[0] + Math.cos(angle) * radius,
+        center[1],
+        center[2] + Math.sin(angle) * radius
+      ];
+      
+      // Calculate rotation to face movement direction
+      const facingAngle = angle + Math.PI/2;
+      const newRotation: [number, number, number, number] = [
+        0,
+        Math.sin(facingAngle/2),
+        0,
+        Math.cos(facingAngle/2)
+      ];
+      
+      // Update game state
+      this.gameState.players[testPlayerId].position = newPosition;
+      this.gameState.players[testPlayerId].rotation = newRotation;
+      
+      // Emit update event
+      this.emit('player_update', {
+        id: testPlayerId,
+        position: newPosition,
+        rotation: newRotation
+      });
+      
+      // Occasionally emit a shot event from the test player
+      if (Math.random() < 0.01) {
+        const shotId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+        
+        // Calculate direction based on player rotation
+        const direction: [number, number, number] = [
+          Math.sin(angle),
+          0,
+          Math.cos(angle)
+        ];
+        
+        // Emit shot event
+        this.emit('player_shoot', {
+          id: testPlayerId,
+          shotId: shotId,
+          origin: newPosition,
+          direction: direction,
+          timestamp: Date.now()
+        });
+      }
+    }, 50); // 20 updates per second
+    
+    // Store test player data for cleanup
+    this._testPlayers = this._testPlayers || {};
+    this._testPlayers[testPlayerId] = intervalId;
+    
+    return testPlayerId;
+  }
+  
+  // Remove test player
+  removeTestPlayer(testPlayerId: string): void {
+    // Check if this is a test player
+    if (!this._testPlayers || !this._testPlayers[testPlayerId]) {
+      console.warn(`Not a test player: ${testPlayerId}`);
+      return;
+    }
+    
+    // Stop the animation interval
+    clearInterval(this._testPlayers[testPlayerId]);
+    
+    // Remove from test players list
+    delete this._testPlayers[testPlayerId];
+    
+    // Remove from game state
+    delete this.gameState.players[testPlayerId];
+    
+    // Emit player left event
+    this.emit('player_left', {
+      id: testPlayerId
+    });
+    
+    console.log(`Removed test player: ${testPlayerId}`);
+  }
+  
+  // Remove all test players
+  removeAllTestPlayers(): void {
+    if (!this._testPlayers) return;
+    
+    // Remove each test player
+    Object.keys(this._testPlayers).forEach(playerId => {
+      this.removeTestPlayer(playerId);
+    });
+    
+    // Reset test players object
+    this._testPlayers = {};
   }
   
   // Initialize session with the server
@@ -927,7 +1079,8 @@ export class ConnectionManager extends EventEmitter {
         console.log('Auth not successful, trying join_session as fallback...');
         this.send({
           type: 'join_session',
-          playerName: playerName
+          playerName: playerName,
+          sessionKey: 'JACKALOPES-TEST-SESSION' // Fixed session key for all players
         });
       }
     }, 1000);

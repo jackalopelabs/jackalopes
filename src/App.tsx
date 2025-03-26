@@ -231,6 +231,7 @@ const MultiplayerDebugPanel = ({
   isOfflineMode: boolean
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [activeTestPlayers, setActiveTestPlayers] = useState<string[]>([]);
   
   if (!visible) return null;
 
@@ -282,6 +283,25 @@ const MultiplayerDebugPanel = ({
     console.log('Forcing offline mode...');
     if (connectionManager && connectionManager.forceReady) {
       connectionManager.forceReady();
+    }
+  };
+  
+  // Add test player functions
+  const addTestPlayer = () => {
+    if (connectionManager && connectionManager.addTestPlayer) {
+      const testPlayerId = connectionManager.addTestPlayer();
+      setActiveTestPlayers(prev => [...prev, testPlayerId]);
+      console.log('Added test player:', testPlayerId);
+    } else {
+      console.warn('Test player functionality not available');
+    }
+  };
+  
+  const removeAllTestPlayers = () => {
+    if (connectionManager && connectionManager.removeAllTestPlayers) {
+      connectionManager.removeAllTestPlayers();
+      setActiveTestPlayers([]);
+      console.log('Removed all test players');
     }
   };
 
@@ -364,6 +384,36 @@ const MultiplayerDebugPanel = ({
         >
           {isOfflineMode ? 'ALREADY OFFLINE' : 'FORCE OFFLINE MODE'}
         </button>
+        
+        {/* Add test player controls */}
+        <button
+          onClick={addTestPlayer}
+          style={{
+            backgroundColor: '#9C27B0',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          ADD TEST PLAYER
+        </button>
+        <button
+          onClick={removeAllTestPlayers}
+          style={{
+            backgroundColor: '#F44336',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            opacity: activeTestPlayers.length === 0 ? 0.7 : 1,
+          }}
+          disabled={activeTestPlayers.length === 0}
+        >
+          {activeTestPlayers.length ? `REMOVE TEST PLAYERS (${activeTestPlayers.length})` : 'NO TEST PLAYERS'}
+        </button>
       </div>
       
       {isExpanded && (
@@ -386,6 +436,9 @@ const MultiplayerDebugPanel = ({
           </p>
           <p style={{ margin: '5px 0' }}>
             <strong>Offline Mode:</strong> {isOfflineMode ? 'Yes' : 'No'}
+          </p>
+          <p style={{ margin: '5px 0' }}>
+            <strong>Test Players:</strong> {activeTestPlayers.length ? activeTestPlayers.join(', ') : 'None'}
           </p>
         </div>
       )}
