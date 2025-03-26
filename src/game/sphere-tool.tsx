@@ -306,10 +306,12 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
 
 export const SphereTool = ({ 
     onShoot,
-    remoteShots = []
+    remoteShots = [],
+    thirdPersonView = false
 }: { 
     onShoot?: (origin: [number, number, number], direction: [number, number, number]) => void,
-    remoteShots?: RemoteShot[]
+    remoteShots?: RemoteShot[],
+    thirdPersonView?: boolean
 }) => {
     const sphereRadius = 0.15 // Slightly larger size for fireballs
     const MAX_AMMO = 50
@@ -506,13 +508,22 @@ export const SphereTool = ({
     const localPlayerIdRef = useRef<string>(`local_player_${Math.random().toString(36).substring(2, 11)}`);
 
     const shootSphere = () => {
-        const pointerLocked = document.pointerLockElement !== null || gamepadState.connected
-        if (!pointerLocked || isReloading || ammoCount <= 0) {
-            console.log('Cannot shoot:', { 
-                pointerLocked, 
-                isReloading, 
-                ammoCount 
-            });
+        // Modified check for pointer lock to work in both first-person and third-person modes
+        const firstPersonMode = !thirdPersonView && document.pointerLockElement !== null;
+        const thirdPersonMode = thirdPersonView; // Always allow shooting in third-person mode
+        const usingGamepad = gamepadState.connected;
+        
+        const canShoot = (firstPersonMode || thirdPersonMode || usingGamepad) && !isReloading && ammoCount > 0;
+        
+        if (!canShoot) {
+            // More specific error message based on condition
+            if (isReloading) {
+                console.log('Cannot shoot: Reloading');
+            } else if (ammoCount <= 0) {
+                console.log('Cannot shoot: No ammo');
+            } else {
+                console.log('Cannot shoot: Input controls not ready');
+            }
             return;
         }
 
@@ -524,63 +535,74 @@ export const SphereTool = ({
             return newCount
         })
         
-        const direction = camera.getWorldDirection(new THREE.Vector3())
-        
-        // Create offset vector in camera's local space
-        const offset = new THREE.Vector3(SPHERE_OFFSET.x, SPHERE_OFFSET.y, SPHERE_OFFSET.z)
-        offset.applyQuaternion(camera.quaternion)
-        
-        const position = camera.position.clone().add(offset)
-        
-        // Adjust direction slightly upward to compensate for the lower spawn point
-        direction.normalize() // Keep direction exactly as camera is pointing
+        try {
+            const direction = camera.getWorldDirection(new THREE.Vector3())
+            
+            // Create offset vector in camera's local space
+            const offset = new THREE.Vector3(SPHERE_OFFSET.x, SPHERE_OFFSET.y, SPHERE_OFFSET.z)
+            offset.applyQuaternion(camera.quaternion)
+            
+            const position = camera.position.clone().add(offset)
+            
+            // Validate vectors
+            if (isNaN(direction.x) || isNaN(direction.y) || isNaN(direction.z) ||
+                isNaN(position.x) || isNaN(position.y) || isNaN(position.z)) {
+                console.warn("Cannot shoot: Invalid position or direction vector");
+                return;
+            }
+            
+            // Keep direction normalized
+            direction.normalize()
 
-        const fireColor = FIRE_COLORS[Math.floor(Math.random() * FIRE_COLORS.length)]
-        const originArray = position.toArray() as [number, number, number];
-        const directionArray = direction.toArray() as [number, number, number];
-        const localPlayerId = localPlayerIdRef.current;
-        
-        // Generate a unique ID for this sphere
-        const uniqueId = `sphere_${localPlayerId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+            const fireColor = FIRE_COLORS[Math.floor(Math.random() * FIRE_COLORS.length)]
+            const originArray = position.toArray() as [number, number, number];
+            const directionArray = direction.toArray() as [number, number, number];
+            const localPlayerId = localPlayerIdRef.current;
+            
+            // Generate a unique ID for this sphere
+            const uniqueId = `sphere_${localPlayerId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-        // Always add the local sphere immediately
-        setSpheres(prev => {
-            // Create the new sphere
-            const newSphere = {
-                id: uniqueId,
-                position: originArray,
-                direction: directionArray,
-                color: fireColor,
-                radius: sphereRadius,
-                playerId: localPlayerId,
-                timestamp: Date.now(),
-                isStuck: false
-            };
-            
-            // Add the new sphere
-            let newSpheres = [...prev, newSphere];
-            
-            // Remove old spheres if we exceed the limit
-            newSpheres = removeOldSpheresIfNeeded(localPlayerId, newSpheres);
-            
-            return newSpheres;
-        });
-        
-        // Notify multiplayer system of the shot
-        if (onShoot) {
-            console.log('Sending shot to multiplayer with onShoot handler:', {
-                position: originArray,
-                direction: directionArray
+            // Always add the local sphere immediately
+            setSpheres(prev => {
+                // Create the new sphere
+                const newSphere = {
+                    id: uniqueId,
+                    position: originArray,
+                    direction: directionArray,
+                    color: fireColor,
+                    radius: sphereRadius,
+                    playerId: localPlayerId,
+                    timestamp: Date.now(),
+                    isStuck: false
+                };
+                
+                // Add the new sphere
+                let newSpheres = [...prev, newSphere];
+                
+                // Remove old spheres if we exceed the limit
+                newSpheres = removeOldSpheresIfNeeded(localPlayerId, newSpheres);
+                
+                return newSpheres;
             });
             
-            try {
-                onShoot(originArray, directionArray);
-                console.log('Shot successfully sent to multiplayer');
-            } catch (error) {
-                console.error('Error sending shot to multiplayer:', error);
+            // Notify multiplayer system of the shot
+            if (onShoot) {
+                console.log('Sending shot to multiplayer with onShoot handler:', {
+                    position: originArray,
+                    direction: directionArray
+                });
+                
+                try {
+                    onShoot(originArray, directionArray);
+                    console.log('Shot successfully sent to multiplayer');
+                } catch (error) {
+                    console.error('Error sending shot to multiplayer:', error);
+                }
+            } else {
+                console.log('No onShoot handler available, shot will only be local');
             }
-        } else {
-            console.log('No onShoot handler available, shot will only be local');
+        } catch (error) {
+            console.error("Error in shootSphere:", error);
         }
     }
 

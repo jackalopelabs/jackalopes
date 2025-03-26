@@ -2,7 +2,7 @@ import Rapier from '@dimforge/rapier3d-compat'
 import { KeyboardControls, PerspectiveCamera, PointerLockControls, useKeyboardControls, useGLTF, useAnimations } from '@react-three/drei'
 import { useFrame, useThree } from '@react-three/fiber'
 import { CapsuleCollider, RigidBody, RigidBodyProps, useBeforePhysicsStep, useRapier } from '@react-three/rapier'
-import { useEffect, useRef, useState, useMemo, forwardRef } from 'react'
+import { useEffect, useRef, useState, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { useGamepad } from '../common/hooks/use-gamepad'
 import { useControls } from 'leva'
 import * as THREE from 'three'
@@ -39,6 +39,11 @@ const minJumpVelocity = Math.sqrt(2 * Math.abs(jumpGravity) * minJumpHeight)
 
 const up = new THREE.Vector3(0, 1, 0)
 
+// Add these outside the component for rotation calculation
+const _playerDirection = new THREE.Vector3();
+const _lastModelPosition = new THREE.Vector3();
+const _modelTargetPosition = new THREE.Vector3();
+
 export type PlayerControls = {
     children: React.ReactNode
 }
@@ -49,9 +54,11 @@ export type PlayerProps = RigidBodyProps & {
     runSpeed?: number
     jumpForce?: number
     connectionManager?: ConnectionManager // Add optional ConnectionManager for multiplayer
+    visible?: boolean // Add visibility option for third-person view
+    thirdPersonView?: boolean // Flag for third-person camera mode
 }
 
-export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, connectionManager, ...props }, ref) => {
+export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, connectionManager, visible = false, thirdPersonView = false, ...props }, ref) => {
     const playerRef = useRef<EntityType>(null!)
     const gltf = useGLTF('/fps.glb')
     const { actions } = useAnimations(gltf.animations, gltf.scene)
@@ -63,6 +70,9 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     const serverPosition = useRef(new THREE.Vector3())
     const movementIntent = useRef({ forward: false, backward: false, left: false, right: false, jump: false, sprint: false })
     
+    // Add a ref for the player's rotation (for the third-person camera)
+    const playerRotation = useRef(new THREE.Quaternion())
+
     const { x, y, z } = useControls('Arms Position', {
         x: { value: 0.1, min: -1, max: 1, step: 0.1 },
         y: { value: -0.62, min: -1, max: 1, step: 0.1 },
@@ -91,6 +101,9 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     // Animation states
     const [isWalking, setIsWalking] = useState(false)
     const [isRunning, setIsRunning] = useState(false)
+
+    // Add a reference for the model
+    const playerModelRef = useRef<THREE.Group>(null);
 
     useEffect(() => {
         const { world } = rapier
@@ -306,6 +319,52 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                 sequence: Date.now()
             });
         }
+
+        // Update player model position with smoothing
+        if ((thirdPersonView || visible) && playerModelRef.current && playerRef.current && playerRef.current.rigidBody) {
+            try {
+                const position = playerRef.current.rigidBody.translation();
+                
+                // Only update if the position is valid
+                if (position && !Number.isNaN(position.x) && !Number.isNaN(position.y) && !Number.isNaN(position.z)) {
+                    // Create target position
+                    _modelTargetPosition.set(position.x, position.y, position.z);
+                    
+                    // First time setup
+                    if (_lastModelPosition.lengthSq() === 0) {
+                        _lastModelPosition.copy(_modelTargetPosition);
+                        playerModelRef.current.position.copy(_modelTargetPosition);
+                    } else {
+                        // Smoother interpolation for position - use slower rate for more stability
+                        const lerpFactor = thirdPersonView ? 0.15 : 0.5; // Slower in third-person for stability
+                        playerModelRef.current.position.lerp(_modelTargetPosition, lerpFactor);
+                        _lastModelPosition.copy(playerModelRef.current.position);
+                    }
+                    
+                    if (thirdPersonView) {
+                        // Get camera direction for model rotation but only in third-person mode
+                        const cameraWorldDirection = camera.getWorldDirection(_playerDirection);
+                        
+                        // Only use X and Z components for yaw calculation to prevent tipping
+                        const cameraYaw = Math.atan2(cameraWorldDirection.x, cameraWorldDirection.z);
+                        
+                        // Smoothly interpolate rotation to prevent jittering
+                        const currentYaw = playerModelRef.current.rotation.y;
+                        const targetYaw = cameraYaw;
+                        
+                        // Calculate shortest path for rotation
+                        let deltaYaw = targetYaw - currentYaw;
+                        while (deltaYaw > Math.PI) deltaYaw -= Math.PI * 2;
+                        while (deltaYaw < -Math.PI) deltaYaw += Math.PI * 2;
+                        
+                        // Very slow rotation interpolation for stability
+                        playerModelRef.current.rotation.y = currentYaw + deltaYaw * 0.08;
+                    }
+                }
+            } catch (error) {
+                console.error("Error updating player model position:", error);
+            }
+        }
     })
     
     // Handle movement animations
@@ -384,6 +443,19 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         }
     }, [connectionManager]);
 
+    // Add getRotationQuaternion method to the player's ref
+    useImperativeHandle(ref, () => ({
+        ...playerRef.current,
+        getRotationQuaternion: () => {
+            // Calculate rotation based on camera direction
+            const cameraWorldDirection = camera.getWorldDirection(new THREE.Vector3());
+            const cameraYaw = Math.atan2(cameraWorldDirection.x, cameraWorldDirection.z);
+            
+            // Create and return a quaternion
+            return new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), cameraYaw);
+        }
+    }), [camera]);
+
     // Expose the ref
     useEffect(() => {
         if (ref) {
@@ -391,6 +463,16 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             ref.current = playerRef.current;
         }
     }, [ref]);
+
+    useEffect(() => {
+        // Lock/unlock pointer based on view mode
+        if (thirdPersonView) {
+            // Exit pointer lock when switching to third-person
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+        }
+    }, [thirdPersonView]);
 
     return (
         <>
@@ -408,13 +490,60 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     </RigidBody>
                 </Component>
             </Entity>
-            <primitive 
-                object={gltf.scene} 
-                position={[x, y, z]}
-                rotation={[0, Math.PI, 0]}
-                scale={0.7}
-                parent={camera}
-            />
+            {/* Only render arms model when not in third-person view */}
+            {!thirdPersonView && (
+                <primitive 
+                    object={gltf.scene} 
+                    position={[x, y, z]}
+                    rotation={[0, Math.PI, 0]}
+                    scale={0.7}
+                    parent={camera}
+                />
+            )}
+            
+            {/* Render player model when in third-person view or visible is true */}
+            {(thirdPersonView || visible) && (
+                <group ref={playerModelRef}>
+                    {/* Player head */}
+                    <mesh position={[0, 1.7, 0]} castShadow>
+                        <sphereGeometry args={[0.4, 16, 16]} />
+                        <meshStandardMaterial color="#4287f5" />
+                    </mesh>
+                    
+                    {/* Player body */}
+                    <mesh position={[0, 0.9, 0]} castShadow>
+                        <capsuleGeometry args={[0.4, 1.2, 4, 8]} />
+                        <meshStandardMaterial color="#4287f5" />
+                    </mesh>
+                    
+                    {/* Player arm - left */}
+                    <mesh position={[-0.6, 0.9, 0]} rotation={[0, 0, -Math.PI / 4]} castShadow>
+                        <capsuleGeometry args={[0.15, 0.6, 4, 8]} />
+                        <meshStandardMaterial color="#4287f5" />
+                    </mesh>
+                    
+                    {/* Player arm - right - adjusted position for holding a weapon */}
+                    <mesh position={[0.55, 0.95, 0.3]} rotation={[0.3, 0, Math.PI / 4]} castShadow>
+                        <capsuleGeometry args={[0.15, 0.6, 4, 8]} />
+                        <meshStandardMaterial color="#4287f5" />
+                    </mesh>
+                    
+                    {/* Weapon model */}
+                    <group position={[0.7, 0.95, 0.6]} rotation={[-0.1, 0, 0]}>
+                        {/* Main body of the weapon */}
+                        <mesh castShadow position={[0.3, 0, 0]}>
+                            <cylinderGeometry args={[0.08, 0.12, 0.5, 8]} />
+                            <meshStandardMaterial color="#333333" metalness={0.8} roughness={0.2} />
+                        </mesh>
+                        
+                        {/* Handle */}
+                        <mesh castShadow position={[0.15, -0.1, 0]} rotation={[0, 0, Math.PI/2 - 0.5]}>
+                            <cylinderGeometry args={[0.03, 0.03, 0.2, 8]} />
+                            <meshStandardMaterial color="#222222" metalness={0.3} roughness={0.7} />
+                        </mesh>
+                    </group>
+                </group>
+            )}
         </>
     )
 })
@@ -437,11 +566,40 @@ const controls = [
     { name: 'sprint', keys: ['Shift'] },
 ]
 
-export const PlayerControls = ({ children }: PlayerControls) => {
+type PlayerControlsProps = {
+    children: React.ReactNode
+    thirdPersonView?: boolean
+}
+
+export const PlayerControls = ({ children, thirdPersonView = false }: PlayerControlsProps) => {
+    // Track whether pointer lock was released due to third-person toggle
+    const [pointerLockDisabled, setPointerLockDisabled] = useState(false);
+    
+    // Effect to handle mode switching
+    useEffect(() => {
+        if (thirdPersonView) {
+            setPointerLockDisabled(true);
+            
+            // When switching to third-person, release pointer lock
+            if (document.pointerLockElement) {
+                document.exitPointerLock();
+            }
+        } else {
+            // Add a small delay before re-enabling pointer lock
+            // to prevent immediately re-locking when toggling modes
+            const timeout = setTimeout(() => {
+                setPointerLockDisabled(false);
+            }, 500);
+            
+            return () => clearTimeout(timeout);
+        }
+    }, [thirdPersonView]);
+    
     return (
         <KeyboardControls map={controls}>
             {children}
-            <PointerLockControls makeDefault />
+            {/* Only use pointer lock controls in first-person view */}
+            {!thirdPersonView && !pointerLockDisabled && <PointerLockControls makeDefault />}
         </KeyboardControls>
     )
 }

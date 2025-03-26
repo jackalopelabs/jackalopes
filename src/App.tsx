@@ -2,7 +2,7 @@ import { Canvas } from './common/components/canvas'
 import { Crosshair } from './common/components/crosshair'
 import { Instructions } from './common/components/instructions'
 import { useLoadingAssets } from './common/hooks/use-loading-assets'
-import { Environment, MeshReflectorMaterial, PerspectiveCamera } from '@react-three/drei'
+import { Environment, MeshReflectorMaterial, PerspectiveCamera, OrbitControls } from '@react-three/drei'
 import { EffectComposer, Vignette, ChromaticAberration, BrightnessContrast, ToneMapping } from '@react-three/postprocessing'
 import { BlendFunction } from 'postprocessing'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -448,6 +448,100 @@ const MultiplayerDebugPanel = ({
   );
 };
 
+// Updated ThirdPersonCameraControls component using @react-three/drei's OrbitControls
+const ThirdPersonCameraControls = ({ 
+    player, 
+    cameraRef,
+    enabled,
+    distance,
+    height
+}: { 
+    player: THREE.Vector3, 
+    cameraRef: React.RefObject<THREE.PerspectiveCamera>,
+    enabled: boolean,
+    distance: number,
+    height: number
+}) => {
+    // For tracking target position
+    const targetRef = useRef(new THREE.Vector3());
+    const controlsRef = useRef<any>(null);
+    const isInitializedRef = useRef(false);
+    
+    // Set up initial camera position based on player position
+    useEffect(() => {
+        if (!cameraRef.current || !enabled) return;
+        
+        // Make sure player position is valid
+        if (!(player instanceof THREE.Vector3)) {
+            console.error("Player position is not a Vector3:", player);
+            return;
+        }
+        
+        // Initialize position and target only once
+        if (!isInitializedRef.current) {
+            // Initialize target position
+            targetRef.current.copy(player);
+            
+            // Initialize camera position
+            const cameraPos = new THREE.Vector3().copy(player);
+            cameraPos.y += height;
+            cameraPos.z += distance;
+            cameraRef.current.position.copy(cameraPos);
+            
+            // Look at player
+            cameraRef.current.lookAt(player);
+            isInitializedRef.current = true;
+        }
+    }, [enabled, player, cameraRef, distance, height]);
+    
+    // Reset initialization when disabled
+    useEffect(() => {
+        if (!enabled) {
+            isInitializedRef.current = false;
+        }
+    }, [enabled]);
+    
+    // Use frame loop to update the camera smoothly
+    useFrame(() => {
+        if (!enabled || !cameraRef.current) return;
+        
+        try {
+            // Only update the target with valid player position
+            if (player instanceof THREE.Vector3 && !Number.isNaN(player.x) && 
+                !Number.isNaN(player.y) && !Number.isNaN(player.z)) {
+                // Smoother interpolation for target position
+                targetRef.current.lerp(player, 0.05);
+            }
+            
+            // Update the orbit controls target directly if available
+            if (controlsRef.current) {
+                controlsRef.current.target.copy(targetRef.current);
+            }
+        } catch (error) {
+            console.error("Error in ThirdPersonCameraControls frame update:", error);
+        }
+    });
+    
+    if (!enabled || !cameraRef.current) return null;
+    
+    return (
+        <OrbitControls
+            ref={controlsRef}
+            camera={cameraRef.current}
+            enableDamping
+            dampingFactor={0.1}
+            enableZoom={false}
+            enablePan={false}
+            rotateSpeed={0.5}
+            minPolarAngle={Math.PI * 0.1}
+            maxPolarAngle={Math.PI * 0.5}
+            target={targetRef.current}
+            minDistance={2}
+            maxDistance={10}
+        />
+    );
+};
+
 export function App() {
     const loading = useLoadingAssets()
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
@@ -456,6 +550,79 @@ export function App() {
     const playerRef = useRef<any>(null);
     // Add a state to track if playerRef is ready
     const [playerRefReady, setPlayerRefReady] = useState(false);
+    
+    // Add this inside the App component
+    const playerPosition = useRef<THREE.Vector3>(new THREE.Vector3(0, 7, 10));
+    
+    // Create a helper component to handle useFrame inside Canvas
+    const PlayerPositionTracker = ({ playerRef, playerPosition }: { 
+        playerRef: React.RefObject<any>,
+        playerPosition: React.RefObject<THREE.Vector3>
+    }) => {
+        // Store the last valid position to avoid jumps
+        const lastValidPosition = useRef<THREE.Vector3 | null>(null);
+        const velocityRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
+        const lastUpdateTime = useRef<number>(Date.now());
+        
+        // This useFrame is now safely inside the Canvas component
+        useFrame(() => {
+            if (!playerRef.current || !playerRef.current.rigidBody || !playerPosition.current) return;
+            
+            try {
+                const position = playerRef.current.rigidBody.translation();
+                const now = Date.now();
+                const deltaTime = (now - lastUpdateTime.current) / 1000; // Convert to seconds
+                lastUpdateTime.current = now;
+                
+                // Check if position is valid and not NaN
+                if (position && 
+                    !Number.isNaN(position.x) && 
+                    !Number.isNaN(position.y) && 
+                    !Number.isNaN(position.z)) {
+                    
+                    // First time initialization
+                    if (!lastValidPosition.current) {
+                        lastValidPosition.current = new THREE.Vector3(position.x, position.y, position.z);
+                        playerPosition.current.copy(lastValidPosition.current);
+                        return;
+                    }
+                    
+                    // Create a temp vector for the new position
+                    const newPosition = new THREE.Vector3(position.x, position.y, position.z);
+                    
+                    // Calculate velocity for prediction
+                    if (deltaTime > 0) {
+                        const instantVelocity = new THREE.Vector3()
+                            .subVectors(newPosition, lastValidPosition.current)
+                            .divideScalar(deltaTime);
+                        
+                        // Smooth velocity changes with lerp
+                        velocityRef.current.lerp(instantVelocity, 0.3);
+                    }
+                    
+                    // Check for large jumps (could indicate a glitch)
+                    const distance = newPosition.distanceTo(lastValidPosition.current);
+                    if (distance > 10) {
+                        console.warn("Detected large position jump, smoothing:", distance);
+                        // Use lerp to smooth out large jumps
+                        newPosition.lerp(lastValidPosition.current, 0.9);
+                    }
+                    
+                    // Apply smoother interpolation (0.2 = slower/smoother)
+                    const smoothingFactor = Math.min(0.2, deltaTime * 10);
+                    playerPosition.current.lerp(newPosition, smoothingFactor);
+                    
+                    // Update the last valid position
+                    lastValidPosition.current.copy(playerPosition.current);
+                }
+            } catch (error) {
+                console.error("Error updating player position reference:", error);
+            }
+        });
+        
+        return null; // This component doesn't render anything
+    };
+    
     // Create a shared ConnectionManager instance with the staging server URL
     const [connectionManager] = useState(() => new ConnectionManager('ws://staging.games.bonsai.so/websocket/'));
     // Add state to track if we're in offline mode
@@ -672,7 +839,7 @@ export function App() {
     })
 
     // Update the Game UI controls to include virtual gamepad toggle
-    const { showTools, showConnectionTest, virtualGamepad } = useControls('Game UI', {
+    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView } = useControls('Game UI', {
         showTools: {
             value: false,
             label: 'Show Multiplayer Tools'
@@ -684,6 +851,10 @@ export function App() {
         virtualGamepad: {
             value: false,
             label: 'Virtual Gamepad'
+        },
+        thirdPersonView: {
+            value: false,
+            label: 'Third-Person View'
         },
         logLevel: {
             value: 0,
@@ -881,6 +1052,40 @@ export function App() {
         order: 999
     });
 
+    // Add third-person camera controls
+    const { 
+        cameraDistance, 
+        cameraHeight, 
+        cameraSmoothing 
+    } = useControls('Third Person Camera', {
+        cameraDistance: { value: 5, min: 2, max: 10, step: 0.5 },
+        cameraHeight: { value: 2.5, min: 1, max: 5, step: 0.5 },
+        cameraSmoothing: { value: 0.1, min: 0.01, max: 1, step: 0.01 }
+    }, {
+        collapsed: true,
+        order: 994
+    });
+    
+    // Updated reference for the third-person camera
+    const thirdPersonCameraRef = useRef<THREE.PerspectiveCamera>(null);
+    const lastCameraPosition = useRef(new THREE.Vector3());
+    
+    // Update the camera position update function to use the controls
+    const updateThirdPersonCamera = (playerPosition: THREE.Vector3, playerRotation: THREE.Quaternion) => {
+        if (!thirdPersonView || !thirdPersonCameraRef.current) return;
+        
+        // Don't update camera position when using OrbitControls
+        // OrbitControls will handle camera positioning instead
+        
+        // Just make sure the camera is looking at the player
+        const lookAtPosition = new THREE.Vector3().copy(playerPosition);
+        lookAtPosition.y += 1; // Look at player's head level
+        thirdPersonCameraRef.current.lookAt(lookAtPosition);
+    };
+    
+    // Add this to the Player component props
+    const playerVisibility = thirdPersonView;
+
     return (
         <>
             <div style={{
@@ -902,6 +1107,7 @@ export function App() {
                     whiteSpace: 'nowrap'
                 }}>
                     WASD to move | SPACE to jump | SHIFT to run
+                    {thirdPersonView ? ' | Mouse Drag to rotate camera' : ''}
                 </div>
             </div>
             
@@ -951,13 +1157,15 @@ export function App() {
                     interpolate={true}
                     gravity={[0, -9.81, 0]}
                 >
-                    <PlayerControls>
+                    <PlayerControls thirdPersonView={thirdPersonView}>
                         <Player 
                             ref={playerRef}
                             position={[0, 7, 10]}
                             walkSpeed={walkSpeed}
                             runSpeed={runSpeed}
                             jumpForce={jumpForce}
+                            visible={thirdPersonView}
+                            thirdPersonView={thirdPersonView}
                             connectionManager={enableMultiplayer ? connectionManager : undefined}
                             onMove={(position) => {
                                 if (directionalLightRef.current) {
@@ -967,6 +1175,9 @@ export function App() {
                                     light.target.position.copy(position)
                                     light.target.updateMatrixWorld()
                                 }
+                                
+                                // Don't update third-person camera position through this function
+                                // OrbitControls will handle camera positioning
                             }}
                         />
                     </PlayerControls>
@@ -989,7 +1200,8 @@ export function App() {
                             } 
                             : undefined
                         }
-                        remoteShots={remoteShots} 
+                        remoteShots={remoteShots}
+                        thirdPersonView={thirdPersonView}
                     />
 
                     {/* Use enableMultiplayer instead of showMultiplayerTools for the actual multiplayer functionality */}
@@ -1002,12 +1214,35 @@ export function App() {
                 </Physics>
 
                 <PerspectiveCamera 
-                    makeDefault 
+                    makeDefault={!thirdPersonView} 
                     position={[0, 10, 10]} 
                     rotation={[0, 0, 0]}
                     near={0.1}
                     far={1000}
                 />
+
+                {/* Add third-person camera */}
+                {thirdPersonView && (
+                    <PerspectiveCamera
+                        ref={thirdPersonCameraRef}
+                        makeDefault
+                        position={[0, cameraHeight, cameraDistance]} 
+                        near={0.1}
+                        far={1000}
+                        fov={75}
+                    />
+                )}
+
+                {/* Add ThirdPersonCameraControls */}
+                {thirdPersonView && (
+                    <ThirdPersonCameraControls 
+                        player={playerPosition?.current || new THREE.Vector3(0, 7, 10)} 
+                        cameraRef={thirdPersonCameraRef}
+                        enabled={thirdPersonView}
+                        distance={cameraDistance}
+                        height={cameraHeight}
+                    />
+                )}
 
                 {enablePostProcessing && (
                     <EffectComposer>
@@ -1034,9 +1269,13 @@ export function App() {
                         />
                     </EffectComposer>
                 )}
+
+                {/* Add position tracker component */}
+                <PlayerPositionTracker playerRef={playerRef} playerPosition={playerPosition} />
             </Canvas>
 
-            <Crosshair />
+            {/* Only show crosshair in first-person view */}
+            {!thirdPersonView && <Crosshair />}
             
             {/* Add NetworkStats component - only affects UI visibility */}
             {showMultiplayerTools && enableMultiplayer && (

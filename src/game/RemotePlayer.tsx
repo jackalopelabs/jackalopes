@@ -6,7 +6,7 @@ import { Points, BufferGeometry, NormalBufferAttributes, Material } from 'three'
 
 // Add a global debug level constant
 // 0 = no logs, 1 = error only, 2 = important info, 3 = verbose 
-const DEBUG_LEVEL = 1;
+const DEBUG_LEVEL = 2;
 
 // Interface for RemotePlayer props
 export interface RemotePlayerProps {
@@ -148,7 +148,7 @@ export const RemotePlayer = React.memo(
         };
       }>({
         lastUpdateTime: 0,
-        minTimeBetweenUpdates: 35, // Reduced from 70ms to 35ms - faster updates
+        minTimeBetweenUpdates: 16, // Reduced from 35ms to 16ms (60fps) for smoother updates
         pendingUpdate: null
       });
       
@@ -220,30 +220,26 @@ export const RemotePlayer = React.memo(
           // Calculate velocity for better prediction - use higher weight for smoother movement
           const currentPosition = new THREE.Vector3(...positionRef.current);
           const newPositionVec = new THREE.Vector3(...newPosition);
-          const timeDelta = Date.now() - lastUpdateRef.current;
+          const timeDelta = Math.max(16, Date.now() - lastUpdateRef.current); // Ensure at least 16ms (60fps equivalent)
           
           if (timeDelta > 0) {
             // Calculate instantaneous velocity
             const newVelocity = new THREE.Vector3()
               .subVectors(newPositionVec, lastPositionRef.current)
-              .divideScalar(timeDelta);
+              .divideScalar(timeDelta / 1000); // Convert to seconds for physics consistency
             
-            // Use higher interpolation factor for smoother movement (increased from 0.8 to 0.9)
-            velocityRef.current.lerp(newVelocity, 0.9);
+            // Use higher interpolation factor for smoother movement (increased from 0.9 to 0.95)
+            velocityRef.current.lerp(newVelocity, 0.95);
           }
           
           // Update last position for next velocity calculation
           lastPositionRef.current.copy(newPositionVec);
           
           // For large position changes, update immediately (teleportation)
-          const distance = Math.sqrt(
-            Math.pow(positionRef.current[0] - newPosition[0], 2) +
-            Math.pow(positionRef.current[1] - newPosition[1], 2) +
-            Math.pow(positionRef.current[2] - newPosition[2], 2)
-          );
+          const distance = currentPosition.distanceTo(newPositionVec);
           
-          // Only teleport position for large changes
-          if (distance > 5) {
+          // Only teleport position for large changes (reduced from 5 to 3 units)
+          if (distance > 3) {
             if (DEBUG_LEVEL >= 2) {
               console.log(`Remote player ${id} large position change detected: ${distance}`);
             }
@@ -276,45 +272,38 @@ export const RemotePlayer = React.memo(
         // Calculate velocity for prediction
         const currentPosition = new THREE.Vector3(...positionRef.current);
         const newPositionVec = new THREE.Vector3(...newPosition);
-        const timeDelta = Date.now() - lastUpdateRef.current;
+        const timeDelta = Math.max(16, Date.now() - lastUpdateRef.current); // Ensure at least 16ms
         
         if (timeDelta > 0) {
           // Calculate instantaneous velocity
           const newVelocity = new THREE.Vector3()
             .subVectors(newPositionVec, lastPositionRef.current)
-            .divideScalar(timeDelta);
+            .divideScalar(timeDelta / 1000); // Convert to seconds
           
-          // Mix with previous velocity for smoothing
-          velocityRef.current.lerp(newVelocity, 0.8);
+          // Use higher interpolation for better transitions
+          velocityRef.current.lerp(newVelocity, 0.9);
         }
         
         // Update last position for next velocity calculation
         lastPositionRef.current.copy(newPositionVec);
         
-        // Calculate position prediction
+        // Set target position for smooth interpolation
         targetPosition.current = newPosition;
         
         // For large position changes, update immediately (teleportation)
-        const distance = Math.sqrt(
-          Math.pow(positionRef.current[0] - newPosition[0], 2) +
-          Math.pow(positionRef.current[1] - newPosition[1], 2) +
-          Math.pow(positionRef.current[2] - newPosition[2], 2)
-        );
+        const distance = currentPosition.distanceTo(newPositionVec);
         
-        // Only teleport for POSITION changes, never for rotation changes
-        // This is critical for stable rotation
-        if (distance > 5) {
+        // Reduced teleport threshold from 5 to 3 units
+        if (distance > 3) {
           if (DEBUG_LEVEL >= 2) {
             console.log(`Remote player ${id} large position change detected: ${distance}`);
           }
           
           positionRef.current = [...newPosition];
-          // Don't teleport rotation: rotationRef.current = [...normalizedRotation];
           
           // Force update group position immediately
           if (groupRef.current) {
             groupRef.current.position.set(...newPosition);
-            // Don't teleport rotation: groupRef.current.quaternion.copy(newQuat);
           }
         }
         
@@ -375,23 +364,22 @@ export const RemotePlayer = React.memo(
         
         // Only apply prediction if we have significant velocity and some time has passed
         if (velocityRef.current.lengthSq() > 0.000001 && elapsedSinceLastUpdate > 20) {
-          const predictionFactor = Math.min(elapsedSinceLastUpdate, 300);
+          const predictionFactor = Math.min(elapsedSinceLastUpdate, 300) / 1000; // Convert to seconds for more accurate physics
           const velocityComponent = velocityRef.current.clone().multiplyScalar(predictionFactor);
           
           // Add predicted movement to the position
           predictedPosition.add(velocityComponent);
         }
         
-        // Interpolate position (lerp)
-        const newX = positionRef.current[0] + (predictedPosition.x - positionRef.current[0]) * smoothingFactor;
-        const newY = positionRef.current[1] + (predictedPosition.y - positionRef.current[1]) * smoothingFactor;
-        const newZ = positionRef.current[2] + (predictedPosition.z - positionRef.current[2]) * smoothingFactor;
+        // Interpolate position with delta-time based smoothing
+        const newPosition = new THREE.Vector3(...positionRef.current);
+        newPosition.lerp(predictedPosition, Math.min(0.9, smoothingFactor));
         
         // Update local ref without state changes
-        positionRef.current = [newX, newY, newZ];
+        positionRef.current = [newPosition.x, newPosition.y, newPosition.z];
         
         // Apply to the group 
-        groupRef.current.position.set(newX, newY, newZ);
+        groupRef.current.position.copy(newPosition);
         
         // SUPER SMOOTH ROTATION HANDLING
         // Create quaternions from arrays
@@ -418,16 +406,11 @@ export const RemotePlayer = React.memo(
           targetQuat.w = -targetQuat.w;
         }
         
-        // MUCH slower rotation speed - key to smooth movement
-        const rotationSpeed = 3; // Increased from 1.5 to 3 for faster rotation updates
+        // Calculate rotation speed based on delta time for consistent rotation regardless of frame rate
+        const rotationSpeed = 3 * delta; // Base rotation speed adjusted by frame time
         
-        // Calculate smoothing factor with delta time
-        // This makes rotation speed independent of frame rate
-        const rotationSmoothingFactor = Math.min(0.1, delta * rotationSpeed); // Increased from 0.05 to 0.1
-        
-        // Create a new quaternion and slerp with very small step
-        // This creates extremely smooth, stable rotation
-        const newRotation = currentQuat.clone().slerp(targetQuat, rotationSmoothingFactor);
+        // Create a new quaternion and slerp with delta-time based step
+        const newRotation = currentQuat.clone().slerp(targetQuat, Math.min(0.1, rotationSpeed));
         
         // Create a rotation for the model to face the correct direction
         // This rotates the entire model 180 degrees around the Y axis to match camera space
@@ -441,13 +424,6 @@ export const RemotePlayer = React.memo(
         
         // Apply to the group
         groupRef.current.quaternion.copy(combinedRotation);
-        
-        // Log rotation values occasionally to debug
-        if (Math.random() < 0.01 && DEBUG_LEVEL >= 3) {
-          console.log("Applied rotation:", JSON.stringify(rotationRef.current), 
-                      "Combined with model rotation:", 
-                      JSON.stringify([combinedRotation.x, combinedRotation.y, combinedRotation.z, combinedRotation.w]));
-        }
         
         // Update the rotation ref - store the original rotation without the model correction
         // This way we interpolate between the original rotations, not the combined ones
@@ -468,7 +444,8 @@ export const RemotePlayer = React.memo(
         if (velocityRef.current.lengthSq() < 0.000001) {
           velocityRef.current.set(0, 0, 0);
         } else if (!updateThrottleRef.current.pendingUpdate) {
-          velocityRef.current.multiplyScalar(0.95);
+          // Smaller decay factor when no updates pending (0.95 → 0.98)
+          velocityRef.current.multiplyScalar(0.98);
         }
       });
       
