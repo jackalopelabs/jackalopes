@@ -79,6 +79,11 @@ export const RemotePlayer = React.memo(
           const now = Date.now();
           const timeSinceLastUpdate = now - updateThrottleRef.current.lastUpdateTime;
           
+          // Log rotation updates occasionally for debugging
+          if (Math.random() < 0.05) {
+            console.log(`Remote player ${id} receiving rotation update:`, newRotation);
+          }
+          
           // Store the incoming update
           updateThrottleRef.current.pendingUpdate = {
             position: [...newPosition],
@@ -91,7 +96,7 @@ export const RemotePlayer = React.memo(
           }
           // Otherwise, it will be applied in the next frame via rate limiter
         }
-      }), []); // No dependencies for the ref to avoid recreating
+      }), []);
       
       // Function to apply a pending update
       const applyPendingUpdate = () => {
@@ -154,6 +159,10 @@ export const RemotePlayer = React.memo(
         
         // For big changes (>5 units) or large rotation shifts, teleport instantly
         if (distance > 5 || largeRotationChange) {
+          if (largeRotationChange) {
+            console.log(`Remote player ${id} large rotation change detected: ${quatDot}`);
+          }
+          
           positionRef.current = [...newPosition];
           rotationRef.current = [...normalizedRotation];
           lastUpdateRef.current = Date.now();
@@ -181,6 +190,24 @@ export const RemotePlayer = React.memo(
         lastUpdateRef.current = Date.now();
       };
       
+      // Initial setup - ensure rotation is applied at mount time
+      useEffect(() => {
+        if (groupRef.current) {
+          // Apply initial position
+          groupRef.current.position.set(...initialPosition);
+          
+          // Apply initial rotation
+          const initialQuat = new THREE.Quaternion(
+            initialRotation[0], initialRotation[1], 
+            initialRotation[2], initialRotation[3]
+          ).normalize();
+          
+          groupRef.current.quaternion.copy(initialQuat);
+          
+          console.log(`Remote player ${id} initial rotation applied:`, initialRotation);
+        }
+      }, []);
+      
       // Frame-by-frame interpolation for smooth movement
       useFrame((_state: RootState, delta: number) => {
         if (!groupRef.current) return;
@@ -193,7 +220,7 @@ export const RemotePlayer = React.memo(
           applyPendingUpdate();
         }
         
-        // Lerp speed - adjust for smoothness (higher = faster response)
+        // Movement interpolation - position (similar to before)
         const lerpSpeed = 5; // Reduced from 8 for smoother movement
         const smoothingFactor = Math.min(1, delta * lerpSpeed);
         
@@ -220,29 +247,14 @@ export const RemotePlayer = React.memo(
         const newY = positionRef.current[1] + (predictedPosition.y - positionRef.current[1]) * smoothingFactor;
         const newZ = positionRef.current[2] + (predictedPosition.z - positionRef.current[2]) * smoothingFactor;
         
-        // Apply to group (not just mesh)
-        groupRef.current.position.set(newX, newY, newZ);
-        
         // Update local ref without state changes
         positionRef.current = [newX, newY, newZ];
         
-        // Detect if player is idle (not moving)
-        const movementThreshold = 0.001;
-        const positionDelta = Math.abs(newX - positionRef.current[0]) + 
-                              Math.abs(newY - positionRef.current[1]) + 
-                              Math.abs(newZ - positionRef.current[2]);
-                              
-        if (positionDelta < movementThreshold) {
-          if (!rotationStabilityRef.current.isIdle) {
-            rotationStabilityRef.current.isIdle = true;
-            rotationStabilityRef.current.idleTime = now;
-          }
-        } else {
-          rotationStabilityRef.current.isIdle = false;
-          rotationStabilityRef.current.idleTime = 0;
-        }
+        // Apply to the group (not the mesh)
+        groupRef.current.position.set(newX, newY, newZ);
         
-        // Interpolate rotation (slerp)
+        // Rotation interpolation - this is critical for the player orientation
+        // Get current quaternion from ref
         const currentQuat = new THREE.Quaternion(
           rotationRef.current[0],
           rotationRef.current[1],
@@ -250,12 +262,34 @@ export const RemotePlayer = React.memo(
           rotationRef.current[3]
         );
         
-        // For idle state, use an averaged rotation to reduce jitter
+        // Target quaternion - what we're interpolating towards
         let targetQuat;
-        if (rotationStabilityRef.current.isIdle && 
-            now - rotationStabilityRef.current.idleTime > 500) {
-          // In idle state for more than 500ms, use averaged rotation history
-          // This creates a low-pass filter to eliminate high-frequency jitter
+        
+        // Check if we need rotation stabilization (when player is idle)
+        const positionDelta = Math.sqrt(
+          Math.pow(positionRef.current[0] - targetPosition.current[0], 2) +
+          Math.pow(positionRef.current[1] - targetPosition.current[1], 2) +
+          Math.pow(positionRef.current[2] - targetPosition.current[2], 2)
+        );
+        
+        const isMoving = positionDelta > 0.01 || velocityRef.current.lengthSq() > 0.0001;
+        
+        // Update idle state
+        if (isMoving) {
+          rotationStabilityRef.current.isIdle = false;
+          rotationStabilityRef.current.idleTime = 0;
+        } else {
+          if (!rotationStabilityRef.current.isIdle) {
+            rotationStabilityRef.current.isIdle = true;
+            rotationStabilityRef.current.idleTime = now;
+          }
+        }
+        
+        // If idle for more than 500ms, use weighted average of recent rotations for stability
+        const idleTime = rotationStabilityRef.current.isIdle ? now - rotationStabilityRef.current.idleTime : 0;
+        
+        if (idleTime > 500 && rotationStabilityRef.current.rotationHistory.length > 1) {
+          // Use weighted average of recent rotations for stability
           const avgQuat = new THREE.Quaternion(0, 0, 0, 0);
           let totalWeight = 0;
           
@@ -294,74 +328,50 @@ export const RemotePlayer = React.memo(
           );
         }
         
-        // Ensure quaternions are normalized properly (important for cross-browser compatibility)
-        currentQuat.normalize();
-        targetQuat.normalize();
+        // Determine how fast to interpolate rotation
+        // Use faster interpolation for larger changes to catch up quickly
+        const quatDot = Math.abs(currentQuat.dot(targetQuat));
         
-        // Check if the quaternions represent significantly different rotations
-        // Use dot product to measure difference - it's 1 when they're identical and -1 when they're opposite
-        const quatDot = currentQuat.dot(targetQuat);
-        const significantChange = quatDot < 0.99;
+        // If dot product is close to 1, the quaternions are similar (small change)
+        // If dot product is close to 0, they're very different (large change)
+        // Adjust interpolation speed based on how different they are
+        const rotationDelta = 1 - quatDot;
         
-        // Apply only if quaternions are different - slower rotation for stability
-        if (significantChange) {
-          // Choose the shorter path for interpolation
-          // If dot product is negative, negate one of the quaternions to avoid long path
-          if (quatDot < 0) {
-            targetQuat.set(-targetQuat.x, -targetQuat.y, -targetQuat.z, -targetQuat.w);
-          }
-          
-          // Dynamic smoothing factor based on:
-          // 1. Browser type
-          // 2. Whether player is in idle state
-          // 3. Size of rotation change
-          let rotationSmoothingFactor;
-          
-          if (rotationStabilityRef.current.isIdle && 
-              now - rotationStabilityRef.current.idleTime > 500) {
-            // Very slow changes during idle to reduce jitter
-            rotationSmoothingFactor = Math.min(1, delta * 1.0); // Much slower for idle
-          } else if (isSafari) {
-            rotationSmoothingFactor = Math.min(1, delta * 2.5); // Slightly faster for Safari
-          } else {
-            rotationSmoothingFactor = Math.min(1, delta * 2.0); // Standard for other browsers
-          }
-          
-          // Introduce gradual rotation damping during near-idle state
-          // This helps reduce any jitter in rotation during small movements
-          const isNearlyIdle = velocityRef.current.lengthSq() < 0.00001;
-          
-          let effectiveRotationSmoothingFactor = rotationSmoothingFactor;
-          
-          // If movement is very small, further reduce rotation speed
-          if (isNearlyIdle) {
-            // Much slower rotation updates when nearly idle
-            effectiveRotationSmoothingFactor *= 0.3;
-          }
-          
-          // Use slerp with proper normalization
-          currentQuat.slerp(targetQuat, effectiveRotationSmoothingFactor);
-          currentQuat.normalize(); // Ensure result is normalized
-          
-          // Apply to group, not mesh
-          groupRef.current.quaternion.copy(currentQuat);
-          
-          // Update ref without state changes
-          rotationRef.current = [
-            currentQuat.x,
-            currentQuat.y,
-            currentQuat.z,
-            currentQuat.w
-          ];
-          
-          // Update direction reference for visualization
-          const forward = new THREE.Vector3(0, 0, -1);
-          forward.applyQuaternion(currentQuat);
-          directionRef.current.copy(forward);
-          
-          // Track rotation change amount
-          rotationStabilityRef.current.lastRotationDifference = 1 - quatDot;
-        }
+        // Increase the base rotation speed from 3 to 4
+        const baseRotationSpeed = 4;
+        
+        // Adaptive speed - faster for large changes, slower for small adjustments
+        // Multiply by up to 3x for very large rotational differences 
+        const adaptiveRotationSpeed = baseRotationSpeed * (1 + rotationDelta * 2);
+        
+        // Calculate smoothing factor, faster than position but still smooth
+        const rotationSmoothingFactor = Math.min(1, delta * adaptiveRotationSpeed);
+        
+        // Interpolate using slerp (spherical interpolation) - better for rotations
+        // Create new quaternion to avoid modifying the ref directly
+        const interpolatedQuat = currentQuat.clone().slerp(targetQuat, rotationSmoothingFactor);
+        
+        // Make sure the quaternion is normalized
+        interpolatedQuat.normalize();
+        
+        // Apply to group, not mesh
+        groupRef.current.quaternion.copy(interpolatedQuat);
+        
+        // Update ref without state changes
+        rotationRef.current = [
+          interpolatedQuat.x,
+          interpolatedQuat.y,
+          interpolatedQuat.z,
+          interpolatedQuat.w
+        ];
+        
+        // Update direction reference for visualization
+        const forward = new THREE.Vector3(0, 0, -1);
+        forward.applyQuaternion(interpolatedQuat);
+        directionRef.current.copy(forward);
+        
+        // Track rotation change amount
+        rotationStabilityRef.current.lastRotationDifference = rotationDelta;
         
         // If velocity is very small, gradually reduce it to zero
         // This prevents perpetual motion when updates stop
@@ -375,11 +385,12 @@ export const RemotePlayer = React.memo(
       
       // Log when the player is mounted (only once per player)
       useEffect(() => {
-        console.log(`Remote player ${id} mounted at position:`, initialPosition);
+        console.log(`Remote player ${id} mounted at position:`, initialPosition, 'with rotation:', initialRotation);
         
         return () => {
           console.log(`Remote player ${id} unmounted`);
         };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [id]); // Only run on mount/unmount, dependent only on id
       
       // Generate a consistent color based on player ID
