@@ -448,7 +448,7 @@ const MultiplayerDebugPanel = ({
   );
 };
 
-// Updated ThirdPersonCameraControls component using @react-three/drei's OrbitControls
+// Simplified ThirdPersonCameraControls component without OrbitControls
 const ThirdPersonCameraControls = ({ 
     player, 
     cameraRef,
@@ -462,10 +462,12 @@ const ThirdPersonCameraControls = ({
     distance: number,
     height: number
 }) => {
-    // For tracking target position
+    // For tracking target position and rotation
     const targetRef = useRef(new THREE.Vector3());
-    const controlsRef = useRef<any>(null);
     const isInitializedRef = useRef(false);
+    const rotationRef = useRef({ x: 0, y: 0 });
+    const mouseDownRef = useRef(false);
+    const lastMouseRef = useRef({ x: 0, y: 0 });
     
     // Set up initial camera position based on player position
     useEffect(() => {
@@ -479,10 +481,12 @@ const ThirdPersonCameraControls = ({
         
         // Initialize position and target only once
         if (!isInitializedRef.current) {
+            console.log("Initializing simplified third-person camera");
+            
             // Initialize target position
             targetRef.current.copy(player);
             
-            // Initialize camera position
+            // Initialize camera position directly behind player
             const cameraPos = new THREE.Vector3().copy(player);
             cameraPos.y += height;
             cameraPos.z += distance;
@@ -491,13 +495,57 @@ const ThirdPersonCameraControls = ({
             // Look at player
             cameraRef.current.lookAt(player);
             isInitializedRef.current = true;
+            
+            // Reset rotation
+            rotationRef.current = { x: 0, y: 0 };
         }
+        
+        // Add mouse event listeners
+        const handleMouseDown = (e: MouseEvent) => {
+            mouseDownRef.current = true;
+            lastMouseRef.current = { x: e.clientX, y: e.clientY };
+        };
+        
+        const handleMouseUp = () => {
+            mouseDownRef.current = false;
+        };
+        
+        const handleMouseMove = (e: MouseEvent) => {
+            if (!mouseDownRef.current) return;
+            
+            // Calculate mouse delta
+            const deltaX = e.clientX - lastMouseRef.current.x;
+            const deltaY = e.clientY - lastMouseRef.current.y;
+            
+            // Update rotation based on mouse movement
+            rotationRef.current.y -= deltaX * 0.005; // horizontal rotation
+            rotationRef.current.x -= deltaY * 0.005; // vertical rotation
+            
+            // Clamp vertical rotation to avoid flipping
+            rotationRef.current.x = Math.max(-Math.PI / 3, Math.min(Math.PI / 3, rotationRef.current.x));
+            
+            // Update last mouse position
+            lastMouseRef.current = { x: e.clientX, y: e.clientY };
+        };
+        
+        document.addEventListener('mousedown', handleMouseDown);
+        document.addEventListener('mouseup', handleMouseUp);
+        document.addEventListener('mousemove', handleMouseMove);
+        
+        // Clean up
+        return () => {
+            console.log("Cleaning up simplified third-person camera");
+            document.removeEventListener('mousedown', handleMouseDown);
+            document.removeEventListener('mouseup', handleMouseUp);
+            document.removeEventListener('mousemove', handleMouseMove);
+        };
     }, [enabled, player, cameraRef, distance, height]);
     
     // Reset initialization when disabled
     useEffect(() => {
         if (!enabled) {
             isInitializedRef.current = false;
+            mouseDownRef.current = false;
         }
     }, [enabled]);
     
@@ -506,40 +554,32 @@ const ThirdPersonCameraControls = ({
         if (!enabled || !cameraRef.current) return;
         
         try {
-            // Only update the target with valid player position
+            // Only update with valid player position
             if (player instanceof THREE.Vector3 && !Number.isNaN(player.x) && 
                 !Number.isNaN(player.y) && !Number.isNaN(player.z)) {
-                // Smoother interpolation for target position
-                targetRef.current.lerp(player, 0.05);
-            }
-            
-            // Update the orbit controls target directly if available
-            if (controlsRef.current) {
-                controlsRef.current.target.copy(targetRef.current);
+                
+                // Very slow interpolation for target position
+                targetRef.current.lerp(player, 0.03);
+                
+                // Calculate camera position based on rotation around target
+                const cameraOffset = new THREE.Vector3(
+                    Math.sin(rotationRef.current.y) * distance,
+                    height + Math.sin(rotationRef.current.x) * distance,
+                    Math.cos(rotationRef.current.y) * distance
+                );
+                
+                // Position camera relative to target
+                cameraRef.current.position.copy(targetRef.current).add(cameraOffset);
+                
+                // Look at player
+                cameraRef.current.lookAt(targetRef.current);
             }
         } catch (error) {
             console.error("Error in ThirdPersonCameraControls frame update:", error);
         }
     });
     
-    if (!enabled || !cameraRef.current) return null;
-    
-    return (
-        <OrbitControls
-            ref={controlsRef}
-            camera={cameraRef.current}
-            enableDamping
-            dampingFactor={0.1}
-            enableZoom={false}
-            enablePan={false}
-            rotateSpeed={0.5}
-            minPolarAngle={Math.PI * 0.1}
-            maxPolarAngle={Math.PI * 0.5}
-            target={targetRef.current}
-            minDistance={2}
-            maxDistance={10}
-        />
-    );
+    return null; // No need to render any elements
 };
 
 export function App() {
@@ -563,6 +603,10 @@ export function App() {
         const lastValidPosition = useRef<THREE.Vector3 | null>(null);
         const velocityRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
         const lastUpdateTime = useRef<number>(Date.now());
+        const frameCountRef = useRef(0);
+        const positionStabilityRef = useRef(new THREE.Vector3());
+        const positionHistoryRef = useRef<THREE.Vector3[]>([]);
+        const MAX_HISTORY = 10; // Keep a history of 10 positions for smoothing
         
         // This useFrame is now safely inside the Canvas component
         useFrame(() => {
@@ -574,6 +618,9 @@ export function App() {
                 const deltaTime = (now - lastUpdateTime.current) / 1000; // Convert to seconds
                 lastUpdateTime.current = now;
                 
+                // Track frames for stability analysis
+                frameCountRef.current++;
+                
                 // Check if position is valid and not NaN
                 if (position && 
                     !Number.isNaN(position.x) && 
@@ -584,6 +631,12 @@ export function App() {
                     if (!lastValidPosition.current) {
                         lastValidPosition.current = new THREE.Vector3(position.x, position.y, position.z);
                         playerPosition.current.copy(lastValidPosition.current);
+                        positionStabilityRef.current.copy(lastValidPosition.current);
+                        
+                        // Initialize history with current position
+                        for (let i = 0; i < MAX_HISTORY; i++) {
+                            positionHistoryRef.current.push(lastValidPosition.current.clone());
+                        }
                         return;
                     }
                     
@@ -596,21 +649,58 @@ export function App() {
                             .subVectors(newPosition, lastValidPosition.current)
                             .divideScalar(deltaTime);
                         
-                        // Smooth velocity changes with lerp
-                        velocityRef.current.lerp(instantVelocity, 0.3);
+                        // Very low lerp factor for super smooth velocity changes
+                        velocityRef.current.lerp(instantVelocity, 0.1);
                     }
                     
                     // Check for large jumps (could indicate a glitch)
                     const distance = newPosition.distanceTo(lastValidPosition.current);
-                    if (distance > 10) {
+                    if (distance > 5) {
                         console.warn("Detected large position jump, smoothing:", distance);
-                        // Use lerp to smooth out large jumps
-                        newPosition.lerp(lastValidPosition.current, 0.9);
+                        // For very large jumps, teleport and reset history
+                        if (distance > 10) {
+                            playerPosition.current.copy(newPosition);
+                            lastValidPosition.current.copy(newPosition);
+                            positionStabilityRef.current.copy(newPosition);
+                            
+                            // Reset history
+                            positionHistoryRef.current = [];
+                            for (let i = 0; i < MAX_HISTORY; i++) {
+                                positionHistoryRef.current.push(newPosition.clone());
+                            }
+                            console.warn("Teleporting due to extreme position change");
+                            return;
+                        }
+                        
+                        // Use stronger lerp to smooth out large jumps
+                        newPosition.lerp(lastValidPosition.current, 0.8);
                     }
                     
-                    // Apply smoother interpolation (0.2 = slower/smoother)
-                    const smoothingFactor = Math.min(0.2, deltaTime * 10);
-                    playerPosition.current.lerp(newPosition, smoothingFactor);
+                    // Add current position to history, removing oldest
+                    positionHistoryRef.current.push(newPosition.clone());
+                    if (positionHistoryRef.current.length > MAX_HISTORY) {
+                        positionHistoryRef.current.shift();
+                    }
+                    
+                    // Use a weighted average of history for super smooth movement
+                    const smoothedPosition = new THREE.Vector3();
+                    let totalWeight = 0;
+                    
+                    // More recent positions have higher weight
+                    positionHistoryRef.current.forEach((pos, index) => {
+                        const weight = (index + 1) / positionHistoryRef.current.length;
+                        totalWeight += weight;
+                        smoothedPosition.add(pos.clone().multiplyScalar(weight));
+                    });
+                    
+                    // Normalize by total weight
+                    if (totalWeight > 0) {
+                        smoothedPosition.divideScalar(totalWeight);
+                    }
+                    
+                    // Apply very slow interpolation for third-person camera (0.05 instead of 0.1)
+                    const smoothingFactor = Math.min(0.05, deltaTime * 3);
+                    playerPosition.current.lerp(smoothedPosition, smoothingFactor);
                     
                     // Update the last valid position
                     lastValidPosition.current.copy(playerPosition.current);
@@ -1086,6 +1176,22 @@ export function App() {
     // Add this to the Player component props
     const playerVisibility = thirdPersonView;
 
+    // Add this inside the App component
+    useEffect(() => {
+        // Log when third-person view is activated or deactivated
+        console.log(`Third-person view ${thirdPersonView ? 'enabled' : 'disabled'}`);
+        
+        // Reset camera position tracker when switching views
+        if (!thirdPersonView && playerPosition.current) {
+            // Reset to current position without interpolation to prevent glitches
+            // when switching back to third-person view
+            playerPosition.current.copy(
+                playerRef.current?.rigidBody?.translation() || 
+                new THREE.Vector3(0, 7, 10)
+            );
+        }
+    }, [thirdPersonView, playerRef]);
+
     return (
         <>
             <div style={{
@@ -1221,7 +1327,7 @@ export function App() {
                     far={1000}
                 />
 
-                {/* Add third-person camera */}
+                {/* Add third-person camera with simpler setup */}
                 {thirdPersonView && (
                     <PerspectiveCamera
                         ref={thirdPersonCameraRef}
@@ -1233,10 +1339,10 @@ export function App() {
                     />
                 )}
 
-                {/* Add ThirdPersonCameraControls */}
-                {thirdPersonView && (
+                {/* Add simplified ThirdPersonCameraControls */}
+                {thirdPersonView && playerPosition.current && (
                     <ThirdPersonCameraControls 
-                        player={playerPosition?.current || new THREE.Vector3(0, 7, 10)} 
+                        player={playerPosition.current}
                         cameraRef={thirdPersonCameraRef}
                         enabled={thirdPersonView}
                         distance={cameraDistance}
