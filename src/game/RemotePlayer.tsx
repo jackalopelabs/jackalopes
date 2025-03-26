@@ -2,6 +2,7 @@ import React, { useRef, useState, useEffect, useImperativeHandle, forwardRef, us
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { useFrame, RootState } from '@react-three/fiber';
+import { Points, BufferGeometry, NormalBufferAttributes, Material } from 'three';
 
 // Add a global debug level constant
 // 0 = no logs, 1 = error only, 2 = important info, 3 = verbose 
@@ -18,6 +19,103 @@ export interface RemotePlayerProps {
 export interface RemotePlayerMethods {
   updateTransform: (position: [number, number, number], rotation: [number, number, number, number]) => void;
 }
+
+// FlamethrowerFlame component for the particle effect
+const FlamethrowerFlame = () => {
+  const particlesRef = useRef<Points<BufferGeometry<NormalBufferAttributes>, Material | Material[]>>(null);
+  const materialRef = useRef<THREE.PointsMaterial>(null);
+  const count = 15; // Number of particles
+  
+  // Generate initial random positions for particles 
+  const initialPositions = useMemo(() => {
+    const positions = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+      // Start particles from the nozzle with forward direction
+      const spread = 0.03;
+      positions[i * 3] = 0.1 + Math.random() * 0.1; // Forward from nozzle
+      positions[i * 3 + 1] = (Math.random() - 0.5) * spread; // Slight up/down spread
+      positions[i * 3 + 2] = (Math.random() - 0.5) * spread; // Slight left/right spread
+    }
+    return positions;
+  }, [count]);
+  
+  // Animate particles for flame effect
+  useFrame(() => {
+    if (particlesRef.current) {
+      const positions = particlesRef.current.geometry.attributes.position.array as Float32Array;
+      
+      for (let i = 0; i < count; i++) {
+        // Move particles outward from nozzle
+        positions[i * 3] += 0.02 + Math.random() * 0.01;
+        
+        // Add some random movement
+        positions[i * 3 + 1] += (Math.random() - 0.5) * 0.01;
+        positions[i * 3 + 2] += (Math.random() - 0.5) * 0.01;
+        
+        // Reset particles that have gone too far
+        if (positions[i * 3] > 0.3) {
+          positions[i * 3] = 0.05 + Math.random() * 0.05;
+          positions[i * 3 + 1] = (Math.random() - 0.5) * 0.03;
+          positions[i * 3 + 2] = (Math.random() - 0.5) * 0.03;
+        }
+      }
+      
+      // Pulsing glow effect for the flame
+      if (materialRef.current) {
+        materialRef.current.size = 0.02 + Math.sin(Date.now() * 0.01) * 0.005;
+        materialRef.current.opacity = 0.7 + Math.sin(Date.now() * 0.008) * 0.2;
+      }
+      
+      particlesRef.current.geometry.attributes.position.needsUpdate = true;
+    }
+  });
+  
+  return (
+    <points ref={particlesRef} position={[0.6, 0, 0]}>
+      <bufferGeometry>
+        <bufferAttribute
+          attach="attributes-position"
+          count={count}
+          array={initialPositions}
+          itemSize={3}
+        />
+      </bufferGeometry>
+      <pointsMaterial
+        ref={materialRef}
+        size={0.02}
+        color="#ff7700"
+        transparent
+        opacity={0.8}
+        blending={THREE.AdditiveBlending}
+      />
+    </points>
+  );
+};
+
+// PilotLight component for the animated pilot light
+const PilotLight = () => {
+  const materialRef = useRef<THREE.MeshStandardMaterial>(null);
+  
+  // Animate the pilot light intensity
+  useFrame(() => {
+    if (materialRef.current) {
+      materialRef.current.emissiveIntensity = 2 + Math.sin(Date.now() * 0.01) * 0.5;
+    }
+  });
+  
+  return (
+    <mesh position={[0.63, 0.03, 0]}>
+      <sphereGeometry args={[0.02, 8, 8]} />
+      <meshStandardMaterial 
+        ref={materialRef}
+        color="#ff9500" 
+        emissive="#ff5500" 
+        emissiveIntensity={2}
+        toneMapped={false} 
+      />
+    </mesh>
+  );
+};
 
 // Remote Player Component
 export const RemotePlayer = React.memo(
@@ -426,17 +524,50 @@ export const RemotePlayer = React.memo(
               <meshStandardMaterial color={playerColor} />
             </mesh>
             
-            {/* Player arm - right */}
-            <mesh position={[0.6, 0.9, 0]} rotation={[0, 0, Math.PI / 4]} castShadow>
+            {/* Player arm - right - adjusted position for holding a weapon */}
+            <mesh position={[0.55, 0.95, 0.3]} rotation={[0.3, 0, Math.PI / 4]} castShadow>
               <capsuleGeometry args={[0.15, 0.6, 4, 8]} />
               <meshStandardMaterial color={playerColor} />
             </mesh>
             
-            {/* Direction indicator (forward pointer) - moved to match the corrected orientation */}
-            <mesh position={[0, 1.7, 0.8]} rotation={[0, Math.PI, 0]} castShadow>
-              <coneGeometry args={[0.2, 0.4, 8]} />
-              <meshStandardMaterial color="#ffffff" />
-            </mesh>
+            {/* Flamethrower/Gun model - adjusted position to better fit in hand */}
+            <group position={[0.7, 0.95, 0.6]} rotation={[-0.1, 0, 0]}>
+              {/* Main body of the flamethrower */}
+              <mesh castShadow position={[0.3, 0, 0]}>
+                <cylinderGeometry args={[0.08, 0.12, 0.5, 8]} />
+                <meshStandardMaterial color="#333333" metalness={0.8} roughness={0.2} />
+              </mesh>
+              
+              {/* Fuel tank */}
+              <mesh castShadow position={[0.3, -0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
+                <cylinderGeometry args={[0.12, 0.12, 0.4, 8]} />
+                <meshStandardMaterial color="#663300" metalness={0.5} roughness={0.3} />
+              </mesh>
+              
+              {/* Nozzle with glow */}
+              <mesh castShadow position={[0.55, 0, 0]}>
+                <cylinderGeometry args={[0.04, 0.08, 0.1, 8]} />
+                <meshStandardMaterial 
+                  color="#555555" 
+                  metalness={0.7} 
+                  roughness={0.3} 
+                  emissive="#ff3300"
+                  emissiveIntensity={0.5}
+                />
+              </mesh>
+              
+              {/* Handle */}
+              <mesh castShadow position={[0.15, -0.1, 0]} rotation={[0, 0, Math.PI/2 - 0.5]}>
+                <cylinderGeometry args={[0.03, 0.03, 0.2, 8]} />
+                <meshStandardMaterial color="#222222" metalness={0.3} roughness={0.7} />
+              </mesh>
+              
+              {/* Pilot light with animated glow */}
+              <PilotLight />
+              
+              {/* Flame effect */}
+              <FlamethrowerFlame />
+            </group>
             
             {/* Stable nametag container - attached to group instead of mesh */}
             <Html position={[0, 2.5, 0]} center sprite distanceFactor={15} 
