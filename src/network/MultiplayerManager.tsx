@@ -15,6 +15,10 @@ import { RemoteShot } from '../game/sphere-tool';
 import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 
+// Add a global debug level constant
+// 0 = no logs, 1 = error only, 2 = important info, 3 = verbose 
+const DEBUG_LEVEL = 1;
+
 // Types for multiplayer system
 type RemotePlayerData = {
   id: string;
@@ -478,11 +482,8 @@ export const useMultiplayer = (
       }
       
       // Debug logging every 60 updates
-      if (Math.random() < 0.02) {
-        console.log(`📡 Remote player update for ${data.id}:`, {
-          position: data.position,
-          rotation: data.rotation
-        });
+      if (Math.random() < 0.02 && DEBUG_LEVEL >= 2) {
+        console.log(`📡 Remote player update for ${data.id}:`, data);
       }
       
       // Apply rate limiting for updates - throttle incoming messages
@@ -1122,7 +1123,7 @@ export const RemotePlayers = React.memo(({
   // Reduce debug logging frequency
   const renderCount = useRef(0);
   renderCount.current++;
-  if (renderCount.current % 10 === 1) {
+  if (renderCount.current % 10 === 1 && DEBUG_LEVEL >= 2) {
     console.log(`RemotePlayers rendering #${renderCount.current} with ${playerList.length} players`);
   }
   
@@ -1285,11 +1286,8 @@ export const MultiplayerManager: React.FC<{
       }
       
       // Debug logging every 60 updates
-      if (Math.random() < 0.02) {
-        console.log(`📡 Remote player update for ${data.id}:`, {
-          position: data.position,
-          rotation: data.rotation
-        });
+      if (Math.random() < 0.02 && DEBUG_LEVEL >= 2) {
+        console.log(`📡 Remote player update for ${data.id}:`, data);
       }
       
       // Apply rate limiting for updates - throttle incoming messages

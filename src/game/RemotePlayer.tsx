@@ -3,6 +3,10 @@ import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { useFrame, RootState } from '@react-three/fiber';
 
+// Add a global debug level constant
+// 0 = no logs, 1 = error only, 2 = important info, 3 = verbose 
+const DEBUG_LEVEL = 1;
+
 // Interface for RemotePlayer props
 export interface RemotePlayerProps {
   id: string;
@@ -67,7 +71,7 @@ export const RemotePlayer = React.memo(
           const timeSinceLastUpdate = now - updateThrottleRef.current.lastUpdateTime;
           
           // Log rotation updates occasionally for debugging
-          if (Math.random() < 0.05) {
+          if (Math.random() < 0.05 && DEBUG_LEVEL >= 3) {
             const isZero = newRotation[0] === 0 && newRotation[1] === 0 && 
                           newRotation[2] === 0 && newRotation[3] === 1;
             
@@ -108,7 +112,9 @@ export const RemotePlayer = React.memo(
         
         // Skip rotation update for identity quaternion to avoid "facing reset"
         if (isIdentityQuaternion) {
-          console.log(`Received identity quaternion for ${id}, skipping rotation update`);
+          if (DEBUG_LEVEL >= 3) {
+            console.log(`Received identity quaternion for ${id}, skipping rotation update`);
+          }
           
           // Only update position, keep current rotation
           targetPosition.current = newPosition;
@@ -140,7 +146,9 @@ export const RemotePlayer = React.memo(
           
           // Only teleport position for large changes
           if (distance > 5) {
-            console.log(`Remote player ${id} large position change detected: ${distance}`);
+            if (DEBUG_LEVEL >= 2) {
+              console.log(`Remote player ${id} large position change detected: ${distance}`);
+            }
             positionRef.current = [...newPosition];
             
             // Force update group position
@@ -198,7 +206,9 @@ export const RemotePlayer = React.memo(
         // Only teleport for POSITION changes, never for rotation changes
         // This is critical for stable rotation
         if (distance > 5) {
-          console.log(`Remote player ${id} large position change detected: ${distance}`);
+          if (DEBUG_LEVEL >= 2) {
+            console.log(`Remote player ${id} large position change detected: ${distance}`);
+          }
           
           positionRef.current = [...newPosition];
           // Don't teleport rotation: rotationRef.current = [...normalizedRotation];
@@ -237,7 +247,9 @@ export const RemotePlayer = React.memo(
           
           groupRef.current.quaternion.copy(combinedRotation);
           
-          console.log(`Remote player ${id} initial rotation applied:`, initialRotation);
+          if (DEBUG_LEVEL >= 2) {
+            console.log(`Remote player ${id} initial rotation applied:`, initialRotation);
+          }
         }
       }, []);
       
@@ -333,7 +345,7 @@ export const RemotePlayer = React.memo(
         groupRef.current.quaternion.copy(combinedRotation);
         
         // Log rotation values occasionally to debug
-        if (Math.random() < 0.01) {
+        if (Math.random() < 0.01 && DEBUG_LEVEL >= 3) {
           console.log("Applied rotation:", JSON.stringify(rotationRef.current), 
                       "Combined with model rotation:", 
                       JSON.stringify([combinedRotation.x, combinedRotation.y, combinedRotation.z, combinedRotation.w]));
@@ -364,10 +376,14 @@ export const RemotePlayer = React.memo(
       
       // Log when the player is mounted (only once per player)
       useEffect(() => {
-        console.log(`Remote player ${id} mounted at position:`, initialPosition, 'with rotation:', initialRotation);
+        if (DEBUG_LEVEL >= 2) {
+          console.log(`Remote player ${id} mounted at position:`, initialPosition, 'with rotation:', initialRotation);
+        }
         
         return () => {
-          console.log(`Remote player ${id} unmounted`);
+          if (DEBUG_LEVEL >= 2) {
+            console.log(`Remote player ${id} unmounted`);
+          }
         };
       // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [id]); // Only run on mount/unmount, dependent only on id
