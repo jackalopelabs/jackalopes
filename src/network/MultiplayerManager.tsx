@@ -442,6 +442,11 @@ export const useMultiplayer = (
     const handlePlayerLeft = (data: any) => {
       console.log("➖ Player left:", data);
       
+      // Also clean up rate limiting data for this player
+      if (playerUpdateThrottleRef.current[data.id]) {
+        delete playerUpdateThrottleRef.current[data.id];
+      }
+      
       setRemotePlayers(prev => {
         if (!prev[data.id]) {
           return prev;
@@ -467,6 +472,26 @@ export const useMultiplayer = (
           rotation: data.rotation
         });
       }
+      
+      // Apply rate limiting for updates - throttle incoming messages
+      if (!playerUpdateThrottleRef.current[data.id]) {
+        playerUpdateThrottleRef.current[data.id] = { 
+          lastTime: 0, 
+          minInterval: 50 // 50ms = max 20 updates/second per player
+        };
+      }
+      
+      const now = Date.now();
+      const playerThrottle = playerUpdateThrottleRef.current[data.id];
+      const timeSinceLastUpdate = now - playerThrottle.lastTime;
+      
+      // Skip this update if we're getting them too frequently
+      if (timeSinceLastUpdate < playerThrottle.minInterval) {
+        return;
+      }
+      
+      // Update the last update time
+      playerThrottle.lastTime = now;
       
       setRemotePlayers(prev => {
         // If we don't have this player yet, add them
@@ -963,6 +988,10 @@ export const MultiplayerManager: React.FC<{
   const [isConnected, setIsConnected] = useState(false);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [remotePlayers, setRemotePlayers] = useState<Record<string, RemotePlayerData>>({});
+  
+  // For rate limiting player updates
+  const playerUpdateThrottleRef = useRef<Record<string, { lastTime: number, minInterval: number }>>({});
+  
   const { camera } = useThree(); // Get the camera from useThree hook outside of the effect
   
   // Set up connection and event handlers
@@ -1044,6 +1073,11 @@ export const MultiplayerManager: React.FC<{
     const handlePlayerLeft = (data: any) => {
       console.log("➖ Player left:", data);
       
+      // Also clean up rate limiting data for this player
+      if (playerUpdateThrottleRef.current[data.id]) {
+        delete playerUpdateThrottleRef.current[data.id];
+      }
+      
       setRemotePlayers(prev => {
         if (!prev[data.id]) {
           return prev;
@@ -1069,6 +1103,26 @@ export const MultiplayerManager: React.FC<{
           rotation: data.rotation
         });
       }
+      
+      // Apply rate limiting for updates - throttle incoming messages
+      if (!playerUpdateThrottleRef.current[data.id]) {
+        playerUpdateThrottleRef.current[data.id] = { 
+          lastTime: 0, 
+          minInterval: 50 // 50ms = max 20 updates/second per player
+        };
+      }
+      
+      const now = Date.now();
+      const playerThrottle = playerUpdateThrottleRef.current[data.id];
+      const timeSinceLastUpdate = now - playerThrottle.lastTime;
+      
+      // Skip this update if we're getting them too frequently
+      if (timeSinceLastUpdate < playerThrottle.minInterval) {
+        return;
+      }
+      
+      // Update the last update time
+      playerThrottle.lastTime = now;
       
       setRemotePlayers(prev => {
         // If we don't have this player yet, add them
