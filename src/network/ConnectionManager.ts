@@ -372,18 +372,12 @@ export class ConnectionManager extends EventEmitter {
     return this.latency;
   }
   
-  // Check if we're ready to send data (both connected and authenticated)
+  // Check if ready to send messages
   isReadyToSend(): boolean {
-    const socketReady = this.socket && this.socket.readyState === WebSocket.OPEN;
-    const authReady = this.playerId !== null;
-    
-    // If we're in offline mode with a player ID, consider the connection ready
-    if (this.offlineMode && this.playerId) {
-      return true;
-    }
-    
-    // Otherwise, require socket and auth to be ready
-    return socketReady && this.isConnected && authReady;
+    // Can send if we're in offline mode or connected
+    return this.offlineMode || 
+      (this.isConnected && this.playerId !== null && 
+       this.socket?.readyState === WebSocket.OPEN);
   }
 
   // Add a method to force the connection ready state (for testing)
@@ -697,6 +691,11 @@ export class ConnectionManager extends EventEmitter {
           const position = message.position || (message.state && message.state.position);
           const rotation = message.rotation || (message.state && message.state.rotation);
           
+          // Debug potential rotation issues
+          if (rotation && Math.random() < 0.01) {
+            this.log(LogLevel.INFO, `ROTATION DATA FROM SERVER: ${JSON.stringify(rotation)}`);
+          }
+          
           // Only proceed if we have valid position data
           if (position) {
             // Check if this is a player we don't know about yet
@@ -717,53 +716,60 @@ export class ConnectionManager extends EventEmitter {
                 id: updatePlayerId, 
                 state: newPlayerState
               });
-            } else {
-              // Get existing position/rotation
-              const existingPlayer = this.gameState.players[updatePlayerId];
-              const existingPos = existingPlayer.position;
-              const existingRot = existingPlayer.rotation;
+            }
+            
+            // Get existing position/rotation
+            const existingPlayer = this.gameState.players[updatePlayerId];
+            const existingPos = existingPlayer.position;
+            const existingRot = existingPlayer.rotation;
+            
+            // Calculate position change
+            const positionChanged = !existingPos ||
+              Math.abs(existingPos[0] - position[0]) > 0.001 ||
+              Math.abs(existingPos[1] - position[1]) > 0.001 ||
+              Math.abs(existingPos[2] - position[2]) > 0.001;
+            
+            // Calculate rotation change - looser check for testing
+            const rotationChanged = !existingRot || !rotation || 
+              Math.abs(existingRot[0] - rotation[0]) > 0.0001 ||
+              Math.abs(existingRot[1] - rotation[1]) > 0.0001 ||
+              Math.abs(existingRot[2] - rotation[2]) > 0.0001 ||
+              Math.abs(existingRot[3] - rotation[3]) > 0.0001;
+            
+            // Update the player in our game state (always)
+            this.gameState.players[updatePlayerId].position = position;
+            if (rotation) {
+              this.gameState.players[updatePlayerId].rotation = rotation;
               
-              // Calculate position change
-              const positionChanged = !existingPos ||
-                Math.abs(existingPos[0] - position[0]) > 0.001 ||
-                Math.abs(existingPos[1] - position[1]) > 0.001 ||
-                Math.abs(existingPos[2] - position[2]) > 0.001;
-              
-              // Calculate rotation change
-              const rotationChanged = !existingRot || !rotation || 
-                Math.abs(existingRot[0] - rotation[0]) > 0.001 ||
-                Math.abs(existingRot[1] - rotation[1]) > 0.001 ||
-                Math.abs(existingRot[2] - rotation[2]) > 0.001 ||
-                Math.abs(existingRot[3] - rotation[3]) > 0.001;
-              
-              // Update the player in our game state (always)
-              this.gameState.players[updatePlayerId].position = position;
-              if (rotation) {
-                this.gameState.players[updatePlayerId].rotation = rotation;
+              // Debug rotation updates periodically
+              if (Math.random() < 0.01) {
+                this.log(LogLevel.INFO, `Setting player rotation to: ${JSON.stringify(rotation)}`);
               }
-              
-              // Only emit player_update if actual changes occurred
-              if (positionChanged || rotationChanged) {
-                this.emit('player_update', { 
-                  id: updatePlayerId, 
-                  position: position, 
-                  rotation: rotation || this.gameState.players[updatePlayerId].rotation 
-                });
-              }
+            }
+            
+            // Only emit player_update if actual changes occurred
+            if (positionChanged || rotationChanged) {
+              this.emit('player_update', { 
+                id: updatePlayerId, 
+                position: position, 
+                rotation: rotation || this.gameState.players[updatePlayerId].rotation 
+              });
             }
           } else {
             this.log(LogLevel.WARN, 'Received player_update without position data:', message);
           }
         }
         // If message is for local player, emit server_state_update for reconciliation
-        this.emit('server_state_update', {
-          position: message.position || (message.state && message.state.position),
-          rotation: message.rotation || (message.state && message.state.rotation),
-          timestamp: message.timestamp || Date.now(), // Use server timestamp if available
-          sequence: message.sequence,
-          positionError: message.positionError, // Server reported error
-          serverCorrection: message.serverCorrection // Whether server made a major correction
-        });
+        if (updatePlayerId === this.playerId) {
+          this.emit('server_state_update', {
+            position: message.position || (message.state && message.state.position),
+            rotation: message.rotation || (message.state && message.state.rotation),
+            timestamp: message.timestamp || Date.now(), // Use server timestamp if available
+            sequence: message.sequence || (message.state && message.state.sequence),
+            positionError: message.positionError, // Server reported error
+            serverCorrection: message.serverCorrection // Whether server made a major correction
+          });
+        }
         break;
         
       case 'game_event':
@@ -969,7 +975,26 @@ export class ConnectionManager extends EventEmitter {
     return this._reconciliationMetrics;
   }
   
-  // Add debug test player that moves in a circle
+  // Check if we're in offline mode
+  isOfflineMode(): boolean {
+    return this.offlineMode;
+  }
+  
+  // Get current connection state for debugging
+  getConnectionState(): string {
+    if (this.offlineMode) {
+      return "OFFLINE_MODE";
+    }
+    
+    if (!this.socket) {
+      return "NO_SOCKET";
+    }
+    
+    const states = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
+    return states[this.socket.readyState] || "UNKNOWN";
+  }
+  
+  // Add a test player for development when no server is available
   addTestPlayer(): string {
     const testPlayerId = `test-player-${Math.floor(Math.random() * 10000)}`;
     
@@ -1139,10 +1164,5 @@ export class ConnectionManager extends EventEmitter {
         setTimeout(() => this.connect(), 1000);
       }
     }, 5000);
-  }
-
-  // Check if we're in offline mode
-  isOfflineMode(): boolean {
-    return this.offlineMode;
   }
 } 

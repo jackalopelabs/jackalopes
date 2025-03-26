@@ -585,6 +585,16 @@ export const useMultiplayer = (
     
     // When component unmounts
     return () => {
+      console.log('Cleaning up multiplayer connection...');
+      // Ensure we disconnect properly when component unmounts
+      connectionManager.disconnect();
+      // Remove specific message handler
+      connectionManager.off('message_received', (message: any) => {});
+      // Reset states on unmount
+      setIsConnected(false);
+      setPlayerId(null);
+      setRemotePlayers({});
+      // Remove all event handlers
       connectionManager.off('player_joined', handlePlayerJoined);
       connectionManager.off('player_left', handlePlayerLeft);
       connectionManager.off('player_update', handlePlayerUpdate);
@@ -618,7 +628,24 @@ export const useMultiplayer = (
     
     console.log('Starting position update interval');
     
-    // Send our position more frequently (20ms instead of 50ms) for smoother updates
+    // Store the last sent rotation to detect changes
+    const lastSentRotation = {
+      x: 0,
+      y: 0,
+      z: 0,
+      w: 0
+    };
+    
+    // Create a throttle mechanism to avoid sending too many updates
+    let lastRotationUpdateTime = 0;
+    const MIN_ROTATION_UPDATE_INTERVAL = 500; // Increased from 250ms to 500ms - much less frequent
+    
+    // Track rotation stability
+    let isRotationStable = true;
+    let lastRotationCheckTime = 0;
+    const rotationHistory: Array<[number, number, number, number]> = [];
+    
+    // Send position updates
     const intervalId = setInterval(() => {
       if (!localPlayerRef.current || !connectionManager.isReadyToSend()) {
         return;
@@ -626,65 +653,104 @@ export const useMultiplayer = (
 
       let position, rotation, velocity;
       
-      // Try different ways to get position data based on player implementation
-      if (localPlayerRef.current.body && typeof localPlayerRef.current.body.translation === 'function') {
-        // Get position from rapier body
-        position = localPlayerRef.current.body.translation();
-        rotation = localPlayerRef.current.body.rotation();
-        velocity = localPlayerRef.current.body.linvel();
-      } else if (localPlayerRef.current.rigidBody && typeof localPlayerRef.current.rigidBody.translation === 'function') {
-        // Legacy rapier physics rigidBody
-        position = localPlayerRef.current.rigidBody.translation();
-        velocity = localPlayerRef.current.rigidBody.linvel();
-        
-        // For rotation, use camera quaternion if player doesn't have one
-        if (localPlayerRef.current.rigidBody.rotation && typeof localPlayerRef.current.rigidBody.rotation === 'function') {
-          rotation = localPlayerRef.current.rigidBody.rotation();
-        } else {
-          // Use camera quaternion as fallback for rotation
-          rotation = camera.quaternion; 
-        }
-      } else if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
-        // Direct position property
-        position = localPlayerRef.current.position;
-        rotation = localPlayerRef.current.quaternion || camera.quaternion;
+      // Get camera rotation - critical source of player orientation
+      // We get a clean, normalized copy of the camera quaternion
+      // First we get a fresh copy to avoid reusing mutated quaternions
+      rotation = camera.quaternion.clone();
+      
+      // Ensure it's normalized to prevent drift issues
+      rotation.normalize();
+      
+      // Debug - log actual camera rotation values occasionally 
+      if (Math.random() < 0.001) {
+        console.log("CAMERA ROTATION ACTUAL:", 
+          [rotation.x, rotation.y, rotation.z, rotation.w]);
       }
       
-      // Only proceed if we have valid position and rotation data
+      // Get position data
+      if (localPlayerRef.current.body && typeof localPlayerRef.current.body.translation === 'function') {
+        position = localPlayerRef.current.body.translation();
+        velocity = localPlayerRef.current.body.linvel();
+      } else if (localPlayerRef.current.rigidBody && typeof localPlayerRef.current.rigidBody.translation === 'function') {
+        position = localPlayerRef.current.rigidBody.translation();
+        velocity = localPlayerRef.current.rigidBody.linvel();
+      } else if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
+        position = localPlayerRef.current.position;
+      }
+      
       if (!position || position.x === undefined || !rotation || rotation.x === undefined) {
-        console.log("Could not get valid position/rotation data from player");
         return;
       }
+      
+      // Track rotation history for stability detection
+      const now = Date.now();
+      if (now - lastRotationCheckTime > 100) { // Check every 100ms
+        rotationHistory.push([rotation.x, rotation.y, rotation.z, rotation.w]);
+        if (rotationHistory.length > 5) {
+          rotationHistory.shift(); // Keep last 5 rotations
+        }
         
-      // Only send if we've moved significantly to reduce traffic
+        // Calculate rotation stability by comparing recent rotations
+        if (rotationHistory.length >= 3) {
+          let totalDelta = 0;
+          for (let i = 1; i < rotationHistory.length; i++) {
+            const prev = rotationHistory[i-1];
+            const curr = rotationHistory[i];
+            const dotProduct = 
+              prev[0] * curr[0] + 
+              prev[1] * curr[1] + 
+              prev[2] * curr[2] + 
+              prev[3] * curr[3];
+            totalDelta += Math.abs(1 - Math.abs(dotProduct));
+          }
+          // Average change between recent rotations
+          const avgChange = totalDelta / (rotationHistory.length - 1);
+          // Mark as stable if changes are very small
+          isRotationStable = avgChange < 0.01;
+        }
+        
+        lastRotationCheckTime = now;
+      }
+      
+      // Position change detection - threshold of 5cm
       const lastPos = lastSentPosition.current;
       const posChanged = !lastPos || 
         Math.abs(position.x - lastPos[0]) > 0.05 || 
         Math.abs(position.y - lastPos[1]) > 0.05 || 
         Math.abs(position.z - lastPos[2]) > 0.05;
       
-      // Force send at least every 500ms for rotation updates even if position didn't change
-      const now = Date.now();
-      const timeSinceLastUpdate = now - (lastServerUpdateTime.current || 0);
-      const shouldSendForTime = timeSinceLastUpdate > 500;
+      // Rotation change detection - more strict (3% threshold)
+      // Higher threshold means we send fewer rotation updates
+      const rotationChanged = 
+        Math.abs(rotation.x - lastSentRotation.x) > 0.03 || 
+        Math.abs(rotation.y - lastSentRotation.y) > 0.03 || 
+        Math.abs(rotation.z - lastSentRotation.z) > 0.03 || 
+        Math.abs(rotation.w - lastSentRotation.w) > 0.03;
       
-      if (posChanged || shouldSendForTime) {
-        // Normalize the quaternion before sending
-        const normalizedRotation = new THREE.Quaternion(
-          rotation.x, 
-          rotation.y, 
-          rotation.z, 
-          rotation.w
-        ).normalize();
+      // Force update minimum every 3 seconds (increased from 2 seconds)
+      const timeSinceLastUpdate = now - (lastUpdateTime.current || 0);
+      const shouldSendForTime = timeSinceLastUpdate > 3000;
+      
+      // Check if enough time has passed since last rotation update
+      const timeSinceLastRotation = now - lastRotationUpdateTime;
+      const canSendRotationUpdate = timeSinceLastRotation > MIN_ROTATION_UPDATE_INTERVAL;
+      
+      // Send update if one of these is true:
+      // 1. Position changed significantly, OR
+      // 2. Rotation changed AND enough time passed AND player rotation is stable, OR
+      // 3. It's been too long since last update
+      if (posChanged || 
+          (rotationChanged && canSendRotationUpdate && isRotationStable) || 
+          shouldSendForTime) {
         
-        // Create update data object with properly formatted arrays
+        // Create update data
         const updateData: PlayerUpdateData = {
           position: [position.x, position.y, position.z],
-          rotation: [normalizedRotation.x, normalizedRotation.y, normalizedRotation.z, normalizedRotation.w],
+          rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
           sequence: nextSequence.current++
         };
         
-        // Add velocity if available
+        // Add velocity
         if (velocity) {
           updateData.velocity = [velocity.x, velocity.y, velocity.z];
         }
@@ -692,21 +758,30 @@ export const useMultiplayer = (
         // Send to server
         connectionManager.sendPlayerUpdate(updateData);
         
-        // Update last sent position and time
+        // Update tracking variables
         lastSentPosition.current = [position.x, position.y, position.z];
-        lastServerUpdateTime.current = now;
+        lastSentRotation.x = rotation.x;
+        lastSentRotation.y = rotation.y;
+        lastSentRotation.z = rotation.z;
+        lastSentRotation.w = rotation.w;
+        lastUpdateTime.current = now;
         
-        if (Math.random() < 0.05) { // Log occasionally for debugging
-          console.log("Sent position update with rotation:", updateData.rotation);
+        // If rotation changed, update rotation timestamp
+        if (rotationChanged) {
+          lastRotationUpdateTime = now;
+          if (Math.random() < 0.05) {
+            console.log("Sent rotation update (stable:", isRotationStable, "):", 
+              [rotation.x, rotation.y, rotation.z, rotation.w]);
+          }
         }
       }
-    }, 20); // Reduced from 50ms to 20ms for smoother updates
+    }, 50); // Increased from 30ms to 50ms (20fps instead of 33fps) - less network traffic
     
     return () => {
       clearInterval(intervalId);
       console.log('Cleared position update interval');
     };
-  }, [connectionManager, localPlayerRef]);
+  }, [connectionManager, localPlayerRef, camera]);
   
   // Handle ref updates for remote players
   const updatePlayerRef = (id: string, methods: RemotePlayerMethods) => {
@@ -858,6 +933,67 @@ export const useMultiplayer = (
     
     return interpolated;
   };
+  
+  // Set up connection and event handlers
+  useEffect(() => {
+    console.log('Setting up multiplayer connection...');
+    
+    // Connection events
+    connectionManager.on('connected', () => {
+      console.log('Connected to multiplayer server');
+      // Don't set isConnected here, wait for auth & session join
+    });
+    
+    connectionManager.on('disconnected', () => {
+      console.log('Disconnected from multiplayer server');
+      setIsConnected(false);
+    });
+    
+    connectionManager.on('initialized', (data: any) => {
+      console.log('Initialized with ID:', data.id);
+      setPlayerId(data.id);
+      // Don't set isConnected here, wait for session join confirmation
+    });
+
+    // Add specific handler for join_success
+    connectionManager.on('message_received', (message: any) => {
+      if (message.type === 'join_success') {
+        console.log('Successfully joined session:', message.session?.id);
+        setIsConnected(true);
+      }
+    });
+    
+    // Connect to the server
+    connectionManager.connect();
+    
+    // Add a debug log to check connection status after 5 seconds
+    setTimeout(() => {
+      console.log("🔍 MULTIPLAYER CONNECTION STATUS (after 5s):");
+      console.log("- IsConnected:", isConnected);
+      console.log("- PlayerId:", playerId);
+      console.log("- Remote players:", Object.keys(remotePlayers).length);
+      console.log("- Server URL:", connectionManager.getServerUrl());
+      console.log("- Socket state:", connectionManager.socket?.readyState || "NO_SOCKET");
+      
+      // Try to reestablish connection if needed
+      if (!isConnected && connectionManager.socket?.readyState !== WebSocket.OPEN) {
+        console.log("Attempting to reconnect...");
+        connectionManager.connect();
+      }
+    }, 5000);
+    
+    return () => {
+      console.log('Cleaning up multiplayer connection...');
+      // Ensure we disconnect properly when component unmounts
+      connectionManager.disconnect();
+      // Remove specific message handler
+      connectionManager.off('message_received', (message: any) => {});
+      // Reset states on unmount
+      setIsConnected(false);
+      setPlayerId(null);
+      setRemotePlayers({});
+    };
+  }, [connectionManager]);
   
   return {
     remotePlayers,
@@ -1062,6 +1198,22 @@ export const MultiplayerManager: React.FC<{
     // Connect to the server
     connectionManager.connect();
     
+    // Add a debug log to check connection status after 5 seconds
+    setTimeout(() => {
+      console.log("🔍 MULTIPLAYER CONNECTION STATUS (after 5s):");
+      console.log("- IsConnected:", isConnected);
+      console.log("- PlayerId:", playerId);
+      console.log("- Remote players:", Object.keys(remotePlayers).length);
+      console.log("- Server URL:", connectionManager.getServerUrl());
+      console.log("- Socket state:", connectionManager.socket?.readyState || "NO_SOCKET");
+      
+      // Try to reestablish connection if needed
+      if (!isConnected && connectionManager.socket?.readyState !== WebSocket.OPEN) {
+        console.log("Attempting to reconnect...");
+        connectionManager.connect();
+      }
+    }, 5000);
+    
     return () => {
       console.log('Cleaning up multiplayer connection...');
       // Ensure we disconnect properly when component unmounts
@@ -1256,7 +1408,24 @@ export const MultiplayerManager: React.FC<{
     
     console.log('Starting position update interval');
     
-    // Send our position more frequently (20ms instead of 50ms) for smoother updates
+    // Store the last sent rotation to detect changes
+    const lastSentRotation = {
+      x: 0,
+      y: 0,
+      z: 0,
+      w: 0
+    };
+    
+    // Create a throttle mechanism to avoid sending too many updates
+    let lastRotationUpdateTime = 0;
+    const MIN_ROTATION_UPDATE_INTERVAL = 500; // Increased from 250ms to 500ms - much less frequent
+    
+    // Track rotation stability
+    let isRotationStable = true;
+    let lastRotationCheckTime = 0;
+    const rotationHistory: Array<[number, number, number, number]> = [];
+    
+    // Send position updates
     const intervalId = setInterval(() => {
       if (!localPlayerRef.current || !connectionManager.isReadyToSend()) {
         return;
@@ -1264,65 +1433,104 @@ export const MultiplayerManager: React.FC<{
 
       let position, rotation, velocity;
       
-      // Try different ways to get position data based on player implementation
-      if (localPlayerRef.current.body && typeof localPlayerRef.current.body.translation === 'function') {
-        // Get position from rapier body
-        position = localPlayerRef.current.body.translation();
-        rotation = localPlayerRef.current.body.rotation();
-        velocity = localPlayerRef.current.body.linvel();
-      } else if (localPlayerRef.current.rigidBody && typeof localPlayerRef.current.rigidBody.translation === 'function') {
-        // Legacy rapier physics rigidBody
-        position = localPlayerRef.current.rigidBody.translation();
-        velocity = localPlayerRef.current.rigidBody.linvel();
-        
-        // For rotation, use camera quaternion if player doesn't have one
-        if (localPlayerRef.current.rigidBody.rotation && typeof localPlayerRef.current.rigidBody.rotation === 'function') {
-          rotation = localPlayerRef.current.rigidBody.rotation();
-        } else {
-          // Use camera quaternion as fallback for rotation
-          rotation = camera.quaternion; 
-        }
-      } else if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
-        // Direct position property
-        position = localPlayerRef.current.position;
-        rotation = localPlayerRef.current.quaternion || camera.quaternion;
+      // Get camera rotation - critical source of player orientation
+      // We get a clean, normalized copy of the camera quaternion
+      // First we get a fresh copy to avoid reusing mutated quaternions
+      rotation = camera.quaternion.clone();
+      
+      // Ensure it's normalized to prevent drift issues
+      rotation.normalize();
+      
+      // Debug - log actual camera rotation values occasionally 
+      if (Math.random() < 0.001) {
+        console.log("CAMERA ROTATION ACTUAL:", 
+          [rotation.x, rotation.y, rotation.z, rotation.w]);
       }
       
-      // Only proceed if we have valid position and rotation data
+      // Get position data
+      if (localPlayerRef.current.body && typeof localPlayerRef.current.body.translation === 'function') {
+        position = localPlayerRef.current.body.translation();
+        velocity = localPlayerRef.current.body.linvel();
+      } else if (localPlayerRef.current.rigidBody && typeof localPlayerRef.current.rigidBody.translation === 'function') {
+        position = localPlayerRef.current.rigidBody.translation();
+        velocity = localPlayerRef.current.rigidBody.linvel();
+      } else if (localPlayerRef.current.position && localPlayerRef.current.position.x !== undefined) {
+        position = localPlayerRef.current.position;
+      }
+      
       if (!position || position.x === undefined || !rotation || rotation.x === undefined) {
-        console.log("Could not get valid position/rotation data from player");
         return;
       }
+      
+      // Track rotation history for stability detection
+      const now = Date.now();
+      if (now - lastRotationCheckTime > 100) { // Check every 100ms
+        rotationHistory.push([rotation.x, rotation.y, rotation.z, rotation.w]);
+        if (rotationHistory.length > 5) {
+          rotationHistory.shift(); // Keep last 5 rotations
+        }
         
-      // Only send if we've moved significantly to reduce traffic
+        // Calculate rotation stability by comparing recent rotations
+        if (rotationHistory.length >= 3) {
+          let totalDelta = 0;
+          for (let i = 1; i < rotationHistory.length; i++) {
+            const prev = rotationHistory[i-1];
+            const curr = rotationHistory[i];
+            const dotProduct = 
+              prev[0] * curr[0] + 
+              prev[1] * curr[1] + 
+              prev[2] * curr[2] + 
+              prev[3] * curr[3];
+            totalDelta += Math.abs(1 - Math.abs(dotProduct));
+          }
+          // Average change between recent rotations
+          const avgChange = totalDelta / (rotationHistory.length - 1);
+          // Mark as stable if changes are very small
+          isRotationStable = avgChange < 0.01;
+        }
+        
+        lastRotationCheckTime = now;
+      }
+      
+      // Position change detection - threshold of 5cm
       const lastPos = lastSentPosition.current;
       const posChanged = !lastPos || 
         Math.abs(position.x - lastPos[0]) > 0.05 || 
         Math.abs(position.y - lastPos[1]) > 0.05 || 
         Math.abs(position.z - lastPos[2]) > 0.05;
       
-      // Force send at least every 500ms for rotation updates even if position didn't change
-      const now = Date.now();
-      const timeSinceLastUpdate = now - (lastUpdateTime.current || 0);
-      const shouldSendForTime = timeSinceLastUpdate > 500;
+      // Rotation change detection - more strict (3% threshold)
+      // Higher threshold means we send fewer rotation updates
+      const rotationChanged = 
+        Math.abs(rotation.x - lastSentRotation.x) > 0.03 || 
+        Math.abs(rotation.y - lastSentRotation.y) > 0.03 || 
+        Math.abs(rotation.z - lastSentRotation.z) > 0.03 || 
+        Math.abs(rotation.w - lastSentRotation.w) > 0.03;
       
-      if (posChanged || shouldSendForTime) {
-        // Normalize the quaternion before sending
-        const normalizedRotation = new THREE.Quaternion(
-          rotation.x, 
-          rotation.y, 
-          rotation.z, 
-          rotation.w
-        ).normalize();
+      // Force update minimum every 3 seconds (increased from 2 seconds)
+      const timeSinceLastUpdate = now - (lastUpdateTime.current || 0);
+      const shouldSendForTime = timeSinceLastUpdate > 3000;
+      
+      // Check if enough time has passed since last rotation update
+      const timeSinceLastRotation = now - lastRotationUpdateTime;
+      const canSendRotationUpdate = timeSinceLastRotation > MIN_ROTATION_UPDATE_INTERVAL;
+      
+      // Send update if one of these is true:
+      // 1. Position changed significantly, OR
+      // 2. Rotation changed AND enough time passed AND player rotation is stable, OR
+      // 3. It's been too long since last update
+      if (posChanged || 
+          (rotationChanged && canSendRotationUpdate && isRotationStable) || 
+          shouldSendForTime) {
         
-        // Create update data object with properly formatted arrays
+        // Create update data
         const updateData: PlayerUpdateData = {
           position: [position.x, position.y, position.z],
-          rotation: [normalizedRotation.x, normalizedRotation.y, normalizedRotation.z, normalizedRotation.w],
+          rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
           sequence: nextSequence.current++
         };
         
-        // Add velocity if available
+        // Add velocity
         if (velocity) {
           updateData.velocity = [velocity.x, velocity.y, velocity.z];
         }
@@ -1330,15 +1538,24 @@ export const MultiplayerManager: React.FC<{
         // Send to server
         connectionManager.sendPlayerUpdate(updateData);
         
-        // Update last sent position and time
+        // Update tracking variables
         lastSentPosition.current = [position.x, position.y, position.z];
+        lastSentRotation.x = rotation.x;
+        lastSentRotation.y = rotation.y;
+        lastSentRotation.z = rotation.z;
+        lastSentRotation.w = rotation.w;
         lastUpdateTime.current = now;
         
-        if (Math.random() < 0.05) { // Log occasionally for debugging
-          console.log("Sent position update with rotation:", updateData.rotation);
+        // If rotation changed, update rotation timestamp
+        if (rotationChanged) {
+          lastRotationUpdateTime = now;
+          if (Math.random() < 0.05) {
+            console.log("Sent rotation update (stable:", isRotationStable, "):", 
+              [rotation.x, rotation.y, rotation.z, rotation.w]);
+          }
         }
       }
-    }, 20); // Reduced from 50ms to 20ms for smoother updates
+    }, 50); // Increased from 30ms to 50ms (20fps instead of 33fps) - less network traffic
     
     return () => {
       clearInterval(intervalId);
