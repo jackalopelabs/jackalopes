@@ -23,9 +23,9 @@ const SPHERE_OFFSET = {
 }
 
 // Maximum number of spheres per player to prevent performance issues
-const MAX_SPHERES_PER_PLAYER = 2 // Further reduced from 3
+const MAX_SPHERES_PER_PLAYER = 5 // Further reduced from 3
 // Total maximum spheres allowed in the scene at once
-const MAX_TOTAL_SPHERES = 6 // Further reduced from 10
+const MAX_TOTAL_SPHERES = 20 // Further reduced from 10
 
 // Extended type to include player ID for multiplayer
 type SphereProps = {
@@ -200,8 +200,10 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         return new THREE.MeshStandardMaterial({
             color: new THREE.Color(color),
             emissive: new THREE.Color(color),
-            emissiveIntensity: 1.5,
-            toneMapped: false
+            emissiveIntensity: 2.5, // Increased from 1.5 for more glow
+            toneMapped: false,
+            transparent: true,
+            opacity: 0.85 // Made the core slightly transparent
         })
     }, [color])
     
@@ -209,9 +211,9 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         return new THREE.MeshStandardMaterial({
             color: new THREE.Color(color),
             transparent: true,
-            opacity: 0.6,
+            opacity: 0.4, // Reduced from 0.6 for more transparency
             emissive: new THREE.Color(color),
-            emissiveIntensity: 0.8,
+            emissiveIntensity: 1.2, // Increased from 0.8 for brighter glow
             toneMapped: false
         })
     }, [color])
@@ -294,6 +296,15 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                     <sphereGeometry args={[radius, 16, 16]} />
                     <primitive object={outerMaterial} />
                 </mesh>
+                
+                {/* Add point light that scales with the fireball but doesn't cast shadows for performance */}
+                <pointLight 
+                    color={color}
+                    intensity={15 * intensity} // Increased from 11 for even stronger glow
+                    distance={44 * scale} // Keep the large distance
+                    decay={1.5} // Keep decay the same
+                    castShadow={false} // No shadows for better performance
+                />
             </RigidBody>
             
             {/* Add fire particles - scale with the fireball */}
