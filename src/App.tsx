@@ -9,7 +9,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
 import { useControls, folder } from 'leva'
 import { useTexture } from '@react-three/drei'
-import { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState, useMemo } from 'react'
 import * as THREE from 'three'
 import { Player, PlayerControls } from './game/player'
 import { Jackalope } from './game/jackalope'
@@ -695,6 +695,236 @@ const ThirdPersonCameraControls = ({
     });
     
     return null; // No need to render any elements
+};
+
+// Add PerformanceStats component
+const PerformanceStats = () => {
+    const [fps, setFps] = useState(0);
+    const [memory, setMemory] = useState<{
+        geometries: number;
+        textures: number;
+        triangles: number;
+        jsHeap?: number;
+    }>({
+        geometries: 0,
+        textures: 0,
+        triangles: 0
+    });
+    const frameCount = useRef(0);
+    const lastTime = useRef(performance.now());
+    const frameTimeHistory = useRef<number[]>([]);
+    const maxHistoryLength = 30; // Store 30 frames of history for smoother display
+
+    // Get renderer info from three.js
+    const { gl } = useThree();
+    const rendererInfo = useMemo(() => gl.info, [gl]);
+
+    useEffect(() => {
+        // Function to update performance stats
+        const updateStats = () => {
+            frameCount.current++;
+            const now = performance.now();
+            const elapsed = now - lastTime.current;
+
+            // Update FPS approximately every 500ms for more stable reading
+            if (elapsed >= 500) {
+                // Calculate FPS
+                const currentFps = Math.round((frameCount.current * 1000) / elapsed);
+                
+                // Add to history for smoothing
+                frameTimeHistory.current.push(currentFps);
+                // Keep history at max length
+                if (frameTimeHistory.current.length > maxHistoryLength) {
+                    frameTimeHistory.current.shift();
+                }
+                
+                // Calculate average FPS from history
+                const avgFps = Math.round(
+                    frameTimeHistory.current.reduce((sum, fps) => sum + fps, 0) / 
+                    frameTimeHistory.current.length
+                );
+                
+                setFps(avgFps);
+                
+                // Update memory stats
+                const memoryStats = {
+                    geometries: rendererInfo.memory.geometries,
+                    textures: rendererInfo.memory.textures,
+                    triangles: rendererInfo.render.triangles,
+                    // Add JS heap size if performance.memory is available (Chrome only)
+                    jsHeap: (performance as any).memory?.usedJSHeapSize / (1024 * 1024) // Convert to MB
+                };
+                
+                setMemory(memoryStats);
+                
+                // Reset for next update
+                frameCount.current = 0;
+                lastTime.current = now;
+            }
+            
+            requestAnimationFrame(updateStats);
+        };
+        
+        const animationId = requestAnimationFrame(updateStats);
+        
+        return () => {
+            cancelAnimationFrame(animationId);
+        };
+    }, [rendererInfo]);
+
+    return (
+        <div style={{
+            position: 'absolute',
+            top: '10px',
+            right: '10px',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            color: fps < 30 ? '#ff5252' : fps < 50 ? '#ffbd52' : '#52ff7a',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            fontFamily: 'monospace',
+            userSelect: 'none',
+            zIndex: 2000,
+            textAlign: 'right',
+            lineHeight: '1.4'
+        }}>
+            <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px' }}>
+                {fps} FPS
+            </div>
+            <div style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '10px' }}>
+                Triangles: {memory.triangles.toLocaleString()}<br />
+                Geometries: {memory.geometries}<br />
+                Textures: {memory.textures}
+                {memory.jsHeap && (<><br />Memory: {memory.jsHeap.toFixed(1)} MB</>)}
+            </div>
+        </div>
+    );
+};
+
+// ... existing code ...
+
+// Split the performance stats into two components:
+// 1. StatsCollector - inside Canvas to collect data
+// 2. StatsDisplay - outside Canvas to display data
+interface PerformanceData {
+    fps: number;
+    triangles: number;
+    geometries: number;
+    textures: number;
+    jsHeap?: number;
+}
+
+// Create a state to share data between components
+const performanceState = {
+    listeners: [] as ((data: PerformanceData) => void)[],
+    subscribe(listener: (data: PerformanceData) => void) {
+        this.listeners.push(listener);
+        return () => {
+            this.listeners = this.listeners.filter(l => l !== listener);
+        };
+    },
+    notify(data: PerformanceData) {
+        this.listeners.forEach(listener => listener(data));
+    }
+};
+
+// This component goes inside the Canvas
+const StatsCollector = () => {
+    const frameCount = useRef(0);
+    const lastTime = useRef(performance.now());
+    const frameTimeHistory = useRef<number[]>([]);
+    const maxHistoryLength = 30;
+    
+    // Get renderer info from three.js
+    const { gl } = useThree();
+    const rendererInfo = useMemo(() => gl.info, [gl]);
+    
+    useFrame(() => {
+        frameCount.current++;
+        const now = performance.now();
+        const elapsed = now - lastTime.current;
+        
+        // Update stats every 500ms
+        if (elapsed >= 500) {
+            // Calculate FPS
+            const currentFps = Math.round((frameCount.current * 1000) / elapsed);
+            
+            // Add to history for smoothing
+            frameTimeHistory.current.push(currentFps);
+            if (frameTimeHistory.current.length > maxHistoryLength) {
+                frameTimeHistory.current.shift();
+            }
+            
+            // Calculate average FPS from history
+            const avgFps = Math.round(
+                frameTimeHistory.current.reduce((sum, fps) => sum + fps, 0) / 
+                frameTimeHistory.current.length
+            );
+            
+            // Get memory stats
+            const jsHeap = (performance as any).memory?.usedJSHeapSize / (1024 * 1024);
+            
+            // Notify subscribers with new data
+            performanceState.notify({
+                fps: avgFps,
+                triangles: rendererInfo.render.triangles,
+                geometries: rendererInfo.memory.geometries,
+                textures: rendererInfo.memory.textures,
+                jsHeap
+            });
+            
+            // Reset for next update
+            frameCount.current = 0;
+            lastTime.current = now;
+        }
+    });
+    
+    return null;
+};
+
+// This component goes outside the Canvas
+const StatsDisplay = () => {
+    const [stats, setStats] = useState<PerformanceData>({
+        fps: 0,
+        triangles: 0,
+        geometries: 0,
+        textures: 0
+    });
+    
+    useEffect(() => {
+        // Subscribe to performance updates
+        return performanceState.subscribe(data => {
+            setStats(data);
+        });
+    }, []);
+    
+    return (
+        <div style={{
+            position: 'absolute',
+            top: '10px',
+            right: '10px',
+            backgroundColor: 'rgba(0, 0, 0, 0.6)',
+            color: stats.fps < 30 ? '#ff5252' : stats.fps < 50 ? '#ffbd52' : '#52ff7a',
+            padding: '8px 12px',
+            borderRadius: '4px',
+            fontSize: '12px',
+            fontFamily: 'monospace',
+            userSelect: 'none',
+            zIndex: 2000,
+            textAlign: 'right',
+            lineHeight: '1.4'
+        }}>
+            <div style={{ fontWeight: 'bold', fontSize: '14px', marginBottom: '4px' }}>
+                {stats.fps} FPS
+            </div>
+            <div style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: '10px' }}>
+                Triangles: {stats.triangles.toLocaleString()}<br />
+                Geometries: {stats.geometries}<br />
+                Textures: {stats.textures}
+                {stats.jsHeap && (<><br />Memory: {stats.jsHeap.toFixed(1)} MB</>)}
+            </div>
+        </div>
+    );
 };
 
 export function App() {
@@ -1559,6 +1789,9 @@ export function App() {
                     resolution={64} // Drastically reduced for performance
                 />
 
+                {/* Add Stats Collector - must be inside Canvas */}
+                <StatsCollector />
+
                 <ambientLight intensity={darkMode ? 0.02 : ambientIntensity} />
                 <directionalLight
                     castShadow
@@ -1803,6 +2036,9 @@ export function App() {
 
             {/* Only show crosshair in first-person view */}
             {(enableMultiplayer ? !playerCharacterInfo.thirdPerson : !thirdPersonView) && <Crosshair />}
+            
+            {/* Stats Display - must be outside Canvas */}
+            <StatsDisplay />
             
             {/* Add NetworkStats component - only affects UI visibility */}
             {showMultiplayerTools && enableMultiplayer && (
