@@ -1583,21 +1583,26 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
     const handleShot = (shotData: any) => {
       console.log('Remote shot received:', shotData);
       
+      // Create a consistent shotId if one doesn't exist
+      const shotId = shotData.shotId || 
+        `${shotData.id}-${shotData.origin?.join(',') || '0,0,0'}-${shotData.timestamp || Date.now()}`;
+      
       // Skip if we've already processed this shot
-      if (!shotData.shotId || processedShots.current.has(shotData.shotId)) {
-        console.log('Shot already processed, skipping:', shotData.shotId);
+      if (processedShots.current.has(shotId)) {
+        console.log('Shot already processed, skipping:', shotId);
         return;
       }
       
       // Add to processed shots to prevent duplicates
-      processedShots.current.add(shotData.shotId);
+      processedShots.current.add(shotId);
       console.log('Adding shot to processed shots, new size:', processedShots.current.size);
       
-      // Note: RemoteShot only requires id, origin, and direction properties
-      const remoteShot: RemoteShot = {
+      // Save the original shotId to the shot data for consistent tracking
+      const remoteShot: RemoteShot & { shotId?: string } = {
         id: shotData.id || 'unknown',
         origin: shotData.origin || shotData.position || [0, 0, 0],
-        direction: shotData.direction || [0, 1, 0]
+        direction: shotData.direction || [0, 1, 0],
+        shotId: shotId // Add the shotId to help with deduplication
       };
       
       // Add the shot to our state
@@ -1617,6 +1622,14 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
       }
     };
     
+    // Initialize or reuse the global processed shots set
+    if (!window.__processedShots) {
+      window.__processedShots = new Set<string>();
+    }
+    
+    // Sync our local set with the global one
+    processedShots.current = window.__processedShots;
+    
     // Listen for shots from the connection manager
     connectionManager.on('player_shoot', handleShot);
     
@@ -1625,6 +1638,11 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
     
     // Make the localStorage broadcast function available globally
     window.__shotBroadcast = (shotData: any) => {
+      // Ensure the shot has a consistent ID
+      if (!shotData.shotId) {
+        shotData.shotId = `${shotData.id}-${shotData.origin?.join(',') || '0,0,0'}-${Date.now()}`;
+      }
+      
       console.log('Shot broadcasted to localStorage:', shotData);
       localStorage.setItem('jackalopes_shot_events', JSON.stringify(shotData));
       
@@ -1637,7 +1655,7 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
     const sendTestShot = () => {
       const testShotData = {
         id: 'test-player',
-        shotId: 'test-player-0,0,0-0,1,0',
+        shotId: `test-player-${Date.now()}`,
         origin: [0, 0, 0],
         direction: [0, 1, 0],
         timestamp: Date.now()
@@ -1656,7 +1674,7 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
       connectionManager.off('player_shoot', handleShot);
       window.removeEventListener('storage', handleStorageEvent);
       
-      // Clean up global functions
+      // Clean up global functions but preserve processed shots
       delete window.__shotBroadcast;
       delete window.__sendTestShot;
     };

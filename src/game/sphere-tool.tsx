@@ -345,15 +345,16 @@ export const SphereTool = ({
         if (!remoteShots || remoteShots.length === 0) return;
         
         // IMPORTANT: Create a Map to track shots by their ID before processing
-        // This ensures we only process each unique position once
+        // This ensures we only process each unique shot once
         const shotMap = new Map<string, RemoteShot>();
         
-        // First pass: organize shots by their position (rounded to 2 decimal places - more precise to reduce duplicates)
+        // First pass: organize shots by their unique ID
         remoteShots.forEach(shot => {
-            // Create a unique ID for this shot with only player ID and approximate position
-            // Round position to 2 decimal places to reduce false duplicates
-            const roundedPos = shot.origin.map(coord => Math.round(coord * 100) / 100);
-            const shotId = `${shot.id}--${roundedPos.join(',')}`;
+            // Use the player ID and original shotId if available, otherwise generate one
+            // This is more reliable than using position for deduplication
+            const shotId = shot.id && (shot as any).shotId 
+                ? `${shot.id}--${(shot as any).shotId}`
+                : `${shot.id}--${shot.origin.join(',')}-${Date.now()}`;
             
             // Check if this shot has already been processed
             const isProcessed = processedRemoteShots.current.has(shotId);
@@ -416,10 +417,10 @@ export const SphereTool = ({
         });
         
         // Limit the size of our processed shots set to avoid memory leaks - more aggressive cleanup
-        if (processedRemoteShots.current.size > 50) { // Reduced from 100
+        if (processedRemoteShots.current.size > 100) { // Increased from 50 for better tracking
             const oldSize = processedRemoteShots.current.size;
             processedRemoteShots.current = new Set(
-                Array.from(processedRemoteShots.current).slice(-25) // Reduced from 50
+                Array.from(processedRemoteShots.current).slice(-50) // Keep the 50 most recent
             );
             console.log(`Trimmed processed shots set from ${oldSize} to ${processedRemoteShots.current.size}`);
         }
@@ -727,15 +728,15 @@ export const SphereTool = ({
                 return filteredSpheres;
             });
             
-            // Also clean up processed shots to keep memory usage low - more aggressive cleanup
-            if (processedRemoteShots.current.size > 100) { // Reduced from 200
+            // Also clean up processed shots to keep memory usage low
+            if (processedRemoteShots.current.size > 150) { // Increased from 100
                 console.log(`Cleaning up processed shots. Before: ${processedRemoteShots.current.size}`);
                 processedRemoteShots.current = new Set(
-                    Array.from(processedRemoteShots.current).slice(-50) // Reduced from 100
+                    Array.from(processedRemoteShots.current).slice(-100) // Keep more recent shots
                 );
                 console.log(`After cleanup: ${processedRemoteShots.current.size}`);
             }
-        }, 1000); // Reduced from 2000 to clean up more frequently
+        }, 1000); // Clean up every second
         
         return () => clearInterval(cleanup);
     }, []);
