@@ -996,7 +996,9 @@ export function App() {
         toneMapping,
         toneMappingExposure,
         moonOrbit,
-        moonOrbitSpeed
+        moonOrbitSpeed,
+        highQualityShadows,
+        moonVisible
     } = useControls({
         fog: folder({
             fogEnabled: true,
@@ -1006,11 +1008,13 @@ export function App() {
         }, { collapsed: true }),
         lighting: folder({
             ambientIntensity: { value: 0, min: 0, max: 2, step: 0.1 },
-            directionalIntensity: { value: 2.5, min: 0, max: 5, step: 0.1 },
-            directionalHeight: { value: 30, min: 5, max: 60, step: 1 }, // Increased height
-            directionalDistance: { value: 45, min: 5, max: 70, step: 1 }, // Increased distance
-            moonOrbit: { value: true, label: 'Moon Orbits Level' },
-            moonOrbitSpeed: { value: 0.01, min: 0.001, max: 0.1, step: 0.001, label: 'Orbit Speed' },
+            directionalIntensity: { value: 3.0, min: 0, max: 5, step: 0.1 },
+            directionalHeight: { value: 40, min: 5, max: 60, step: 1 },
+            directionalDistance: { value: 40, min: 5, max: 70, step: 1 },
+            moonOrbit: { value: false, label: 'Moon Orbits Level' },
+            moonOrbitSpeed: { value: 0.005, min: 0.001, max: 0.1, step: 0.001, label: 'Orbit Speed' },
+            moonVisible: { value: false, label: 'Show Moon Mesh' },
+            highQualityShadows: { value: false, label: 'High Quality Shadows' },
         }, { collapsed: true }),
         postProcessing: folder({
             enablePostProcessing: true,
@@ -1330,7 +1334,41 @@ export function App() {
         }
     };
     
-    // Add moon orbit component - update for wider orbit
+    // Simplified StableLightUpdater to just position the light
+    const StableLightUpdater = () => {
+        // Single setup effect rather than frame-by-frame updates for better performance
+        useEffect(() => {
+            if (directionalLightRef.current) {
+                // Set a fixed position for best shadow coverage over the level
+                directionalLightRef.current.position.set(
+                    -directionalDistance,
+                    directionalHeight,
+                    -directionalDistance
+                );
+                
+                // Set target to center of level
+                directionalLightRef.current.target.position.set(0, 0, 0);
+                directionalLightRef.current.target.updateMatrixWorld();
+                
+                // Optimize shadows
+                directionalLightRef.current.shadow.bias = -0.001;
+                directionalLightRef.current.shadow.normalBias = 0.05;
+                directionalLightRef.current.shadow.radius = highQualityShadows ? 1 : 2; // Softer shadows in low quality mode
+                directionalLightRef.current.shadow.mapSize.width = highQualityShadows ? 2048 : 1024;
+                directionalLightRef.current.shadow.mapSize.height = highQualityShadows ? 2048 : 1024;
+            }
+        }, [directionalHeight, directionalDistance, highQualityShadows]);
+        
+        return null;
+    };
+
+    // Add this inside the App component
+    useEffect(() => {
+        // Log when character type changes
+        console.log(`Character type changed to ${characterType}`);
+    }, [characterType]);
+
+    // Add moon orbit component for when orbiting is enabled
     const MoonOrbit = () => {
         const angle = useRef(0);
         
@@ -1353,34 +1391,10 @@ export function App() {
                 directionalHeight,
                 z
             );
-            
-            // Keep shadows sharp but with better performance
-            directionalLightRef.current.shadow.bias = -0.001;
-            directionalLightRef.current.shadow.normalBias = 0.02;
-            directionalLightRef.current.shadow.radius = 1; // Harder shadows
-            directionalLightRef.current.shadow.mapSize.width = 2048; // Reduced from 4096
-            directionalLightRef.current.shadow.mapSize.height = 2048; // Reduced from 4096
         });
         
         return null;
     };
-
-    // Update the light position in useFrame via PlayerPositionTracker
-    // This is more stable than the onMove handler which can be sporadic
-    const StableLightUpdater = () => {
-        useFrame(() => {
-            if (playerPosition.current) {
-                updateDirectionalLight(playerPosition.current);
-            }
-        });
-        return null;
-    };
-
-    // Add this inside the App component
-    useEffect(() => {
-        // Log when character type changes
-        console.log(`Character type changed to ${characterType}`);
-    }, [characterType]);
 
     return (
         <>
@@ -1428,31 +1442,31 @@ export function App() {
                 <Environment
                     preset="sunset"
                     background
-                    blur={0.6} // Reduced blur amount
-                    resolution={128} // Reduced from 256
+                    blur={0.4} // Further reduced blur
+                    resolution={64} // Drastically reduced for performance
                 />
 
                 <ambientLight intensity={ambientIntensity} />
                 <directionalLight
                     castShadow
-                    position={[directionalDistance, directionalHeight, directionalDistance]}
+                    position={[-directionalDistance, directionalHeight, -directionalDistance]}
                     ref={directionalLightRef}
                     intensity={directionalIntensity}
-                    shadow-mapSize={[2048, 2048]} // Reduced from 4096 for better performance
-                    shadow-camera-left={-50}
-                    shadow-camera-right={50}
-                    shadow-camera-top={50}
-                    shadow-camera-bottom={-50}
+                    shadow-mapSize={[highQualityShadows ? 2048 : 1024, highQualityShadows ? 2048 : 1024]}
+                    shadow-camera-left={-40}
+                    shadow-camera-right={40}
+                    shadow-camera-top={40}
+                    shadow-camera-bottom={-40}
                     shadow-camera-near={1}
                     shadow-camera-far={200}
                     shadow-bias={-0.001}
-                    shadow-normalBias={0.02}
-                    shadow-radius={1}
-                    color="#f0f8ff"
+                    shadow-normalBias={0.05}
+                    shadow-radius={highQualityShadows ? 1 : 2} // Softer shadows in low quality mode
+                    color="#fff" // Pure white for harder shadows
                 />
 
-                {/* Add visible moon */}
-                {moonOrbit && <Moon 
+                {/* Only show moon if visibility is enabled */}
+                {moonVisible && moonOrbit && <Moon 
                     orbitRadius={Math.max(directionalDistance, 50)} 
                     height={directionalHeight + 10} 
                     orbitSpeed={moonOrbitSpeed} 
@@ -1606,14 +1620,14 @@ export function App() {
                     </EffectComposer>
                 )}
 
-                {/* Add MoonOrbit component */}
-                <MoonOrbit />
-
-                {/* Add stable light updater for third-person view */}
-                {thirdPersonView && <StableLightUpdater />}
+                {/* Simplified - just add StableLightUpdater once */}
+                <StableLightUpdater />
 
                 {/* Add position tracker component */}
                 <PlayerPositionTracker playerRef={playerRef} playerPosition={playerPosition} />
+
+                {/* Add MoonOrbit component if orbiting is enabled */}
+                {moonOrbit && <MoonOrbit />}
             </Canvas>
 
             {/* Only show crosshair in first-person view */}
