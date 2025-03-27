@@ -32,8 +32,8 @@ const MAX_TOTAL_SPHERES = 20 // Further reduced from 10
 // Performance optimization settings
 const PERFORMANCE_CONFIG = {
     enableLights: true,           // Set to false to disable all point lights
-    lightDistance: 22,            // Reduced from 44
-    lightIntensity: 8,            // Reduced from 15
+    lightDistance: 14,            // Significantly reduced from 22
+    lightIntensity: 6,            // Reduced intensity but still bright enough
     maxScale: 5,                  // Reduced from 10
     useSimplifiedParticles: true, // Use fewer particles
     particleCount: 8,             // Reduced from 10
@@ -44,9 +44,9 @@ const PERFORMANCE_CONFIG = {
     emissiveBoost: 1.0,           // Multiplier for emissive intensity (increased in dark mode)
     // Light settings for different quality levels
     lightSettings: {
-        high: { max: 8, distance: 44, intensity: 12 },
-        medium: { max: 5, distance: 22, intensity: 8 },
-        low: { max: 3, distance: 18, intensity: 5 }
+        high: { max: 6, distance: 18, intensity: 8 },
+        medium: { max: 4, distance: 14, intensity: 6 },
+        low: { max: 2, distance: 10, intensity: 4 }
     }
 }
 
@@ -256,8 +256,18 @@ class LightPool {
       this.updateLightAssignments();
     }
     
-    // Get closest N fireballs to player
+    // Add distance cutoff - fireballs too far away don't get lights at all
+    const maxDistance = this.darkMode ? 35 : 25;
+    const distance = this.distanceToPlayer.get(id) || Infinity;
+    
+    // Skip if too far regardless of count
+    if (distance > maxDistance) {
+      return false;
+    }
+    
+    // Get closest N fireballs to player that are within range
     const sorted = Array.from(this.distanceToPlayer.entries())
+      .filter(entry => entry[1] <= maxDistance)
       .sort((a, b) => a[1] - b[1])
       .slice(0, this.maxActiveLights)
       .map(entry => entry[0]);
@@ -311,7 +321,7 @@ const PooledLights = () => {
           color={light.color}
           intensity={light.intensity}
           distance={light.distance}
-          decay={2}
+          decay={2.5} // Increased decay for faster falloff
           castShadow={false}
         />
       ))}
@@ -327,6 +337,8 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     const [canCollide, setCanCollide] = useState(false)
     const distanceTraveled = useRef(0)
     const startPosition = useRef(new THREE.Vector3(...position))
+    // Add reference for collision time
+    const collisionTimeRef = useRef<number | null>(null);
     // Add scale state for growth animation
     const [scale, setScale] = useState(1)
     const startTime = useRef(Date.now())
@@ -395,6 +407,53 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
             }
         }
         
+        // For stuck fireballs, handle light duration and fading
+        if (stuck && collisionTimeRef.current) {
+            const timeSinceCollision = Date.now() - collisionTimeRef.current;
+            const lightDuration = 4000; // Keep light for 4 seconds after collision
+            const fadeDuration = 1000; // Fade out over 1 second at the end
+            
+            if (timeSinceCollision < lightDuration) {
+                // Calculate fade factor (1.0 = full intensity, 0.0 = zero)
+                let fadeFactor = 1.0;
+                
+                // Start fading in the last second
+                if (timeSinceCollision > (lightDuration - fadeDuration)) {
+                    fadeFactor = 1.0 - ((timeSinceCollision - (lightDuration - fadeDuration)) / fadeDuration);
+                }
+                
+                // Keep registering with the light pool but with fading intensity
+                if (PERFORMANCE_CONFIG.enableLights && skipPhysicsFrames.current === 0) {
+                    const fadeIntensity = PERFORMANCE_CONFIG.lightIntensity * intensity * fadeFactor;
+                    const spherePosition = new THREE.Vector3(...finalPosition);
+                    
+                    const hasHighQualityLight = LightPool.getInstance().registerFireball(
+                        id, 
+                        spherePosition,
+                        playerPositionRef.current,
+                        fadeIntensity,
+                        color,
+                        PERFORMANCE_CONFIG.lightDistance * Math.min(scale, PERFORMANCE_CONFIG.maxScale / 1.5)
+                    );
+                    
+                    // Also fade emissive material
+                    if (innerMaterialRef.current) {
+                        const baseIntensity = hasHighQualityLight ? 2.5 : 4.0;
+                        innerMaterialRef.current.emissiveIntensity = baseIntensity * PERFORMANCE_CONFIG.emissiveBoost * fadeFactor;
+                    }
+                    if (outerMaterialRef.current) {
+                        const baseIntensity = hasHighQualityLight ? 1.2 : 2.0;
+                        outerMaterialRef.current.emissiveIntensity = baseIntensity * PERFORMANCE_CONFIG.emissiveBoost * fadeFactor;
+                    }
+                }
+            } else if (timeSinceCollision >= lightDuration) {
+                // After full duration, remove light but keep sphere
+                LightPool.getInstance().removeFireball(id);
+                // Only remove from tracking once to avoid multiple calls
+                collisionTimeRef.current = null;
+            }
+        }
+        
         // Skip processing if too far away (culling)
         if (distanceToPlayer.current > PERFORMANCE_CONFIG.cullingDistance) {
             return;
@@ -430,8 +489,14 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         
         // For distant objects, disable physics but continue visual updates
         if (distanceToPlayer.current > PERFORMANCE_CONFIG.disablePhysicsDistance && !stuck) {
-            // Optional: Reduce the physics update frequency instead of disabling
-            if (skipPhysicsFrames.current !== 0) return;
+            // Very distant objects update very infrequently
+            if (distanceToPlayer.current > PERFORMANCE_CONFIG.disablePhysicsDistance * 2) {
+                if (skipPhysicsFrames.current % 10 !== 0) return; // Only update every 10th frame
+            } 
+            // Medium distant objects update less frequently
+            else if (distanceToPlayer.current > PERFORMANCE_CONFIG.disablePhysicsDistance) {
+                if (skipPhysicsFrames.current % 5 !== 0) return; // Only update every 5th frame
+            }
         }
         
         // Calculate distance traveled
@@ -497,7 +562,11 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
         rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true)
         
+        // Mark as stuck but DON'T remove from light pool until later
         setStuck(true)
+        
+        // Register this collision time to start light fade timer
+        collisionTimeRef.current = Date.now();
     }
     
     // Auto-destroy after 5 seconds
@@ -507,8 +576,8 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 if (rigidBodyRef.current) {
                     rigidBodyRef.current.sleep();
                 }
-                // Remove from light pool when destroyed
-                LightPool.getInstance().removeFireball(id);
+                // Remove from light pool when destroyed - already handled by collision timer
+                // LightPool.getInstance().removeFireball(id);
             }, 5000);
             
             return () => clearTimeout(timeout);
@@ -991,7 +1060,7 @@ export const SphereTool = ({
                     // Check if sphere should be removed
                     const shouldRemove = 
                         (age > 6000) || // Remove very old spheres regardless of state
-                        (sphere.isStuck && age > 3000); // Remove stuck spheres sooner
+                        (sphere.isStuck && age > 5000); // Remove stuck spheres after 5 seconds instead of 3
                     
                     // If removing, track the ID for light pool cleanup
                     if (shouldRemove) {
@@ -1179,31 +1248,47 @@ export const setSphereDarkMode = (darkMode: boolean) => {
   
   // Also adjust the PERFORMANCE_CONFIG for dark mode
   if (darkMode) {
-    // Increase light values for dark mode
-    PERFORMANCE_CONFIG.lightIntensity = PERFORMANCE_CONFIG.lightIntensity * 1.5;
-    PERFORMANCE_CONFIG.lightDistance = PERFORMANCE_CONFIG.lightDistance * 1.5;
+    // In dark mode: higher intensity but shorter distance for localized lighting
+    PERFORMANCE_CONFIG.lightIntensity = PERFORMANCE_CONFIG.lightIntensity * 1.8; // More intense
+    PERFORMANCE_CONFIG.lightDistance = PERFORMANCE_CONFIG.lightDistance * 0.8;   // But shorter range
     
-    // Increase emissive materials for dark mode
-    PERFORMANCE_CONFIG.emissiveBoost = 2.0;
+    // Higher emissive boost to compensate for shorter light distance
+    PERFORMANCE_CONFIG.emissiveBoost = 2.5;
+    
+    // Adjust max lights in dark mode
+    const settings = PERFORMANCE_CONFIG.lightSettings;
+    LightPool.getInstance().setMaxLights(
+      window.__currentQuality === 'high' ? settings.high.max - 1 : 
+      window.__currentQuality === 'medium' ? settings.medium.max - 1 :
+      settings.low.max
+    );
   } else {
     // Reset to original values based on current quality
     const quality = window.__currentQuality || 'medium';
     switch (quality) {
       case 'high':
-        PERFORMANCE_CONFIG.lightIntensity = 12;
-        PERFORMANCE_CONFIG.lightDistance = 44;
+        PERFORMANCE_CONFIG.lightIntensity = 8;
+        PERFORMANCE_CONFIG.lightDistance = 18;
         break;
       case 'medium':
-        PERFORMANCE_CONFIG.lightIntensity = 8;
-        PERFORMANCE_CONFIG.lightDistance = 22;
+        PERFORMANCE_CONFIG.lightIntensity = 6;
+        PERFORMANCE_CONFIG.lightDistance = 14;
         break;
       case 'low':
-        PERFORMANCE_CONFIG.lightIntensity = 5;
-        PERFORMANCE_CONFIG.lightDistance = 18;
+        PERFORMANCE_CONFIG.lightIntensity = 4;
+        PERFORMANCE_CONFIG.lightDistance = 10;
         break;
     }
     PERFORMANCE_CONFIG.emissiveBoost = 1.0;
+    
+    // Reset max lights
+    const settings = PERFORMANCE_CONFIG.lightSettings;
+    LightPool.getInstance().setMaxLights(
+      window.__currentQuality === 'high' ? settings.high.max : 
+      window.__currentQuality === 'medium' ? settings.medium.max :
+      settings.low.max
+    );
   }
   
-  console.log(`Sphere dark mode set to: ${darkMode}, light intensity: ${PERFORMANCE_CONFIG.lightIntensity}`);
+  console.log(`Sphere dark mode set to: ${darkMode}, light intensity: ${PERFORMANCE_CONFIG.lightIntensity}, distance: ${PERFORMANCE_CONFIG.lightDistance}`);
 };
