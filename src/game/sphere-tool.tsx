@@ -27,6 +27,37 @@ const MAX_SPHERES_PER_PLAYER = 5 // Further reduced from 3
 // Total maximum spheres allowed in the scene at once
 const MAX_TOTAL_SPHERES = 20 // Further reduced from 10
 
+// Add performance configuration options
+// Add this after MAX_TOTAL_SPHERES
+// Performance optimization settings
+const PERFORMANCE_CONFIG = {
+    enableLights: true,           // Set to false to disable all point lights
+    lightDistance: 22,            // Reduced from 44
+    lightIntensity: 8,            // Reduced from 15
+    maxScale: 5,                  // Reduced from 10
+    useSimplifiedParticles: true, // Use fewer particles
+    particleCount: 8,             // Reduced from 10
+    skipFrames: 2,                // Only update particles every N frames
+    disablePhysicsDistance: 50,   // Disable physics for spheres farther than this
+    cullingDistance: 100,         // Don't render spheres farther than this
+    maxPooledLights: 8,           // Maximum number of high-quality lights
+    emissiveBoost: 1.0,           // Multiplier for emissive intensity (increased in dark mode)
+    // Light settings for different quality levels
+    lightSettings: {
+        high: { max: 8, distance: 44, intensity: 12 },
+        medium: { max: 5, distance: 22, intensity: 8 },
+        low: { max: 3, distance: 18, intensity: 5 }
+    }
+}
+
+// Player position tracking for distance-based optimization
+const playerPositionRef = { current: new THREE.Vector3() };
+
+// Expose this function to update the player position
+export const updatePlayerPositionForCulling = (position: THREE.Vector3) => {
+    playerPositionRef.current.copy(position);
+}
+
 // Extended type to include player ID for multiplayer
 type SphereProps = {
     id: string               // Unique ID for each sphere
@@ -34,9 +65,10 @@ type SphereProps = {
     direction: [number, number, number]
     color: string
     radius: number
-    playerId?: string  // The ID of the player who shot this sphere
-    timestamp: number  // When the sphere was created
-    isStuck?: boolean  // Added to track if the sphere is stuck to a surface
+    playerId?: string        // The ID of the player who shot this sphere
+    timestamp: number        // When the sphere was created
+    isStuck?: boolean        // Added to track if the sphere is stuck to a surface
+    physicsDisabled?: boolean // Flag to indicate if physics is disabled for optimization
 }
 
 // Type for remote player shots
@@ -61,7 +93,8 @@ interface FireballParticlesProps {
 // Particle effect for fireballs - simplified version
 const FireballParticles = ({ position, color }: FireballParticlesProps) => {
     const particlesRef = useRef<Points<BufferGeometry<NormalBufferAttributes>, Material | Material[]>>(null)
-    const count = 10 // Reduced from 20
+    const count = PERFORMANCE_CONFIG.useSimplifiedParticles ? PERFORMANCE_CONFIG.particleCount : 10
+    const frameCounter = useRef(0)
     
     // Generate initial random positions for particles around the fireball
     const initialPositions = useMemo(() => {
@@ -81,10 +114,11 @@ const FireballParticles = ({ position, color }: FireballParticlesProps) => {
     // Animate particles - simplified to reduce computation
     useFrame(() => {
         if (particlesRef.current) {
-            const positions = particlesRef.current.geometry.attributes.position.array as Float32Array
+            // Skip frames to improve performance
+            frameCounter.current = (frameCounter.current + 1) % PERFORMANCE_CONFIG.skipFrames
+            if (frameCounter.current !== 0) return
             
-            // Only animate every other frame to reduce computation
-            if (Math.random() > 0.5) return
+            const positions = particlesRef.current.geometry.attributes.position.array as Float32Array
             
             for (let i = 0; i < count; i++) {
                 // Random movement in small radius - reduced movement
@@ -130,6 +164,161 @@ const FireballParticles = ({ position, color }: FireballParticlesProps) => {
     )
 }
 
+// After the imports at the top of file, add this light manager
+
+// Pool of available lights to avoid creating too many at once
+class LightPool {
+  private static instance: LightPool;
+  private maxActiveLights: number = 8; // Maximum number of active lights at once
+  private activeFireballs: Map<string, {position: THREE.Vector3, intensity: number, color: string, distance: number}> = new Map();
+  private distanceToPlayer: Map<string, number> = new Map();
+  private poolDirty: boolean = false;
+  private darkMode: boolean = false; // Add dark mode state
+
+  // Get the singleton instance
+  public static getInstance(): LightPool {
+    if (!LightPool.instance) {
+      LightPool.instance = new LightPool();
+    }
+    return LightPool.instance;
+  }
+
+  // Set max active lights (can be adjusted based on performance)
+  public setMaxLights(max: number): void {
+    this.maxActiveLights = max;
+    this.poolDirty = true;
+  }
+  
+  // Set dark mode state
+  public setDarkMode(darkMode: boolean): void {
+    this.darkMode = darkMode;
+    this.poolDirty = true;
+  }
+  
+  // Get dark mode state
+  public isDarkMode(): boolean {
+    return this.darkMode;
+  }
+
+  // Add a modifier for intensity based on dark mode
+  private getIntensityModifier(): number {
+    return this.darkMode ? 2.0 : 1.0; // Increase intensity in dark mode
+  }
+
+  // Register a fireball with the pool
+  public registerFireball(id: string, position: THREE.Vector3, playerPosition: THREE.Vector3, intensity: number, color: string, distance: number): boolean {
+    // Calculate distance to player
+    const distanceToPlayer = position.distanceTo(playerPosition);
+    this.distanceToPlayer.set(id, distanceToPlayer);
+    
+    // Apply dark mode intensity boost
+    const adjustedIntensity = intensity * this.getIntensityModifier();
+    
+    // Store fireball data
+    this.activeFireballs.set(id, {
+      position: position.clone(),
+      intensity: adjustedIntensity,
+      color,
+      distance: this.darkMode ? distance * 1.5 : distance // Increase range in dark mode
+    });
+    
+    this.poolDirty = true;
+    
+    // Return whether this fireball should have a light attached
+    return this.shouldHaveLight(id);
+  }
+
+  // Update fireball position
+  public updateFireball(id: string, position: THREE.Vector3, playerPosition: THREE.Vector3): boolean {
+    const fireball = this.activeFireballs.get(id);
+    if (!fireball) return false;
+    
+    // Update position
+    fireball.position.copy(position);
+    
+    // Recalculate distance to player
+    const distanceToPlayer = position.distanceTo(playerPosition);
+    this.distanceToPlayer.set(id, distanceToPlayer);
+    
+    return this.shouldHaveLight(id);
+  }
+
+  // Remove a fireball from the pool
+  public removeFireball(id: string): void {
+    this.activeFireballs.delete(id);
+    this.distanceToPlayer.delete(id);
+    this.poolDirty = true;
+  }
+
+  // Check if this fireball should have a high-quality light
+  public shouldHaveLight(id: string): boolean {
+    if (this.poolDirty) {
+      this.updateLightAssignments();
+    }
+    
+    // Get closest N fireballs to player
+    const sorted = Array.from(this.distanceToPlayer.entries())
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, this.maxActiveLights)
+      .map(entry => entry[0]);
+    
+    return sorted.includes(id);
+  }
+
+  // Update all light assignments when pool changes
+  private updateLightAssignments(): void {
+    this.poolDirty = false;
+  }
+
+  // Get all active fireballs for rendering
+  public getActiveFireballs(): Map<string, {position: THREE.Vector3, intensity: number, color: string, distance: number}> {
+    return this.activeFireballs;
+  }
+}
+
+// Component to render all pooled lights in one place
+const PooledLights = () => {
+  const [lights, setLights] = useState<{id: string, position: [number, number, number], color: string, intensity: number, distance: number}[]>([]);
+  
+  // Update lights on each frame
+  useFrame(() => {
+    const lightPool = LightPool.getInstance();
+    const activeFireballs = lightPool.getActiveFireballs();
+    
+    // Convert to array for React rendering
+    const newLights = Array.from(activeFireballs.entries())
+      .filter(([id]) => lightPool.shouldHaveLight(id))
+      .map(([id, data]) => ({
+        id,
+        position: [data.position.x, data.position.y, data.position.z] as [number, number, number],
+        color: data.color,
+        intensity: data.intensity,
+        distance: data.distance
+      }));
+    
+    // Only update state if lights have changed
+    if (JSON.stringify(newLights) !== JSON.stringify(lights)) {
+      setLights(newLights);
+    }
+  });
+  
+  return (
+    <>
+      {lights.map(light => (
+        <pointLight
+          key={light.id}
+          position={light.position}
+          color={light.color}
+          intensity={light.intensity}
+          distance={light.distance}
+          decay={2}
+          castShadow={false}
+        />
+      ))}
+    </>
+  );
+};
+
 const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuck }: SphereProps) => {
     const [stuck, setStuck] = useState(initialIsStuck || false)
     const [finalPosition, setFinalPosition] = useState<[number, number, number]>(position)
@@ -159,64 +348,135 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         }
     }, [initialIsStuck, position]);
     
+    // Cache for distance-based optimizations
+    const distanceToPlayer = useRef(0);
+    const skipPhysicsFrames = useRef(0);
+    const currentPosition = useRef(new THREE.Vector3(...position));
+    
     // Pulse animation for glow effect and handle growth animation
     useFrame(() => {
-        // Animate glow
-        setIntensity(1.5 + Math.sin(Date.now() * 0.005) * 0.5)
+        // Only do these calculations every few frames for distant objects
+        skipPhysicsFrames.current = (skipPhysicsFrames.current + 1) % 5;
         
-        // Handle growth animation
+        // Check distance to player for optimization
+        if (skipPhysicsFrames.current === 0 && !stuck) {
+            // Update distance to player
+            const playerPos = playerPositionRef.current;
+            currentPosition.current.set(...finalPosition);
+            distanceToPlayer.current = currentPosition.current.distanceTo(playerPos);
+            
+            // Register with light pool
+            if (PERFORMANCE_CONFIG.enableLights) {
+                const lightIntensity = PERFORMANCE_CONFIG.lightIntensity * intensity;
+                const lightDistance = PERFORMANCE_CONFIG.lightDistance * Math.min(scale, PERFORMANCE_CONFIG.maxScale / 1.5);
+                const spherePosition = new THREE.Vector3(...finalPosition);
+                
+                // The return value indicates if this sphere should have a high-quality light
+                const hasHighQualityLight = LightPool.getInstance().registerFireball(
+                    id, 
+                    spherePosition,
+                    playerPositionRef.current,
+                    lightIntensity,
+                    color,
+                    lightDistance
+                );
+                
+                // Adjust emissive intensity based on whether this has a high-quality light
+                // Apply emissive boost for dark mode
+                if (innerMaterialRef.current) {
+                    // Brighter emissive for spheres without a dedicated light, even brighter in dark mode
+                    const baseIntensity = hasHighQualityLight ? 2.5 : 4.0;
+                    innerMaterialRef.current.emissiveIntensity = baseIntensity * PERFORMANCE_CONFIG.emissiveBoost;
+                }
+                if (outerMaterialRef.current) {
+                    const baseIntensity = hasHighQualityLight ? 1.2 : 2.0;
+                    outerMaterialRef.current.emissiveIntensity = baseIntensity * PERFORMANCE_CONFIG.emissiveBoost;
+                }
+            }
+        }
+        
+        // Skip processing if too far away (culling)
+        if (distanceToPlayer.current > PERFORMANCE_CONFIG.cullingDistance) {
+            return;
+        }
+        
+        // Reduce animation frequency for distant objects
+        if (distanceToPlayer.current > PERFORMANCE_CONFIG.disablePhysicsDistance/2 && 
+            skipPhysicsFrames.current !== 0) {
+            return;
+        }
+        
+        // Animate glow - reduced frequency for distant objects
+        if (skipPhysicsFrames.current === 0 || distanceToPlayer.current < 20) {
+            setIntensity(1.5 + Math.sin(Date.now() * 0.005) * 0.5);
+        }
+        
+        // Handle growth animation with reduced maximum scale
         if (isGrowing.current) {
-            const elapsed = (Date.now() - startTime.current) / 1000 // Convert to seconds
-            if (elapsed >= 1) {
+            const elapsed = (Date.now() - startTime.current) / 1000; // Convert to seconds
+            if (elapsed >= 0.8) { // Slightly faster animation
                 // Animation complete
-                setScale(10)
-                isGrowing.current = false
+                setScale(PERFORMANCE_CONFIG.maxScale);
+                isGrowing.current = false;
             } else {
-                // Smooth growth from 1 to 10 over 1 second
-                const newScale = 1 + (10 - 1) * elapsed
-                setScale(newScale)
+                // Smooth growth from 1 to maxScale over 0.8 seconds
+                const newScale = 1 + (PERFORMANCE_CONFIG.maxScale - 1) * (elapsed / 0.8);
+                setScale(newScale);
             }
         }
         
         // Don't process further if stuck or not initialized
-        if (stuck || !rigidBodyRef.current) return
+        if (stuck || !rigidBodyRef.current) return;
+        
+        // For distant objects, disable physics but continue visual updates
+        if (distanceToPlayer.current > PERFORMANCE_CONFIG.disablePhysicsDistance && !stuck) {
+            // Optional: Reduce the physics update frequency instead of disabling
+            if (skipPhysicsFrames.current !== 0) return;
+        }
         
         // Calculate distance traveled
-        const currentPos = rigidBodyRef.current.translation()
-        const current = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z)
-        distanceTraveled.current = current.distanceTo(startPosition.current)
+        const currentPos = rigidBodyRef.current.translation();
+        const current = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z);
+        distanceTraveled.current = current.distanceTo(startPosition.current);
         
         // After traveling some distance, enable collisions
         if (!canCollide && distanceTraveled.current > 5) {
-            setCanCollide(true)
+            setCanCollide(true);
         }
         
         // Update final position for particle effects
-        setFinalPosition([currentPos.x, currentPos.y, currentPos.z])
+        setFinalPosition([currentPos.x, currentPos.y, currentPos.z]);
     })
     
     // Create a fake emissive glow effect with layers
+    const innerMaterialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+    const outerMaterialRef = useRef<THREE.MeshStandardMaterial | null>(null);
+
     const innerMaterial = useMemo(() => {
-        return new THREE.MeshStandardMaterial({
+        const material = new THREE.MeshStandardMaterial({
             color: new THREE.Color(color),
             emissive: new THREE.Color(color),
             emissiveIntensity: 2.5, // Increased from 1.5 for more glow
             toneMapped: false,
             transparent: true,
             opacity: 0.85 // Made the core slightly transparent
-        })
-    }, [color])
+        });
+        innerMaterialRef.current = material;
+        return material;
+    }, [color]);
     
     const outerMaterial = useMemo(() => {
-        return new THREE.MeshStandardMaterial({
+        const material = new THREE.MeshStandardMaterial({
             color: new THREE.Color(color),
             transparent: true,
             opacity: 0.4, // Reduced from 0.6 for more transparency
             emissive: new THREE.Color(color),
             emissiveIntensity: 1.2, // Increased from 0.8 for brighter glow
             toneMapped: false
-        })
-    }, [color])
+        });
+        outerMaterialRef.current = material;
+        return material;
+    }, [color]);
     
     // Handle collision events 
     const handleCollision = (payload: CollisionEnterPayload) => {
@@ -245,24 +505,36 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         if (stuck) {
             const timeout = setTimeout(() => {
                 if (rigidBodyRef.current) {
-                    rigidBodyRef.current.sleep()
+                    rigidBodyRef.current.sleep();
                 }
-            }, 5000)
+                // Remove from light pool when destroyed
+                LightPool.getInstance().removeFireball(id);
+            }, 5000);
             
-            return () => clearTimeout(timeout)
+            return () => clearTimeout(timeout);
         }
-    }, [stuck])
+    }, [stuck, id]);
     
     // Also auto-destroy after 15 seconds even if not stuck
     useEffect(() => {
         const timeout = setTimeout(() => {
             if (rigidBodyRef.current && !stuck) {
-                rigidBodyRef.current.sleep()
+                rigidBodyRef.current.sleep();
             }
-        }, 15000)
+            // Remove from light pool when destroyed
+            LightPool.getInstance().removeFireball(id);
+        }, 15000);
         
-        return () => clearTimeout(timeout)
-    }, [])
+        return () => clearTimeout(timeout);
+    }, [id, stuck]);
+    
+    // Clean up on unmount
+    useEffect(() => {
+        return () => {
+            // Ensure light is removed from pool when component unmounts
+            LightPool.getInstance().removeFireball(id);
+        };
+    }, [id]);
     
     return (
         <>
@@ -297,14 +569,8 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                     <primitive object={outerMaterial} />
                 </mesh>
                 
-                {/* Add point light that scales with the fireball but doesn't cast shadows for performance */}
-                <pointLight 
-                    color={color}
-                    intensity={15 * intensity} // Increased from 11 for even stronger glow
-                    distance={44 * scale} // Keep the large distance
-                    decay={1.5} // Keep decay the same
-                    castShadow={false} // No shadows for better performance
-                />
+                {/* Light is now managed by the light pool instead of individual lights */}
+                {/* Each sphere now has a bright emissive material to simulate glow when no light is attached */}
             </RigidBody>
             
             {/* Add fire particles - scale with the fireball */}
@@ -603,6 +869,13 @@ export const SphereTool = ({
             // Generate a unique ID for this sphere
             const uniqueId = `sphere_${localPlayerId}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
+            // Update player position for culling
+            if (thirdPersonView && playerPosition) {
+                updatePlayerPositionForCulling(playerPosition);
+            } else {
+                updatePlayerPositionForCulling(camera.position);
+            }
+            
             // Always add the local sphere immediately
             setSpheres(prev => {
                 // Create the new sphere
@@ -614,7 +887,8 @@ export const SphereTool = ({
                     radius: sphereRadius,
                     playerId: localPlayerId,
                     timestamp: Date.now(),
-                    isStuck: false
+                    isStuck: false,
+                    physicsDisabled: false // Start with physics enabled
                 };
                 
                 // Add the new sphere
@@ -707,29 +981,41 @@ export const SphereTool = ({
             setSpheres(prev => {
                 if (prev.length === 0) return prev;
                 
+                // Track removed spheres to clean them from the light pool
+                const removedSphereIds: string[] = [];
+                
                 // Remove spheres older than 6 seconds (reduced from 10)
                 const filteredSpheres = prev.filter(sphere => {
                     const age = now - sphere.timestamp;
                     
-                    // Remove very old spheres regardless of state
-                    if (age > 6000) return false; // Reduced from 10000
+                    // Check if sphere should be removed
+                    const shouldRemove = 
+                        (age > 6000) || // Remove very old spheres regardless of state
+                        (sphere.isStuck && age > 3000); // Remove stuck spheres sooner
                     
-                    // Remove stuck spheres sooner
-                    if (sphere.isStuck && age > 3000) return false; // Reduced from 5000
+                    // If removing, track the ID for light pool cleanup
+                    if (shouldRemove) {
+                        removedSphereIds.push(sphere.id);
+                    }
                     
-                    return true;
+                    return !shouldRemove;
                 });
                 
-                // Log cleanup if we actually removed any spheres
-                if (filteredSpheres.length < prev.length) {
-                    console.log(`Cleaned up ${prev.length - filteredSpheres.length} old spheres. Remaining: ${filteredSpheres.length}`);
+                // Clean up lights for removed spheres
+                if (removedSphereIds.length > 0) {
+                    const lightPool = LightPool.getInstance();
+                    removedSphereIds.forEach(id => {
+                        lightPool.removeFireball(id);
+                    });
+                    
+                    console.log(`Cleaned up ${removedSphereIds.length} old spheres and their lights. Remaining: ${filteredSpheres.length}`);
                 }
                 
                 return filteredSpheres;
             });
             
             // Also clean up processed shots to keep memory usage low
-            if (processedRemoteShots.current.size > 150) { // Increased from 100
+            if (processedRemoteShots.current.size > 150) {
                 console.log(`Cleaning up processed shots. Before: ${processedRemoteShots.current.size}`);
                 processedRemoteShots.current = new Set(
                     Array.from(processedRemoteShots.current).slice(-100) // Keep more recent shots
@@ -741,11 +1027,183 @@ export const SphereTool = ({
         return () => clearInterval(cleanup);
     }, []);
 
+    // Add an effect to the SphereTool component to update player position based on camera position
+    // Add this inside the SphereTool component before the return statement:
+    useFrame(() => {
+        if (thirdPersonView && playerPosition) {
+            updatePlayerPositionForCulling(playerPosition);
+        } else {
+            updatePlayerPositionForCulling(camera.position);
+        }
+    });
+
+    // useEffect for cleanup
+    useEffect(() => {
+        // Clean up when component unmounts
+        return () => {
+            // Clean up any remaining spheres from the light pool
+            spheres.forEach(sphere => {
+                LightPool.getInstance().removeFireball(sphere.id);
+            });
+        };
+    }, [spheres]);
+
     return (
         <group>
+            {/* Render all pooled lights in one place */}
+            <PooledLights />
+            
+            {/* Render all spheres */}
             {spheres.map((props) => (
                 <Sphere key={props.id} {...props} />
             ))}
         </group>
     )
 }
+
+// Add a way to detect performance issues and adjust settings automatically
+// Add this after imports at the top of the file
+// Performance detection and automatic adjustment
+let fpsHistory: number[] = [];
+let lastFrameTime = performance.now();
+let lowPerformanceDetected = false;
+
+// Monitor FPS and adjust settings if needed
+const checkPerformance = () => {
+    const now = performance.now();
+    const delta = now - lastFrameTime;
+    lastFrameTime = now;
+    
+    if (delta > 0) {
+        const fps = 1000 / delta;
+        fpsHistory.push(fps);
+        
+        // Keep last 60 frames
+        if (fpsHistory.length > 60) {
+            fpsHistory.shift();
+        }
+        
+        // If we have enough samples, check for low performance
+        if (fpsHistory.length >= 30) {
+            const avgFps = fpsHistory.reduce((sum, fps) => sum + fps, 0) / fpsHistory.length;
+            
+            if (avgFps < 45 && !lowPerformanceDetected) {
+                // Automatically reduce settings
+                console.log('Low performance detected, reducing effects');
+                PERFORMANCE_CONFIG.enableLights = true; // Keep lights but reduce their number
+                PERFORMANCE_CONFIG.maxScale = 3;
+                PERFORMANCE_CONFIG.useSimplifiedParticles = true;
+                PERFORMANCE_CONFIG.particleCount = 4;
+                PERFORMANCE_CONFIG.skipFrames = 4;
+                // Reduce light count
+                LightPool.getInstance().setMaxLights(PERFORMANCE_CONFIG.lightSettings.low.max);
+                lowPerformanceDetected = true;
+            }
+        }
+    }
+    
+    requestAnimationFrame(checkPerformance);
+};
+
+// Start performance monitoring
+requestAnimationFrame(checkPerformance);
+
+// Declare the type for the quality setting function for TypeScript
+declare global {
+    interface Window {
+        __setGraphicsQuality?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
+        __currentQuality?: 'auto' | 'high' | 'medium' | 'low'; // Add this
+    }
+}
+
+// Add a global function to set quality from UI
+window.__setGraphicsQuality = (quality: 'auto' | 'high' | 'medium' | 'low') => {
+    console.log(`Setting graphics quality to: ${quality}`);
+    
+    window.__currentQuality = quality; // Store the current quality
+    
+    if (quality === 'auto') {
+        // Keep current auto-detection settings
+        return;
+    }
+    
+    // Reset low performance detection since user is manually setting quality
+    lowPerformanceDetected = false;
+    
+    // Apply settings based on quality level
+    switch (quality) {
+        case 'high':
+            PERFORMANCE_CONFIG.enableLights = true;
+            PERFORMANCE_CONFIG.lightDistance = 44;
+            PERFORMANCE_CONFIG.lightIntensity = 12;
+            PERFORMANCE_CONFIG.maxScale = 8;
+            PERFORMANCE_CONFIG.useSimplifiedParticles = false;
+            PERFORMANCE_CONFIG.particleCount = 10;
+            PERFORMANCE_CONFIG.skipFrames = 1;
+            // Set light pool size
+            LightPool.getInstance().setMaxLights(PERFORMANCE_CONFIG.lightSettings.high.max);
+            break;
+            
+        case 'medium':
+            PERFORMANCE_CONFIG.enableLights = true;
+            PERFORMANCE_CONFIG.lightDistance = 22;
+            PERFORMANCE_CONFIG.lightIntensity = 8;
+            PERFORMANCE_CONFIG.maxScale = 5;
+            PERFORMANCE_CONFIG.useSimplifiedParticles = true;
+            PERFORMANCE_CONFIG.particleCount = 8;
+            PERFORMANCE_CONFIG.skipFrames = 2;
+            // Set light pool size
+            LightPool.getInstance().setMaxLights(PERFORMANCE_CONFIG.lightSettings.medium.max);
+            break;
+            
+        case 'low':
+            PERFORMANCE_CONFIG.enableLights = true; // Keep lights on even in low quality
+            PERFORMANCE_CONFIG.lightDistance = 18;
+            PERFORMANCE_CONFIG.lightIntensity = 5;
+            PERFORMANCE_CONFIG.maxScale = 3;
+            PERFORMANCE_CONFIG.useSimplifiedParticles = true;
+            PERFORMANCE_CONFIG.particleCount = 4;
+            PERFORMANCE_CONFIG.skipFrames = 4;
+            // Set light pool size
+            LightPool.getInstance().setMaxLights(PERFORMANCE_CONFIG.lightSettings.low.max);
+            break;
+    }
+    
+    console.log('Applied new performance settings:', PERFORMANCE_CONFIG);
+};
+
+// Now expose a global function to set dark mode
+// Add this near the other global functions:
+export const setSphereDarkMode = (darkMode: boolean) => {
+  LightPool.getInstance().setDarkMode(darkMode);
+  
+  // Also adjust the PERFORMANCE_CONFIG for dark mode
+  if (darkMode) {
+    // Increase light values for dark mode
+    PERFORMANCE_CONFIG.lightIntensity = PERFORMANCE_CONFIG.lightIntensity * 1.5;
+    PERFORMANCE_CONFIG.lightDistance = PERFORMANCE_CONFIG.lightDistance * 1.5;
+    
+    // Increase emissive materials for dark mode
+    PERFORMANCE_CONFIG.emissiveBoost = 2.0;
+  } else {
+    // Reset to original values based on current quality
+    const quality = window.__currentQuality || 'medium';
+    switch (quality) {
+      case 'high':
+        PERFORMANCE_CONFIG.lightIntensity = 12;
+        PERFORMANCE_CONFIG.lightDistance = 44;
+        break;
+      case 'medium':
+        PERFORMANCE_CONFIG.lightIntensity = 8;
+        PERFORMANCE_CONFIG.lightDistance = 22;
+        break;
+      case 'low':
+        PERFORMANCE_CONFIG.lightIntensity = 5;
+        PERFORMANCE_CONFIG.lightDistance = 18;
+        break;
+    }
+    PERFORMANCE_CONFIG.emissiveBoost = 1.0;
+  }
+  
+  console.log(`Sphere dark mode set to: ${darkMode}, light intensity: ${PERFORMANCE_CONFIG.lightIntensity}`);
+};

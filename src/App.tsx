@@ -3,7 +3,7 @@ import { Crosshair } from './common/components/crosshair'
 import { Instructions } from './common/components/instructions'
 import { useLoadingAssets } from './common/hooks/use-loading-assets'
 import { Environment, MeshReflectorMaterial, PerspectiveCamera, OrbitControls } from '@react-three/drei'
-import { EffectComposer, Vignette, ChromaticAberration, BrightnessContrast, ToneMapping } from '@react-three/postprocessing'
+import { EffectComposer, Vignette, ChromaticAberration, BrightnessContrast, ToneMapping, Bloom } from '@react-three/postprocessing'
 import { BlendFunction } from 'postprocessing'
 import { useFrame, useThree } from '@react-three/fiber'
 import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
@@ -14,13 +14,21 @@ import * as THREE from 'three'
 import { Player, PlayerControls } from './game/player'
 import { Jackalope } from './game/jackalope'
 import { Ball } from './game/ball'
-import { SphereTool } from './game/sphere-tool'
+import { SphereTool, setSphereDarkMode } from './game/sphere-tool'
 import { Platforms } from './game/platforms'
 import { MultiplayerManager, useRemoteShots } from './network/MultiplayerManager'
 import { NetworkStats } from './network/NetworkStats'
 import { ConnectionManager } from './network/ConnectionManager'
 import { ConnectionTest } from './components/ConnectionTest'
 import { VirtualGamepad } from './components/VirtualGamepad'
+
+// Add TypeScript declaration for window.__setGraphicsQuality
+declare global {
+    interface Window {
+        __setGraphicsQuality?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
+        __shotBroadcast?: ((shot: any) => any) | undefined;
+    }
+}
 
 // Add Moon component
 const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height: number, orbitSpeed: number }) => {
@@ -664,8 +672,8 @@ const ThirdPersonCameraControls = ({
             if (player instanceof THREE.Vector3 && !Number.isNaN(player.x) && 
                 !Number.isNaN(player.y) && !Number.isNaN(player.z)) {
                 
-                // Very slow interpolation for target position
-                targetRef.current.lerp(player, 0.1);
+                // Much faster interpolation for target position - increased from 0.1 to 0.4 for snappy response
+                targetRef.current.lerp(player, 0.4);
                 
                 // Calculate camera position based on rotation around target
                 const cameraOffset = new THREE.Vector3(
@@ -675,6 +683,7 @@ const ThirdPersonCameraControls = ({
                 );
                 
                 // Position camera relative to target with faster response
+                // Use direct copy instead of lerping for snappier camera movement
                 cameraRef.current.position.copy(targetRef.current).add(cameraOffset);
                 
                 // Look at player
@@ -712,7 +721,7 @@ export function App() {
         const frameCountRef = useRef(0);
         const positionStabilityRef = useRef(new THREE.Vector3());
         const positionHistoryRef = useRef<THREE.Vector3[]>([]);
-        const MAX_HISTORY = 5; // Reduced from 10 to 5 for more responsive camera
+        const MAX_HISTORY = 3; // Further reduced from 5 to 3 for even more responsive camera
         
         // This useFrame is now safely inside the Canvas component
         useFrame(() => {
@@ -805,8 +814,8 @@ export function App() {
                         smoothedPosition.divideScalar(totalWeight);
                     }
                     
-                    // Apply faster interpolation (0.15 instead of 0.05)
-                    const smoothingFactor = Math.min(0.15, deltaTime * 8);
+                    // Apply much faster interpolation for snappier movement
+                    const smoothingFactor = Math.min(0.4, deltaTime * 15);
                     playerPosition.current.lerp(smoothedPosition, smoothingFactor);
                     
                     // Update the last valid position
@@ -998,7 +1007,10 @@ export function App() {
         moonOrbit,
         moonOrbitSpeed,
         highQualityShadows,
-        moonVisible
+        moonVisible,
+        bloomEnabled,
+        bloomIntensity,
+        bloomLuminanceThreshold
     } = useControls({
         fog: folder({
             fogEnabled: true,
@@ -1036,7 +1048,10 @@ export function App() {
                     'Linear': THREE.LinearToneMapping
                 }
             },
-            toneMappingExposure: { value: 1.2, min: 0, max: 2, step: 0.1 }
+            toneMappingExposure: { value: 1.2, min: 0, max: 2, step: 0.1 },
+            bloomEnabled: { value: true, label: 'Bloom Effect' },
+            bloomIntensity: { value: 0.5, min: 0, max: 2, step: 0.1 },
+            bloomLuminanceThreshold: { value: 0.6, min: 0, max: 1, step: 0.1 }
         }, { collapsed: true })
     }, {
         collapsed: true,
@@ -1044,7 +1059,7 @@ export function App() {
     })
 
     // Update the Game UI controls to include virtual gamepad toggle
-    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType } = useControls('Game UI', {
+    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType, darkMode } = useControls('Game UI', {
         showTools: {
             value: false,
             label: 'Show Multiplayer Tools'
@@ -1065,6 +1080,10 @@ export function App() {
             value: 'merc',
             label: 'Character Type',
             options: ['merc', 'jackalope']
+        },
+        darkMode: {
+            value: false,
+            label: 'Dark Mode (Fireballs Light)',
         },
         logLevel: {
             value: 0,
@@ -1396,6 +1415,43 @@ export function App() {
         return null;
     };
 
+    // Graphics quality settings
+    const performanceSettings = useControls('Performance', {
+        graphicsQuality: {
+            value: 'auto' as const,
+            label: 'Graphics Quality',
+            options: ['auto', 'high', 'medium', 'low'] as const,
+            onChange: (value: 'auto' | 'high' | 'medium' | 'low') => {
+                // Only included if window.__setGraphicsQuality is defined
+                if (typeof window !== 'undefined' && window.__setGraphicsQuality) {
+                    window.__setGraphicsQuality(value);
+                }
+            }
+        }
+    }, {
+        collapsed: false,
+        order: 999
+    });
+    
+    // Extract graphicsQuality with proper type assertion
+    const graphicsQuality = (performanceSettings as any)?.graphicsQuality || 'auto';
+
+    // Add a conditional class to the body element for dark mode
+    // Add this effect to the App component
+    useEffect(() => {
+        if (darkMode) {
+            document.body.classList.add('dark-mode');
+        } else {
+            document.body.classList.remove('dark-mode');
+        }
+    }, [darkMode]);
+
+    // Update sphere tool lighting when dark mode changes
+    useEffect(() => {
+        // Use the exported setSphereDarkMode function to enhance lighting in dark mode
+        setSphereDarkMode(darkMode);
+    }, [darkMode]);
+
     return (
         <>
             <div style={{
@@ -1438,7 +1494,7 @@ export function App() {
             )}
             
             <Canvas>
-                {fogEnabled && <fog attach="fog" args={[fogColor, fogNear, fogFar]} />}
+                {fogEnabled && <fog attach="fog" args={[darkMode ? '#111111' : fogColor, fogNear, darkMode ? (fogFar * 0.5) : fogFar]} />}
                 <Environment
                     preset="sunset"
                     background
@@ -1446,12 +1502,12 @@ export function App() {
                     resolution={64} // Drastically reduced for performance
                 />
 
-                <ambientLight intensity={ambientIntensity} />
+                <ambientLight intensity={darkMode ? 0.02 : ambientIntensity} />
                 <directionalLight
                     castShadow
                     position={[-directionalDistance, directionalHeight, -directionalDistance]}
                     ref={directionalLightRef}
-                    intensity={directionalIntensity}
+                    intensity={darkMode ? 0.1 : directionalIntensity}
                     shadow-mapSize={[highQualityShadows ? 2048 : 1024, highQualityShadows ? 2048 : 1024]}
                     shadow-camera-left={-40}
                     shadow-camera-right={40}
@@ -1509,7 +1565,7 @@ export function App() {
                                 position={[0, 1, 10]} // Lower position for the jackalope to start on the ground
                                 walkSpeed={walkSpeed}
                                 runSpeed={runSpeed}
-                                jumpForce={jumpForce * 1.2} // Higher jump for jackalope
+                                jumpForce={jumpForce * 0.6} // Reduced jump height for jackalope (0.3 instead of 0.5)
                                 visible={thirdPersonView}
                                 thirdPersonView={thirdPersonView}
                                 connectionManager={enableMultiplayer ? connectionManager : undefined}
@@ -1594,11 +1650,28 @@ export function App() {
                     />
                 )}
 
+                {/* Simplified - just add StableLightUpdater once */}
+                <StableLightUpdater />
+
+                {/* Add position tracker component */}
+                <PlayerPositionTracker playerRef={playerRef} playerPosition={playerPosition} />
+
+                {/* Add MoonOrbit component if orbiting is enabled */}
+                {moonOrbit && <MoonOrbit />}
+
                 {enablePostProcessing && (
                     <EffectComposer>
+                        {bloomEnabled ? (
+                            <Bloom 
+                                intensity={darkMode ? bloomIntensity * 2.0 : bloomIntensity}
+                                luminanceThreshold={darkMode ? 0.03 : bloomLuminanceThreshold}
+                                luminanceSmoothing={darkMode ? 0.7 : 0.9}
+                                mipmapBlur
+                            />
+                        ) : <></>}
                         <Vignette
-                            offset={vignetteEnabled ? vignetteOffset : 0}
-                            darkness={vignetteEnabled ? vignetteDarkness : 0}
+                            offset={vignetteEnabled ? (darkMode ? 0.1 : vignetteOffset) : 0}
+                            darkness={vignetteEnabled ? (darkMode ? 0.95 : vignetteDarkness) : 0}
                             eskil={false}
                         />
                         <ChromaticAberration
@@ -1610,8 +1683,8 @@ export function App() {
                             modulationOffset={0}
                         />
                         <BrightnessContrast
-                            brightness={brightnessContrastEnabled ? brightness : 0}
-                            contrast={brightnessContrastEnabled ? contrast : 0} 
+                            brightness={brightnessContrastEnabled ? (darkMode ? -0.9 : brightness) : 0}
+                            contrast={brightnessContrastEnabled ? (darkMode ? 0.4 : contrast) : 0} 
                         />
                         <ToneMapping
                             blendFunction={BlendFunction.NORMAL}
@@ -1619,15 +1692,6 @@ export function App() {
                         />
                     </EffectComposer>
                 )}
-
-                {/* Simplified - just add StableLightUpdater once */}
-                <StableLightUpdater />
-
-                {/* Add position tracker component */}
-                <PlayerPositionTracker playerRef={playerRef} playerPosition={playerPosition} />
-
-                {/* Add MoonOrbit component if orbiting is enabled */}
-                {moonOrbit && <MoonOrbit />}
             </Canvas>
 
             {/* Only show crosshair in first-person view */}
