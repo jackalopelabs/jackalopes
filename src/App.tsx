@@ -50,47 +50,27 @@ const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height
         moonLightRef.current.position.set(x, height - 2, z);
     });
     
-    // Create glow effect using nested meshes with different sizes and transparency
+    // Simplified glow effect with fewer layers for better performance
     const createGlowEffect = () => {
         return (
             <>
                 {/* Core moon */}
                 <mesh castShadow>
-                    <sphereGeometry args={[4, 32, 32]} />
+                    <sphereGeometry args={[4, 24, 24]} />
                     <meshStandardMaterial 
                         color="#ffffff" 
                         emissive="#ffffff" 
-                        emissiveIntensity={2.0} 
+                        emissiveIntensity={2.5} 
                     />
                 </mesh>
                 
-                {/* Inner glow layer */}
+                {/* Single outer glow layer for better performance */}
                 <mesh>
-                    <sphereGeometry args={[4.5, 32, 32]} />
+                    <sphereGeometry args={[6, 24, 24]} />
                     <meshBasicMaterial 
                         color="#f0f8ff" 
                         transparent={true} 
-                        opacity={0.7}
-                    />
-                </mesh>
-                
-                {/* Middle glow layer */}
-                <mesh>
-                    <sphereGeometry args={[5.2, 32, 32]} />
-                    <meshBasicMaterial 
-                        color="#f0f8ff" 
-                        transparent={true} 
-                        opacity={0.4}
-                    />
-                </mesh>
-                
-                {/* Outer glow layer */}
-                <mesh>
-                    <sphereGeometry args={[6.5, 32, 32]} />
-                    <meshBasicMaterial 
-                        color="#f0f8ff" 
-                        transparent={true} 
-                        opacity={0.2}
+                        opacity={0.3}
                     />
                 </mesh>
             </>
@@ -113,7 +93,7 @@ const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height
                 distance={400}
                 decay={1.5} // Lower decay for harder shadows (less falloff)
                 castShadow
-                shadow-mapSize={[4096, 4096]}
+                shadow-mapSize={[2048, 2048]} // Reduced from 4096 for better performance
                 shadow-bias={-0.001}
                 shadow-camera-near={1}
                 shadow-camera-far={150}
@@ -1374,12 +1354,12 @@ export function App() {
                 z
             );
             
-            // Keep shadows sharp
+            // Keep shadows sharp but with better performance
             directionalLightRef.current.shadow.bias = -0.001;
             directionalLightRef.current.shadow.normalBias = 0.02;
             directionalLightRef.current.shadow.radius = 1; // Harder shadows
-            directionalLightRef.current.shadow.mapSize.width = 4096;
-            directionalLightRef.current.shadow.mapSize.height = 4096;
+            directionalLightRef.current.shadow.mapSize.width = 2048; // Reduced from 4096
+            directionalLightRef.current.shadow.mapSize.height = 2048; // Reduced from 4096
         });
         
         return null;
@@ -1448,8 +1428,8 @@ export function App() {
                 <Environment
                     preset="sunset"
                     background
-                    blur={0.8}
-                    resolution={256}
+                    blur={0.6} // Reduced blur amount
+                    resolution={128} // Reduced from 256
                 />
 
                 <ambientLight intensity={ambientIntensity} />
@@ -1458,16 +1438,16 @@ export function App() {
                     position={[directionalDistance, directionalHeight, directionalDistance]}
                     ref={directionalLightRef}
                     intensity={directionalIntensity}
-                    shadow-mapSize={[4096, 4096]}
-                    shadow-camera-left={-50} // Increased to capture wider shadows
-                    shadow-camera-right={50} // Increased to capture wider shadows
-                    shadow-camera-top={50} // Increased to capture wider shadows
-                    shadow-camera-bottom={-50} // Increased to capture wider shadows
+                    shadow-mapSize={[2048, 2048]} // Reduced from 4096 for better performance
+                    shadow-camera-left={-50}
+                    shadow-camera-right={50}
+                    shadow-camera-top={50}
+                    shadow-camera-bottom={-50}
                     shadow-camera-near={1}
-                    shadow-camera-far={200} // Increased to ensure full shadow coverage
+                    shadow-camera-far={200}
                     shadow-bias={-0.001}
                     shadow-normalBias={0.02}
-                    shadow-radius={1} // Harder shadows
+                    shadow-radius={1}
                     color="#f0f8ff"
                 />
 

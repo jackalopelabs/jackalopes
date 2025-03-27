@@ -23,9 +23,9 @@ const SPHERE_OFFSET = {
 }
 
 // Maximum number of spheres per player to prevent performance issues
-const MAX_SPHERES_PER_PLAYER = 5
+const MAX_SPHERES_PER_PLAYER = 2 // Further reduced from 3
 // Total maximum spheres allowed in the scene at once
-const MAX_TOTAL_SPHERES = 20
+const MAX_TOTAL_SPHERES = 6 // Further reduced from 10
 
 // Extended type to include player ID for multiplayer
 type SphereProps = {
@@ -329,91 +329,19 @@ export const SphereTool = ({
     // Keep track of processed remote shots to avoid duplicates
     const processedRemoteShots = useRef<Set<string>>(new Set());
     
-    // Process remote shots with throttling to avoid overwhelming the system
-    const pendingRemoteShots = useRef<RemoteShot[]>([]);
-    
-    // Debug logging for component props
-    useEffect(() => {
-        console.log('SphereTool mounted with props:', { 
-            hasOnShoot: !!onShoot, 
-            remoteShots: remoteShots?.length || 0 
-        });
-        
-        // Log when remoteShots array changes
-        return () => {
-            console.log('SphereTool unmounting, processed shots:', processedRemoteShots.current.size);
-        };
-    }, []);
-    
-    // Log when remoteShots changes
-    useEffect(() => {
-        console.log('remoteShots changed, new length:', remoteShots?.length || 0);
-    }, [remoteShots]);
-    
-    // Helper function to remove old spheres if we exceed the limit for a player
-    const removeOldSpheresIfNeeded = (playerID: string, spheresArray: SphereProps[]) => {
-        // Keep a copy of the original array to avoid modifying it directly
-        let newSpheres = [...spheresArray];
-        
-        // Find the spheres belonging to this player
-        const playerSpheres = newSpheres.filter(sphere => sphere.playerId === playerID);
-        
-        // Check if we need to remove player-specific old spheres
-        if (playerSpheres.length > MAX_SPHERES_PER_PLAYER) {
-            // Sort player's spheres by timestamp (oldest first)
-            const sortedPlayerSpheres = [...playerSpheres].sort((a, b) => a.timestamp - b.timestamp);
-            
-            // Get the IDs of the oldest spheres to remove - only remove one at a time to avoid visual glitches
-            const numToRemove = Math.min(1, playerSpheres.length - MAX_SPHERES_PER_PLAYER);
-            console.log(`Removing ${numToRemove} old spheres for player ${playerID}`);
-            
-            // Create a set of timestamps to remove (the oldest ones)
-            const timestampsToRemove = new Set(
-                sortedPlayerSpheres.slice(0, numToRemove).map(sphere => sphere.timestamp)
-            );
-            
-            // Filter out only the specific old spheres by timestamp
-            newSpheres = newSpheres.filter(sphere => 
-                sphere.playerId !== playerID || !timestampsToRemove.has(sphere.timestamp)
-            );
-        }
-        
-        // Check if we need to remove spheres to meet the global limit
-        if (newSpheres.length > MAX_TOTAL_SPHERES) {
-            // Sort all spheres by timestamp (oldest first)
-            const sortedSpheres = [...newSpheres].sort((a, b) => a.timestamp - b.timestamp);
-            
-            // Identify the specific timestamps to remove - only remove one at a time to avoid visual glitches
-            const excessSpheres = Math.min(1, newSpheres.length - MAX_TOTAL_SPHERES);
-            console.log(`Global sphere limit reached. Removing ${excessSpheres} oldest spheres.`);
-            
-            // Create a set of timestamps to remove (the oldest ones)
-            const timestampsToRemove = new Set(
-                sortedSpheres.slice(0, excessSpheres).map(sphere => sphere.timestamp)
-            );
-            
-            // Filter out only the specific old spheres by timestamp
-            newSpheres = newSpheres.filter(sphere => !timestampsToRemove.has(sphere.timestamp));
-        }
-        
-        return newSpheres;
-    };
-
     // Process remote shots - ensure we use the exact direction from the shot data
     useEffect(() => {
         if (!remoteShots || remoteShots.length === 0) return;
-        
-        console.log('Processing remote shots:', remoteShots);
         
         // IMPORTANT: Create a Map to track shots by their ID before processing
         // This ensures we only process each unique position once
         const shotMap = new Map<string, RemoteShot>();
         
-        // First pass: organize shots by their position (rounded)
+        // First pass: organize shots by their position (rounded to 2 decimal places - more precise to reduce duplicates)
         remoteShots.forEach(shot => {
             // Create a unique ID for this shot with only player ID and approximate position
-            // Round position to 1 decimal place to handle minor variations
-            const roundedPos = shot.origin.map(coord => Math.round(coord * 10) / 10);
+            // Round position to 2 decimal places to reduce false duplicates
+            const roundedPos = shot.origin.map(coord => Math.round(coord * 100) / 100);
             const shotId = `${shot.id}--${roundedPos.join(',')}`;
             
             // Check if this shot has already been processed
@@ -476,24 +404,64 @@ export const SphereTool = ({
             return newSpheres;
         });
         
-        // Limit the size of our processed shots set to avoid memory leaks
-        if (processedRemoteShots.current.size > 100) {
+        // Limit the size of our processed shots set to avoid memory leaks - more aggressive cleanup
+        if (processedRemoteShots.current.size > 50) { // Reduced from 100
             const oldSize = processedRemoteShots.current.size;
             processedRemoteShots.current = new Set(
-                Array.from(processedRemoteShots.current).slice(-50)
+                Array.from(processedRemoteShots.current).slice(-25) // Reduced from 50
             );
             console.log(`Trimmed processed shots set from ${oldSize} to ${processedRemoteShots.current.size}`);
         }
     }, [remoteShots, sphereRadius]);
 
-    // Remove the interval processing as it's no longer needed
-    // The main useEffect above now handles all processing in batch
-    useEffect(() => {
-        // Clean up any remaining shots in the queue when component unmounts
-        return () => {
-            pendingRemoteShots.current = [];
-        };
-    }, []);
+    // Helper function to remove old spheres if we exceed the limit for a player
+    const removeOldSpheresIfNeeded = (playerID: string, spheresArray: SphereProps[]) => {
+        // Keep a copy of the original array to avoid modifying it directly
+        let newSpheres = [...spheresArray];
+        
+        // Find the spheres belonging to this player
+        const playerSpheres = newSpheres.filter(sphere => sphere.playerId === playerID);
+        
+        // Check if we need to remove player-specific old spheres
+        if (playerSpheres.length > MAX_SPHERES_PER_PLAYER) {
+            // Sort player's spheres by timestamp (oldest first)
+            const sortedPlayerSpheres = [...playerSpheres].sort((a, b) => a.timestamp - b.timestamp);
+            
+            // Get the IDs of the oldest spheres to remove - only remove one at a time to avoid visual glitches
+            const numToRemove = Math.min(1, playerSpheres.length - MAX_SPHERES_PER_PLAYER);
+            console.log(`Removing ${numToRemove} old spheres for player ${playerID}`);
+            
+            // Create a set of timestamps to remove (the oldest ones)
+            const timestampsToRemove = new Set(
+                sortedPlayerSpheres.slice(0, numToRemove).map(sphere => sphere.timestamp)
+            );
+            
+            // Filter out only the specific old spheres by timestamp
+            newSpheres = newSpheres.filter(sphere => 
+                sphere.playerId !== playerID || !timestampsToRemove.has(sphere.timestamp)
+            );
+        }
+        
+        // Check if we need to remove spheres to meet the global limit
+        if (newSpheres.length > MAX_TOTAL_SPHERES) {
+            // Sort all spheres by timestamp (oldest first)
+            const sortedSpheres = [...newSpheres].sort((a, b) => a.timestamp - b.timestamp);
+            
+            // Identify the specific timestamps to remove - only remove one at a time to avoid visual glitches
+            const excessSpheres = Math.min(1, newSpheres.length - MAX_TOTAL_SPHERES);
+            console.log(`Global sphere limit reached. Removing ${excessSpheres} oldest spheres.`);
+            
+            // Create a set of timestamps to remove (the oldest ones)
+            const timestampsToRemove = new Set(
+                sortedSpheres.slice(0, excessSpheres).map(sphere => sphere.timestamp)
+            );
+            
+            // Filter out only the specific old spheres by timestamp
+            newSpheres = newSpheres.filter(sphere => !timestampsToRemove.has(sphere.timestamp));
+        }
+        
+        return newSpheres;
+    };
 
     const reload = () => {
         if (isReloading) return
@@ -668,9 +636,19 @@ export const SphereTool = ({
     }
 
     const startShooting = () => {
+        if (shootCooldownRef.current) return;
+        
         isPointerDown.current = true
         shootSphere()
-        shootingInterval.current = window.setInterval(shootSphere, 80)
+        
+        // Set a cooldown to prevent rapid-firing
+        shootCooldownRef.current = true;
+        setTimeout(() => {
+            shootCooldownRef.current = false;
+        }, 300);
+        
+        // Increase interval between shots significantly
+        shootingInterval.current = window.setInterval(shootSphere, 300) // Increased from 150 to 300ms
     }
 
     const stopShooting = () => {
@@ -679,6 +657,9 @@ export const SphereTool = ({
             clearInterval(shootingInterval.current)
         }
     }
+
+    // Add a cooldown ref to prevent rapid firing
+    const shootCooldownRef = useRef(false);
 
     useEffect(() => {
         window.addEventListener('pointerdown', startShooting)
@@ -714,15 +695,15 @@ export const SphereTool = ({
             setSpheres(prev => {
                 if (prev.length === 0) return prev;
                 
-                // Remove spheres older than 10 seconds (reduced from 15)
+                // Remove spheres older than 6 seconds (reduced from 10)
                 const filteredSpheres = prev.filter(sphere => {
                     const age = now - sphere.timestamp;
                     
                     // Remove very old spheres regardless of state
-                    if (age > 10000) return false;
+                    if (age > 6000) return false; // Reduced from 10000
                     
                     // Remove stuck spheres sooner
-                    if (sphere.isStuck && age > 5000) return false;
+                    if (sphere.isStuck && age > 3000) return false; // Reduced from 5000
                     
                     return true;
                 });
@@ -735,15 +716,15 @@ export const SphereTool = ({
                 return filteredSpheres;
             });
             
-            // Also clean up processed shots to keep memory usage low
-            if (processedRemoteShots.current.size > 200) {
+            // Also clean up processed shots to keep memory usage low - more aggressive cleanup
+            if (processedRemoteShots.current.size > 100) { // Reduced from 200
                 console.log(`Cleaning up processed shots. Before: ${processedRemoteShots.current.size}`);
                 processedRemoteShots.current = new Set(
-                    Array.from(processedRemoteShots.current).slice(-100)
+                    Array.from(processedRemoteShots.current).slice(-50) // Reduced from 100
                 );
                 console.log(`After cleanup: ${processedRemoteShots.current.size}`);
             }
-        }, 2000); // Check every 2 seconds (reduced from 3)
+        }, 1000); // Reduced from 2000 to clean up more frequently
         
         return () => clearInterval(cleanup);
     }, []);
