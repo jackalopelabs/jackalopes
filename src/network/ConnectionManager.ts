@@ -69,6 +69,16 @@ export class ConnectionManager extends EventEmitter {
   // Logging level control
   private logLevel: LogLevel = LogLevel.INFO; // Default to INFO level
   
+  // Add playerCount to track connection order - initialize to -1 to make first player index 0
+  private static playerCount = -1;
+  private playerIndex = -1;
+  
+  // For shot event tracking
+  private lastShotEvents: Record<string, number> = {};
+  
+  // For testing with simulated players
+  private testPlayerIntervals: Record<string, number> = {};
+  
   constructor(private serverUrl: string = 'ws://localhost:8082') {
     super();
     
@@ -384,6 +394,14 @@ export class ConnectionManager extends EventEmitter {
   forceReady(): void {
     this.log(LogLevel.INFO, '⚠️ Forcing offline mode for cross-browser communication');
     this.offlineMode = true;
+    
+    // Generate a player index if not already assigned
+    if (this.playerIndex === -1) {
+      // Increment static player count to get a new index
+      ConnectionManager.playerCount++;
+      this.playerIndex = ConnectionManager.playerCount - 1;
+      console.error(`⭐ FORCE READY: Assigned player index ${this.playerIndex}`);
+    }
     
     if (!this.playerId) {
       // Generate a temporary player ID to allow sending
@@ -1136,6 +1154,11 @@ export class ConnectionManager extends EventEmitter {
     // Generate a random player name if none exists
     const playerName = `player-${Math.floor(Math.random() * 10000)}`;
     
+    // Increment static player count and assign this connection's index
+    ConnectionManager.playerCount++;
+    this.playerIndex = ConnectionManager.playerCount - 1;
+    this.log(LogLevel.INFO, `Player joining as index #${this.playerIndex} (${this.getPlayerCharacterType()})`);
+    
     // Try auth first (most common WebSocket server pattern)
     this.send({
       type: 'auth',
@@ -1164,5 +1187,23 @@ export class ConnectionManager extends EventEmitter {
         setTimeout(() => this.connect(), 1000);
       }
     }, 5000);
+  }
+
+  // Add a public method to get player character type based on connection order
+  getPlayerCharacterType(): { type: 'merc' | 'jackalope', thirdPerson: boolean } {
+    // Always log this at ERROR level to make sure it's visible in console
+    console.error(`⭐ Getting character type for player index ${this.playerIndex}`);
+    
+    // Even-indexed players (0, 2, 4...) are jackalopes in 3P view
+    // Odd-indexed players (1, 3, 5...) are mercs in FP view
+    const isEven = this.playerIndex % 2 === 0;
+    
+    const characterInfo = isEven ? 
+      { type: 'jackalope' as const, thirdPerson: true } : 
+      { type: 'merc' as const, thirdPerson: false };
+    
+    console.error(`⭐ Player #${this.playerIndex} assigned as ${characterInfo.type} in ${characterInfo.thirdPerson ? '3rd-person' : '1st-person'} view (isEven: ${isEven})`);
+    
+    return characterInfo;
   }
 } 

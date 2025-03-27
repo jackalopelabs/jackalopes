@@ -1436,6 +1436,63 @@ export function App() {
     // Extract graphicsQuality with proper type assertion
     const graphicsQuality = (performanceSettings as any)?.graphicsQuality || 'auto';
 
+    // Add state to track player character info based on connection order
+    const [playerCharacterInfo, setPlayerCharacterInfo] = useState<{ type: 'merc' | 'jackalope', thirdPerson: boolean }>({ 
+        type: 'merc', 
+        thirdPerson: false 
+    });
+
+    // Use an effect to get the character type from ConnectionManager when it's ready
+    useEffect(() => {
+        console.log('Checking for character type assignment, multiplayer enabled:', enableMultiplayer);
+        
+        // Only proceed if multiplayer is enabled
+        if (!enableMultiplayer) {
+            console.log('Multiplayer disabled, using manual character selection');
+            return;
+        }
+        
+        // Check if connection manager is available
+        if (!connectionManager) {
+            console.log('Connection manager not available yet');
+            return;
+        }
+        
+        // Make sure connection is ready
+        if (!connectionManager.isReadyToSend()) {
+            console.log('Connection not ready yet, will check again when ready');
+            
+            // Set up a listener for when the connection becomes ready
+            const handleInitialized = () => {
+                console.log('Connection initialized, checking character type');
+                const characterInfo = connectionManager.getPlayerCharacterType();
+                console.log('Character based on connection order:', characterInfo);
+                
+                // Update the character type and view settings
+                setPlayerCharacterInfo(characterInfo);
+            };
+            
+            // Add listener
+            connectionManager.on('initialized', handleInitialized);
+            
+            // Clean up listener
+            return () => {
+                connectionManager.off('initialized', handleInitialized);
+            };
+        } else {
+            // Connection is already ready, get character type
+            console.log('Connection already ready, setting character type');
+            const characterInfo = connectionManager.getPlayerCharacterType();
+            console.log('Character based on connection order:', characterInfo);
+            setPlayerCharacterInfo(characterInfo);
+        }
+    }, [connectionManager, enableMultiplayer]);
+
+    // Add a separate effect to log when the character info changes
+    useEffect(() => {
+        console.log('Player character info updated:', playerCharacterInfo);
+    }, [playerCharacterInfo]);
+
     // Add a conditional class to the body element for dark mode
     // Add this effect to the App component
     useEffect(() => {
@@ -1478,7 +1535,7 @@ export function App() {
             </div>
             
             {/* Only show ammo display for merc character */}
-            {characterType === 'merc' && (
+            {playerCharacterInfo.type === 'merc' && (
                 <div id="ammo-display" style={{
                     position: 'absolute',
                     top: '10px',
@@ -1535,52 +1592,100 @@ export function App() {
                     interpolate={true}
                     gravity={[0, -9.81, 0]}
                 >
-                    <PlayerControls thirdPersonView={thirdPersonView}>
+                    <PlayerControls thirdPersonView={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}>
                         {/* Conditionally render either the Player (merc) or Jackalope */}
-                        {characterType === 'merc' ? (
-                            <Player 
-                                ref={playerRef}
-                                position={[0, 7, 10]}
-                                walkSpeed={walkSpeed}
-                                runSpeed={runSpeed}
-                                jumpForce={jumpForce}
-                                visible={thirdPersonView}
-                                thirdPersonView={thirdPersonView}
-                                connectionManager={enableMultiplayer ? connectionManager : undefined}
-                                onMove={(position) => {
-                                    if (directionalLightRef.current && !thirdPersonView) {
-                                        // Only update light directly in first-person mode
-                                        // In third-person, StableLightUpdater handles it
-                                        const light = directionalLightRef.current;
-                                        light.position.x = position.x + directionalDistance;
-                                        light.position.z = position.z + directionalDistance;
-                                        light.target.position.copy(position);
-                                        light.target.updateMatrixWorld();
-                                    }
-                                }}
-                            />
+                        {enableMultiplayer ? (
+                            playerCharacterInfo.type === 'merc' ? (
+                                <Player 
+                                    ref={playerRef}
+                                    position={[0, 7, 10]}
+                                    walkSpeed={walkSpeed}
+                                    runSpeed={runSpeed}
+                                    jumpForce={jumpForce}
+                                    visible={playerCharacterInfo.thirdPerson}
+                                    thirdPersonView={playerCharacterInfo.thirdPerson}
+                                    connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                    onMove={(position) => {
+                                        if (directionalLightRef.current && !playerCharacterInfo.thirdPerson) {
+                                            // Only update light directly in first-person mode
+                                            // In third-person, StableLightUpdater handles it
+                                            const light = directionalLightRef.current;
+                                            light.position.x = position.x + directionalDistance;
+                                            light.position.z = position.z + directionalDistance;
+                                            light.target.position.copy(position);
+                                            light.target.updateMatrixWorld();
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <Jackalope
+                                    ref={playerRef}
+                                    position={[0, 1, 10]} // Lower position for the jackalope to start on the ground
+                                    walkSpeed={walkSpeed}
+                                    runSpeed={runSpeed}
+                                    jumpForce={jumpForce * 0.6} // Reduced jump height for jackalope (0.3 instead of 0.5)
+                                    visible={playerCharacterInfo.thirdPerson}
+                                    thirdPersonView={playerCharacterInfo.thirdPerson}
+                                    connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                    onMove={(position) => {
+                                        if (directionalLightRef.current && !playerCharacterInfo.thirdPerson) {
+                                            // Only update light directly in first-person mode
+                                            // In third-person, StableLightUpdater handles it
+                                            const light = directionalLightRef.current;
+                                            light.position.x = position.x + directionalDistance;
+                                            light.position.z = position.z + directionalDistance;
+                                            light.target.position.copy(position);
+                                            light.target.updateMatrixWorld();
+                                        }
+                                    }}
+                                />
+                            )
                         ) : (
-                            <Jackalope
-                                ref={playerRef}
-                                position={[0, 1, 10]} // Lower position for the jackalope to start on the ground
-                                walkSpeed={walkSpeed}
-                                runSpeed={runSpeed}
-                                jumpForce={jumpForce * 0.6} // Reduced jump height for jackalope (0.3 instead of 0.5)
-                                visible={thirdPersonView}
-                                thirdPersonView={thirdPersonView}
-                                connectionManager={enableMultiplayer ? connectionManager : undefined}
-                                onMove={(position) => {
-                                    if (directionalLightRef.current && !thirdPersonView) {
-                                        // Only update light directly in first-person mode
-                                        // In third-person, StableLightUpdater handles it
-                                        const light = directionalLightRef.current;
-                                        light.position.x = position.x + directionalDistance;
-                                        light.position.z = position.z + directionalDistance;
-                                        light.target.position.copy(position);
-                                        light.target.updateMatrixWorld();
-                                    }
-                                }}
-                            />
+                            characterType === 'merc' ? (
+                                <Player 
+                                    ref={playerRef}
+                                    position={[0, 7, 10]}
+                                    walkSpeed={walkSpeed}
+                                    runSpeed={runSpeed}
+                                    jumpForce={jumpForce}
+                                    visible={thirdPersonView}
+                                    thirdPersonView={thirdPersonView}
+                                    connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                    onMove={(position) => {
+                                        if (directionalLightRef.current && !thirdPersonView) {
+                                            // Only update light directly in first-person mode
+                                            // In third-person, StableLightUpdater handles it
+                                            const light = directionalLightRef.current;
+                                            light.position.x = position.x + directionalDistance;
+                                            light.position.z = position.z + directionalDistance;
+                                            light.target.position.copy(position);
+                                            light.target.updateMatrixWorld();
+                                        }
+                                    }}
+                                />
+                            ) : (
+                                <Jackalope
+                                    ref={playerRef}
+                                    position={[0, 1, 10]} // Lower position for the jackalope to start on the ground
+                                    walkSpeed={walkSpeed}
+                                    runSpeed={runSpeed}
+                                    jumpForce={jumpForce * 0.6} // Reduced jump height for jackalope (0.3 instead of 0.5)
+                                    visible={thirdPersonView}
+                                    thirdPersonView={thirdPersonView}
+                                    connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                    onMove={(position) => {
+                                        if (directionalLightRef.current && !thirdPersonView) {
+                                            // Only update light directly in first-person mode
+                                            // In third-person, StableLightUpdater handles it
+                                            const light = directionalLightRef.current;
+                                            light.position.x = position.x + directionalDistance;
+                                            light.position.z = position.z + directionalDistance;
+                                            light.target.position.copy(position);
+                                            light.target.updateMatrixWorld();
+                                        }
+                                    }}
+                                />
+                            )
                         )}
                     </PlayerControls>
                     <Platforms />
@@ -1589,7 +1694,7 @@ export function App() {
                     <Scene playerRef={playerRef} />
                     
                     {/* Show SphereTool only for merc character - jackalobes don't shoot */}
-                    {characterType === 'merc' && (
+                    {(enableMultiplayer ? playerCharacterInfo.type === 'merc' : characterType === 'merc') && (
                         <SphereTool 
                             onShoot={enableMultiplayer ? 
                                 (origin, direction) => {
@@ -1604,8 +1709,10 @@ export function App() {
                                 : undefined
                             }
                             remoteShots={remoteShots}
-                            thirdPersonView={thirdPersonView}
-                            playerPosition={thirdPersonView ? playerPosition.current : null}
+                            thirdPersonView={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}
+                            playerPosition={enableMultiplayer ? 
+                                (playerCharacterInfo.thirdPerson ? playerPosition.current : null) : 
+                                (thirdPersonView ? playerPosition.current : null)}
                         />
                     )}
 
@@ -1626,8 +1733,8 @@ export function App() {
                     far={1000}
                 />
 
-                {/* Add third-person camera with simpler setup */}
-                {thirdPersonView && (
+                {/* Add third-person camera when needed */}
+                {(enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView) && (
                     <PerspectiveCamera
                         ref={thirdPersonCameraRef}
                         makeDefault
@@ -1639,11 +1746,11 @@ export function App() {
                 )}
 
                 {/* Add simplified ThirdPersonCameraControls */}
-                {thirdPersonView && playerPosition.current && (
+                {(enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView) && playerPosition.current && (
                     <ThirdPersonCameraControls 
                         player={playerPosition.current}
                         cameraRef={thirdPersonCameraRef}
-                        enabled={thirdPersonView}
+                        enabled={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}
                         distance={cameraDistance}
                         height={cameraHeight}
                         invertY={invertYAxis}
@@ -1695,7 +1802,7 @@ export function App() {
             </Canvas>
 
             {/* Only show crosshair in first-person view */}
-            {!thirdPersonView && <Crosshair />}
+            {(enableMultiplayer ? !playerCharacterInfo.thirdPerson : !thirdPersonView) && <Crosshair />}
             
             {/* Add NetworkStats component - only affects UI visibility */}
             {showMultiplayerTools && enableMultiplayer && (
@@ -1772,6 +1879,28 @@ export function App() {
                     zIndex: 1000
                 }}>
                     Mobile device detected
+                </div>
+            )}
+
+            {/* Debug indicator for player character assignment */}
+            {enableMultiplayer && (
+                <div style={{
+                    position: 'fixed',
+                    bottom: '10px',
+                    left: '10px',
+                    background: 'rgba(0,0,0,0.7)',
+                    color: 'white',
+                    padding: '8px 12px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    zIndex: 1000,
+                    fontFamily: 'monospace'
+                }}>
+                    Player Type: <strong>{playerCharacterInfo.type}</strong><br />
+                    View: <strong>{playerCharacterInfo.thirdPerson ? '3rd Person' : '1st Person'}</strong><br />
+                    Player ID: <strong>{connectionManager.getPlayerId?.() || 'None'}</strong><br />
+                    Connection: <strong>{connectionManager.isOfflineMode() ? 'Offline' : 'Online'}</strong><br />
+                    Multiplayer: <strong>{enableMultiplayer ? 'Enabled' : 'Disabled'}</strong>
                 </div>
             )}
         </>
