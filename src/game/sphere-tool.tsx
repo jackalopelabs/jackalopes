@@ -44,9 +44,9 @@ const PERFORMANCE_CONFIG = {
     emissiveBoost: 1.0,           // Multiplier for emissive intensity (increased in dark mode)
     // Light settings for different quality levels
     lightSettings: {
-        high: { max: 6, distance: 18, intensity: 8 },
-        medium: { max: 4, distance: 14, intensity: 6 },
-        low: { max: 2, distance: 10, intensity: 4 }
+        high: { max: 6, distance: 25, intensity: 7 },     // Increased distance, slightly reduced intensity
+        medium: { max: 4, distance: 20, intensity: 5.5 }, // Increased distance with balanced intensity
+        low: { max: 2, distance: 15, intensity: 4 }       // Increased distance for low quality too
     }
 }
 
@@ -211,15 +211,32 @@ class LightPool {
     const distanceToPlayer = position.distanceTo(playerPosition);
     this.distanceToPlayer.set(id, distanceToPlayer);
     
-    // Apply dark mode intensity boost
-    const adjustedIntensity = intensity * this.getIntensityModifier();
+    // Calculate distance factor - maintain higher intensity at a distance
+    const distanceFactor = Math.max(0, 1 - (distanceToPlayer / 50)); // Gradual falloff up to 50 units
+    
+    // Apply dark mode and distance-based intensity boost
+    let adjustedIntensity = intensity * this.getIntensityModifier();
+    
+    // Boost intensity for distant fireballs to make them visible from further away
+    // but only if there aren't too many lights competing (performance optimization)
+    if (distanceToPlayer > 15 && this.activeFireballs.size < this.maxActiveLights) {
+      adjustedIntensity *= (1 + (distanceToPlayer / 50)); // Up to 1.6x boost at 30 units
+    }
+    
+    // Adjust distance based on dark mode and distance to player
+    let adjustedDistance = this.darkMode ? distance * 1.4 : distance; // Increase in dark mode
+    
+    // For distant fireballs, increase light range even more to maintain visibility
+    if (distanceToPlayer > 20) {
+      adjustedDistance *= (1 + (distanceToPlayer / 100)); // Up to 1.5x at 50 units
+    }
     
     // Store fireball data
     this.activeFireballs.set(id, {
       position: position.clone(),
       intensity: adjustedIntensity,
       color,
-      distance: this.darkMode ? distance * 1.5 : distance // Increase range in dark mode
+      distance: adjustedDistance
     });
     
     this.poolDirty = true;
@@ -256,18 +273,30 @@ class LightPool {
       this.updateLightAssignments();
     }
     
-    // Add distance cutoff - fireballs too far away don't get lights at all
-    const maxDistance = this.darkMode ? 35 : 25;
+    // More dynamic distance cutoff - balance between distance and performance
+    const baseMaxDistance = this.darkMode ? 45 : 35; // Increased from 35/25
     const distance = this.distanceToPlayer.get(id) || Infinity;
     
-    // Skip if too far regardless of count
-    if (distance > maxDistance) {
+    // Count active lights that are closer to the player than this one
+    const closerLightsCount = Array.from(this.distanceToPlayer.entries())
+      .filter(entry => entry[1] < distance)
+      .length;
+    
+    // Make distance cutoff more generous when fewer lights are active
+    // This allows distant lights when there aren't many nearby
+    const dynamicMaxDistance = Math.max(
+      baseMaxDistance - (closerLightsCount * 2), // Reduce max distance when many close lights exist
+      this.darkMode ? 30 : 22 // Minimum cutoff distance
+    );
+    
+    // Skip if too far based on dynamic distance
+    if (distance > dynamicMaxDistance) {
       return false;
     }
     
     // Get closest N fireballs to player that are within range
     const sorted = Array.from(this.distanceToPlayer.entries())
-      .filter(entry => entry[1] <= maxDistance)
+      .filter(entry => entry[1] <= baseMaxDistance) // Use base max for filtering
       .sort((a, b) => a[1] - b[1])
       .slice(0, this.maxActiveLights)
       .map(entry => entry[0]);
@@ -314,17 +343,31 @@ const PooledLights = () => {
   
   return (
     <>
-      {lights.map(light => (
-        <pointLight
-          key={light.id}
-          position={light.position}
-          color={light.color}
-          intensity={light.intensity}
-          distance={light.distance}
-          decay={2.5} // Increased decay for faster falloff
-          castShadow={false}
-        />
-      ))}
+      {lights.map(light => {
+        // Calculate distance to player for this light
+        const playerPos = playerPositionRef.current;
+        const lightPos = new THREE.Vector3(...light.position);
+        const distanceToPlayer = lightPos.distanceTo(playerPos);
+        
+        // Adjust decay based on distance - lower decay (slower falloff) when further away
+        // This makes lights visible from further despite their intensity
+        const dynamicDecay = distanceToPlayer > 15 ? 2.0 : 2.5;
+        
+        // For distant lights, disable shadows to improve performance
+        const shouldCastShadow = distanceToPlayer < 10 ? false : false;
+        
+        return (
+          <pointLight
+            key={light.id}
+            position={light.position}
+            color={light.color}
+            intensity={light.intensity}
+            distance={light.distance}
+            decay={dynamicDecay}
+            castShadow={shouldCastShadow}
+          />
+        );
+      })}
     </>
   );
 };
@@ -1248,11 +1291,11 @@ export const setSphereDarkMode = (darkMode: boolean) => {
   
   // Also adjust the PERFORMANCE_CONFIG for dark mode
   if (darkMode) {
-    // In dark mode: higher intensity but shorter distance for localized lighting
-    PERFORMANCE_CONFIG.lightIntensity = PERFORMANCE_CONFIG.lightIntensity * 1.8; // More intense
-    PERFORMANCE_CONFIG.lightDistance = PERFORMANCE_CONFIG.lightDistance * 0.8;   // But shorter range
+    // In dark mode: higher intensity AND longer distance for better visibility
+    PERFORMANCE_CONFIG.lightIntensity = PERFORMANCE_CONFIG.lightIntensity * 1.5; // Slightly less intense
+    PERFORMANCE_CONFIG.lightDistance = PERFORMANCE_CONFIG.lightDistance * 1.3;   // Increased range in dark mode
     
-    // Higher emissive boost to compensate for shorter light distance
+    // Higher emissive boost to enhance the glow effect
     PERFORMANCE_CONFIG.emissiveBoost = 2.5;
     
     // Adjust max lights in dark mode
