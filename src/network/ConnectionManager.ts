@@ -82,6 +82,36 @@ export class ConnectionManager extends EventEmitter {
   constructor(private serverUrl: string = 'ws://localhost:8082') {
     super();
     
+    // Don't reset the static player count here - we'll use localStorage instead
+    // for cross-browser coordination
+    
+    // Set up a storage event listener to detect changes from other tabs
+    window.addEventListener('storage', (event) => {
+      if (event.key === 'jackalopes_player_count') {
+        console.error(`⭐ Detected player count change in another tab: ${event.oldValue} -> ${event.newValue}`);
+        
+        // Reset our playerIndex so we get a new assignment on next connection
+        if (this.playerIndex !== -1) {
+          this.playerIndex = -1;
+          console.error(`⭐ Reset local player index due to change in another tab`);
+        }
+      }
+    });
+    
+    // Listen for the custom reset event (fires in this tab)
+    window.addEventListener('jackalopes_playercount_reset', (e: any) => {
+      console.error('⭐ Detected player count reset in this tab');
+      
+      // Reset our player index
+      this.playerIndex = -1;
+      ConnectionManager.playerCount = -1;
+      
+      // Force refresh to get the new player type
+      if (confirm('Player count has been reset. Reload now to get your new character assignment?')) {
+        window.location.reload();
+      }
+    });
+    
     // If the serverUrl contains staging.games.bonsai.so but doesn't have /websocket/ path, add it
     if (this.serverUrl.includes('staging.games.bonsai.so') && !this.serverUrl.includes('/websocket/')) {
       // Extract the protocol and host
@@ -272,6 +302,9 @@ export class ConnectionManager extends EventEmitter {
       this.socket = null;
     }
     
+    // Reset player index when disconnected - this ensures new character assignment on reconnect
+    this.playerIndex = -1;
+    
     this.isConnected = false;
     this.emit('disconnected');
     this.log(LogLevel.INFO, 'Disconnected from server');
@@ -397,10 +430,38 @@ export class ConnectionManager extends EventEmitter {
     
     // Generate a player index if not already assigned
     if (this.playerIndex === -1) {
-      // Increment static player count to get a new index
-      ConnectionManager.playerCount++;
-      this.playerIndex = ConnectionManager.playerCount - 1;
-      console.error(`⭐ FORCE READY: Assigned player index ${this.playerIndex}`);
+      try {
+        // Check if we need to reset the player count
+        const shouldReset = this.shouldResetPlayerCount();
+        
+        if (shouldReset) {
+          localStorage.setItem('jackalopes_player_count', '-1');
+          console.error('⭐ Reset player count due to inactivity');
+        }
+        
+        // Get the current highest player index from localStorage
+        let globalPlayerCount = parseInt(localStorage.getItem('jackalopes_player_count') || '-1');
+        
+        // Increment the count for this player
+        globalPlayerCount++;
+        
+        // Store the updated count back in localStorage
+        localStorage.setItem('jackalopes_player_count', globalPlayerCount.toString());
+        localStorage.setItem('jackalopes_last_activity', Date.now().toString());
+        
+        // Assign this player's index
+        this.playerIndex = globalPlayerCount;
+        
+        // Also update the static count to match (for in-tab consistency)
+        ConnectionManager.playerCount = globalPlayerCount;
+        
+        console.error(`⭐ FORCE READY: Assigned player index ${this.playerIndex} using localStorage coordination (assigned as ${this.playerIndex % 2 === 0 ? 'JACKALOPE' : 'MERC'})`);
+      } catch (e) {
+        // Fallback to static count if localStorage fails
+        ConnectionManager.playerCount++;
+        this.playerIndex = ConnectionManager.playerCount - 1;
+        console.error(`⭐ FORCE READY: Assigned player index ${this.playerIndex} using static count (localStorage failed)`);
+      }
     }
     
     if (!this.playerId) {
@@ -1154,9 +1215,47 @@ export class ConnectionManager extends EventEmitter {
     // Generate a random player name if none exists
     const playerName = `player-${Math.floor(Math.random() * 10000)}`;
     
-    // Increment static player count and assign this connection's index
-    ConnectionManager.playerCount++;
-    this.playerIndex = ConnectionManager.playerCount - 1;
+    // Use localStorage to assign player indices across browser tabs
+    try {
+      // Only assign a new player index if one hasn't been assigned yet
+      if (this.playerIndex === -1) {
+        // Check if we need to reset the player count
+        const shouldReset = this.shouldResetPlayerCount();
+        
+        if (shouldReset) {
+          localStorage.setItem('jackalopes_player_count', '-1');
+          console.error('⭐ Reset player count due to inactivity');
+        }
+        
+        // Get the current highest player index from localStorage
+        let globalPlayerCount = parseInt(localStorage.getItem('jackalopes_player_count') || '-1');
+        
+        // Increment the count for this player
+        globalPlayerCount++;
+        
+        // Store the updated count back in localStorage
+        localStorage.setItem('jackalopes_player_count', globalPlayerCount.toString());
+        localStorage.setItem('jackalopes_last_activity', Date.now().toString());
+        
+        // Assign this player's index
+        this.playerIndex = globalPlayerCount;
+        
+        // Also update the static count to match (for in-tab consistency)
+        ConnectionManager.playerCount = globalPlayerCount;
+        
+        console.error(`⭐ Assigned player index ${this.playerIndex} using localStorage coordination (assigned as ${this.playerIndex % 2 === 0 ? 'JACKALOPE' : 'MERC'})`);
+      } else {
+        console.error(`⭐ Using existing player index ${this.playerIndex} (already assigned)`);
+      }
+    } catch (e) {
+      // Fallback to static count if localStorage fails
+      if (this.playerIndex === -1) {
+        ConnectionManager.playerCount++;
+        this.playerIndex = ConnectionManager.playerCount - 1;
+        console.error(`⭐ Assigned player index ${this.playerIndex} using static count (localStorage failed)`);
+      }
+    }
+    
     this.log(LogLevel.INFO, `Player joining as index #${this.playerIndex} (${this.getPlayerCharacterType()})`);
     
     // Try auth first (most common WebSocket server pattern)
@@ -1191,19 +1290,65 @@ export class ConnectionManager extends EventEmitter {
 
   // Add a public method to get player character type based on connection order
   getPlayerCharacterType(): { type: 'merc' | 'jackalope', thirdPerson: boolean } {
-    // Always log this at ERROR level to make sure it's visible in console
+    // Log with high visibility
     console.error(`⭐ Getting character type for player index ${this.playerIndex}`);
     
-    // Even-indexed players (0, 2, 4...) are jackalopes in 3P view
-    // Odd-indexed players (1, 3, 5...) are mercs in FP view
-    const isEven = this.playerIndex % 2 === 0;
+    // Fallback to a valid index if somehow playerIndex is still -1
+    const index = this.playerIndex >= 0 ? this.playerIndex : 0;
     
-    const characterInfo = isEven ? 
-      { type: 'jackalope' as const, thirdPerson: true } : 
-      { type: 'merc' as const, thirdPerson: false };
-    
-    console.error(`⭐ Player #${this.playerIndex} assigned as ${characterInfo.type} in ${characterInfo.thirdPerson ? '3rd-person' : '1st-person'} view (isEven: ${isEven})`);
-    
-    return characterInfo;
+    // First player (index 0) = Jackalope in third-person
+    // Second player (index 1) = Merc in first-person
+    // Third player (index 2) = Jackalope in third-person
+    // And so on...
+    if (index % 2 === 0) {
+      console.error(`⭐ Player #${index} (player ${index + 1}) assigned as JACKALOPE in 3rd-person view`);
+      return { type: 'jackalope' as const, thirdPerson: true };
+    } else {
+      console.error(`⭐ Player #${index} (player ${index + 1}) assigned as MERC in 1st-person view`);
+      return { type: 'merc' as const, thirdPerson: false };
+    }
+  }
+
+  // Add a method to reset the localStorage player count (for testing)
+  resetPlayerCount(): void {
+    try {
+      // Save the old value for logging
+      const oldValue = localStorage.getItem('jackalopes_player_count');
+      
+      // Clear all localStorage keys related to player counts
+      localStorage.removeItem('jackalopes_player_count');
+      localStorage.removeItem('jackalopes_last_activity');
+      
+      // Force active sessions to use index 0 next time
+      localStorage.setItem('jackalopes_player_count', '-1');
+      
+      // Reset internal counters
+      ConnectionManager.playerCount = -1;
+      this.playerIndex = -1;
+      
+      console.error('⭐ Reset player count in localStorage and static variable');
+      console.error('⭐ Next player to join will be index 0 (JACKALOPE)');
+      
+      // Dispatch a custom event to trigger listeners in this tab
+      // The 'storage' event only fires in other tabs, not the current one
+      try {
+        window.dispatchEvent(new CustomEvent('jackalopes_playercount_reset', {
+          detail: { oldValue, newValue: '-1' }
+        }));
+      } catch (e) {
+        console.error('Failed to dispatch custom event:', e);
+      }
+    } catch (e) {
+      console.error('⭐ Failed to reset player count in localStorage:', e);
+    }
+  }
+
+  // Add a method to check if we need to reset the player count
+  private shouldResetPlayerCount(): boolean {
+    const now = Date.now();
+    const lastActivity = parseInt(localStorage.getItem('jackalopes_last_activity') || '0');
+    const inactivityDuration = now - lastActivity;
+    const resetDuration = 5 * 60 * 1000; // 5 minutes in milliseconds
+    return inactivityDuration > resetDuration;
   }
 } 

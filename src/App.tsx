@@ -396,6 +396,33 @@ const MultiplayerDebugPanel = ({
       console.log('Removed all test players');
     }
   };
+  
+  // Add reset player count function
+  const resetPlayerCount = () => {
+    console.log('Resetting player count...');
+    try {
+      if (connectionManager && connectionManager.resetPlayerCount) {
+        // Use the ConnectionManager's method which handles events
+        connectionManager.resetPlayerCount();
+        
+        // The confirm dialog will be shown by the event handler
+      } else {
+        // Fallback if method not available
+        localStorage.removeItem('jackalopes_player_count');
+        localStorage.removeItem('jackalopes_last_activity');
+        localStorage.setItem('jackalopes_player_count', '-1');
+        
+        console.log('Reset jackalopes_player_count in localStorage.');
+        
+        if (confirm('Character assignment reset! Reload now to be assigned as a Jackalope in 3rd-person view?')) {
+          window.location.reload();
+        }
+      }
+    } catch (e) {
+      console.error('Failed to reset player count:', e);
+      alert('Failed to reset player count: ' + e);
+    }
+  };
 
   return (
     <div style={{
@@ -505,6 +532,19 @@ const MultiplayerDebugPanel = ({
           disabled={activeTestPlayers.length === 0}
         >
           {activeTestPlayers.length ? `REMOVE TEST PLAYERS (${activeTestPlayers.length})` : 'NO TEST PLAYERS'}
+        </button>
+        <button
+          onClick={resetPlayerCount}
+          style={{
+            backgroundColor: '#FFA500',
+            color: 'white',
+            border: 'none',
+            padding: '5px 10px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+          }}
+        >
+          RESET PLAYER COUNT
         </button>
       </div>
       
