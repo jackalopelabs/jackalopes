@@ -3,6 +3,15 @@ import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import { useFrame, RootState } from '@react-three/fiber';
 import { Points, BufferGeometry, NormalBufferAttributes, Material } from 'three';
+import { MercModel } from './MercModel'; // Import MercModel for remote players
+
+// Define the RemotePlayerData interface locally to match MultiplayerManager
+interface RemotePlayerData {
+  playerId: string;
+  position: { x: number, y: number, z: number };
+  rotation: number;
+  playerType?: 'merc' | 'jackalope';
+}
 
 // Add a global debug level constant
 // 0 = no logs, 1 = error only, 2 = important info, 3 = verbose 
@@ -13,6 +22,7 @@ export interface RemotePlayerProps {
   id: string;
   initialPosition: [number, number, number];
   initialRotation: [number, number, number, number];
+  playerType?: 'merc' | 'jackalope'; // Add player type to determine which model to show
 }
 
 // Interface for the exposed methods
@@ -118,461 +128,90 @@ const PilotLight = () => {
 };
 
 // Remote Player Component
-export const RemotePlayer = React.memo(
-  forwardRef<RemotePlayerMethods, RemotePlayerProps>(
-    ({ id, initialPosition, initialRotation }, ref) => {
-      const groupRef = useRef<THREE.Group>(null);
-      const meshRef = useRef<THREE.Mesh>(null);
-      // Only store position/rotation in refs to avoid state updates completely
-      const positionRef = useRef<[number, number, number]>(initialPosition);
-      const rotationRef = useRef<[number, number, number, number]>(initialRotation);
-      
-      // Target values for smoother interpolation
-      const targetPosition = useRef<[number, number, number]>(initialPosition);
-      const targetRotation = useRef<[number, number, number, number]>(initialRotation);
-      
-      // Track the last significant update for debugging
-      const lastUpdateRef = useRef<number>(Date.now());
-      
-      // Track velocity for prediction
-      const velocityRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
-      const lastPositionRef = useRef<THREE.Vector3>(new THREE.Vector3(...initialPosition));
-      
-      // For rate limiting updates
-      const updateThrottleRef = useRef<{
-        lastUpdateTime: number;
-        minTimeBetweenUpdates: number;
-        pendingUpdate: null | {
-          position: [number, number, number];
-          rotation: [number, number, number, number];
-        };
-      }>({
-        lastUpdateTime: 0,
-        minTimeBetweenUpdates: 16, // Reduced from 35ms to 16ms (60fps) for smoother updates
-        pendingUpdate: null
-      });
-      
-      // For rotation visualization, track which way the player is facing
-      const directionRef = useRef(new THREE.Vector3(0, 0, 1));
-      
-      // Detect Safari browser
-      const isSafari = useMemo(() => {
-        const ua = navigator.userAgent.toLowerCase();
-        return ua.indexOf('safari') !== -1 && ua.indexOf('chrome') === -1;
-      }, []);
-      
-      // Create an interface for external updates - no state dependencies
-      useImperativeHandle(ref, () => ({
-        updateTransform: (newPosition: [number, number, number], newRotation: [number, number, number, number]) => {
-          // Apply rate limiting to updates
-          const now = Date.now();
-          const timeSinceLastUpdate = now - updateThrottleRef.current.lastUpdateTime;
-          
-          // Log rotation updates occasionally for debugging
-          if (Math.random() < 0.05 && DEBUG_LEVEL >= 3) {
-            const isZero = newRotation[0] === 0 && newRotation[1] === 0 && 
-                          newRotation[2] === 0 && newRotation[3] === 1;
-            
-            console.log(`Remote player ${id} receiving ${isZero ? "IDENTITY" : "REAL"} rotation:`, 
-              JSON.stringify(newRotation), 
-              `time since last: ${timeSinceLastUpdate}ms`);
-          }
-          
-          // Store the incoming update
-          updateThrottleRef.current.pendingUpdate = {
-            position: [...newPosition],
-            rotation: [...newRotation]
-          };
-          
-          // If it's been long enough since the last update, apply it immediately
-          if (timeSinceLastUpdate >= updateThrottleRef.current.minTimeBetweenUpdates) {
-            applyPendingUpdate();
-          }
-          // Otherwise, it will be applied in the next frame via rate limiter
-        }
-      }), []);
-      
-      // Function to apply a pending update
-      const applyPendingUpdate = () => {
-        if (!updateThrottleRef.current.pendingUpdate) return;
-        
-        const { position: newPosition, rotation: newRotation } = updateThrottleRef.current.pendingUpdate;
-        updateThrottleRef.current.pendingUpdate = null;
-        updateThrottleRef.current.lastUpdateTime = Date.now();
-        
-        // Check for identity quaternion [0,0,0,1], which seems to be a default value
-        // If we're getting an identity quaternion, don't update rotation as it's likely a default value
-        const isIdentityQuaternion = 
-          Math.abs(newRotation[0]) < 0.0001 && 
-          Math.abs(newRotation[1]) < 0.0001 && 
-          Math.abs(newRotation[2]) < 0.0001 && 
-          Math.abs(Math.abs(newRotation[3]) - 1) < 0.0001;
-        
-        // Skip rotation update for identity quaternion to avoid "facing reset"
-        if (isIdentityQuaternion) {
-          if (DEBUG_LEVEL >= 3) {
-            console.log(`Received identity quaternion for ${id}, skipping rotation update`);
-          }
-          
-          // Only update position, keep current rotation
-          targetPosition.current = newPosition;
-          
-          // Calculate velocity for better prediction - use higher weight for smoother movement
-          const currentPosition = new THREE.Vector3(...positionRef.current);
-          const newPositionVec = new THREE.Vector3(...newPosition);
-          const timeDelta = Math.max(16, Date.now() - lastUpdateRef.current); // Ensure at least 16ms (60fps equivalent)
-          
-          if (timeDelta > 0) {
-            // Calculate instantaneous velocity
-            const newVelocity = new THREE.Vector3()
-              .subVectors(newPositionVec, lastPositionRef.current)
-              .divideScalar(timeDelta / 1000); // Convert to seconds for physics consistency
-            
-            // Use higher interpolation factor for smoother movement (increased from 0.9 to 0.95)
-            velocityRef.current.lerp(newVelocity, 0.95);
-          }
-          
-          // Update last position for next velocity calculation
-          lastPositionRef.current.copy(newPositionVec);
-          
-          // For large position changes, update immediately (teleportation)
-          const distance = currentPosition.distanceTo(newPositionVec);
-          
-          // Only teleport position for large changes (reduced from 5 to 3 units)
-          if (distance > 3) {
-            if (DEBUG_LEVEL >= 2) {
-              console.log(`Remote player ${id} large position change detected: ${distance}`);
-            }
-            positionRef.current = [...newPosition];
-            
-            // Force update group position
-            if (groupRef.current) {
-              groupRef.current.position.set(...newPosition);
-            }
-          }
-          
-          lastUpdateRef.current = Date.now();
-          return;
-        }
-        
-        // Normal handling for legitimate rotation updates
-        // Normalize the new rotation quaternion
-        const newQuat = new THREE.Quaternion(
-          newRotation[0], newRotation[1], newRotation[2], newRotation[3]
-        ).normalize();
-        
-        // Convert back to array
-        const normalizedRotation: [number, number, number, number] = [
-          newQuat.x, newQuat.y, newQuat.z, newQuat.w
-        ];
-        
-        // Update target rotation with normalized values
-        targetRotation.current = normalizedRotation;
-        
-        // Calculate velocity for prediction
-        const currentPosition = new THREE.Vector3(...positionRef.current);
-        const newPositionVec = new THREE.Vector3(...newPosition);
-        const timeDelta = Math.max(16, Date.now() - lastUpdateRef.current); // Ensure at least 16ms
-        
-        if (timeDelta > 0) {
-          // Calculate instantaneous velocity
-          const newVelocity = new THREE.Vector3()
-            .subVectors(newPositionVec, lastPositionRef.current)
-            .divideScalar(timeDelta / 1000); // Convert to seconds
-          
-          // Use higher interpolation for better transitions
-          velocityRef.current.lerp(newVelocity, 0.9);
-        }
-        
-        // Update last position for next velocity calculation
-        lastPositionRef.current.copy(newPositionVec);
-        
-        // Set target position for smooth interpolation
-        targetPosition.current = newPosition;
-        
-        // For large position changes, update immediately (teleportation)
-        const distance = currentPosition.distanceTo(newPositionVec);
-        
-        // Reduced teleport threshold from 5 to 3 units
-        if (distance > 3) {
-          if (DEBUG_LEVEL >= 2) {
-            console.log(`Remote player ${id} large position change detected: ${distance}`);
-          }
-          
-          positionRef.current = [...newPosition];
-          
-          // Force update group position immediately
-          if (groupRef.current) {
-            groupRef.current.position.set(...newPosition);
-          }
-        }
-        
-        lastUpdateRef.current = Date.now();
-      };
-      
-      // Initial setup - ensure rotation is applied at mount time
-      useEffect(() => {
-        if (groupRef.current) {
-          // Apply initial position
-          groupRef.current.position.set(...initialPosition);
-          
-          // Apply initial rotation
-          const initialQuat = new THREE.Quaternion(
-            initialRotation[0], initialRotation[1], 
-            initialRotation[2], initialRotation[3]
-          ).normalize();
-          
-          // Create a rotation for the model to face the correct direction
-          // This rotates the entire model 180 degrees around the Y axis to match camera space
-          const modelRotation = new THREE.Quaternion().setFromAxisAngle(
-            new THREE.Vector3(0, 1, 0), Math.PI
-          );
-          
-          // Combine the rotations - apply model orientation correction first, then the actual rotation
-          // This ensures the model faces the correct direction relative to the camera quaternion
-          const combinedRotation = modelRotation.multiply(initialQuat);
-          
-          groupRef.current.quaternion.copy(combinedRotation);
-          
-          if (DEBUG_LEVEL >= 2) {
-            console.log(`Remote player ${id} initial rotation applied:`, initialRotation);
-          }
-        }
-      }, []);
-      
-      // Frame-by-frame interpolation for smooth movement
-      useFrame((_state: RootState, delta: number) => {
-        if (!groupRef.current) return;
-        
-        // Apply any pending updates if rate limit elapsed
-        const now = Date.now();
-        const timeSinceLastUpdate = now - updateThrottleRef.current.lastUpdateTime;
-        if (updateThrottleRef.current.pendingUpdate && 
-            timeSinceLastUpdate >= updateThrottleRef.current.minTimeBetweenUpdates) {
-          applyPendingUpdate();
-        }
-        
-        // Movement interpolation - position
-        const lerpSpeed = 5;
-        const smoothingFactor = Math.min(1, delta * lerpSpeed);
-        
-        // Apply velocity-based prediction
-        const predictedPosition = new THREE.Vector3(...targetPosition.current);
-        
-        // Calculate time since last update
-        const elapsedSinceLastUpdate = now - lastUpdateRef.current;
-        
-        // Only apply prediction if we have significant velocity and some time has passed
-        if (velocityRef.current.lengthSq() > 0.000001 && elapsedSinceLastUpdate > 20) {
-          const predictionFactor = Math.min(elapsedSinceLastUpdate, 300) / 1000; // Convert to seconds for more accurate physics
-          const velocityComponent = velocityRef.current.clone().multiplyScalar(predictionFactor);
-          
-          // Add predicted movement to the position
-          predictedPosition.add(velocityComponent);
-        }
-        
-        // Interpolate position with delta-time based smoothing
-        const newPosition = new THREE.Vector3(...positionRef.current);
-        newPosition.lerp(predictedPosition, Math.min(0.9, smoothingFactor));
-        
-        // Update local ref without state changes
-        positionRef.current = [newPosition.x, newPosition.y, newPosition.z];
-        
-        // Apply to the group 
-        groupRef.current.position.copy(newPosition);
-        
-        // SUPER SMOOTH ROTATION HANDLING
-        // Create quaternions from arrays
-        const currentQuat = new THREE.Quaternion(
-          rotationRef.current[0],
-          rotationRef.current[1],
-          rotationRef.current[2],
-          rotationRef.current[3]
-        ).normalize();
-        
-        const targetQuat = new THREE.Quaternion(
-          targetRotation.current[0],
-          targetRotation.current[1],
-          targetRotation.current[2],
-          targetRotation.current[3]
-        ).normalize();
-        
-        // If rotation flips signs (e.g., from positive to negative), 
-        // negate one quaternion to take the shortest path
-        if (currentQuat.dot(targetQuat) < 0) {
-          targetQuat.x = -targetQuat.x;
-          targetQuat.y = -targetQuat.y;
-          targetQuat.z = -targetQuat.z;
-          targetQuat.w = -targetQuat.w;
-        }
-        
-        // Calculate rotation speed based on delta time for consistent rotation regardless of frame rate
-        const rotationSpeed = 3 * delta; // Base rotation speed adjusted by frame time
-        
-        // Create a new quaternion and slerp with delta-time based step
-        const newRotation = currentQuat.clone().slerp(targetQuat, Math.min(0.1, rotationSpeed));
-        
-        // Create a rotation for the model to face the correct direction
-        // This rotates the entire model 180 degrees around the Y axis to match camera space
-        const modelRotation = new THREE.Quaternion().setFromAxisAngle(
-          new THREE.Vector3(0, 1, 0), Math.PI
-        );
-        
-        // Combine the rotations - model orientation first, then player rotation
-        // This ensures the model faces the correct direction relative to the camera quaternion
-        const combinedRotation = modelRotation.clone().multiply(newRotation);
-        
-        // Apply to the group
-        groupRef.current.quaternion.copy(combinedRotation);
-        
-        // Update the rotation ref - store the original rotation without the model correction
-        // This way we interpolate between the original rotations, not the combined ones
-        rotationRef.current = [
-          newRotation.x,
-          newRotation.y,
-          newRotation.z,
-          newRotation.w
-        ];
-        
-        // Update direction for visualization - no longer used since direction
-        // is now indicated by the entire group rotation
-        const forward = new THREE.Vector3(0, 0, 1);
-        forward.applyQuaternion(newRotation);
-        directionRef.current.copy(forward);
-        
-        // Decay velocity when not moving
-        if (velocityRef.current.lengthSq() < 0.000001) {
-          velocityRef.current.set(0, 0, 0);
-        } else if (!updateThrottleRef.current.pendingUpdate) {
-          // Smaller decay factor when no updates pending (0.95 → 0.98)
-          velocityRef.current.multiplyScalar(0.98);
-        }
-      });
-      
-      // Log when the player is mounted (only once per player)
-      useEffect(() => {
-        if (DEBUG_LEVEL >= 2) {
-          console.log(`Remote player ${id} mounted at position:`, initialPosition, 'with rotation:', initialRotation);
-        }
-        
-        return () => {
-          if (DEBUG_LEVEL >= 2) {
-            console.log(`Remote player ${id} unmounted`);
-          }
-        };
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [id]); // Only run on mount/unmount, dependent only on id
-      
-      // Generate a consistent color based on player ID
-      const playerColor = useMemo(() => {
-        // Simple hash function to get consistent color from ID
-        let hash = 0;
-        for (let i = 0; i < id.length; i++) {
-          hash = id.charCodeAt(i) + ((hash << 5) - hash);
-        }
-        
-        // Convert to RGB
-        const r = (hash & 0xFF0000) >> 16;
-        const g = (hash & 0x00FF00) >> 8;
-        const b = hash & 0x0000FF;
-        
-        return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
-      }, [id]);
-      
-      return (
-        <group ref={groupRef} position={initialPosition}>
-          {/* Player body - more recognizable character */}
-          <group>
-            {/* Player head */}
-            <mesh position={[0, 1.7, 0]} castShadow>
-              <sphereGeometry args={[0.4, 16, 16]} />
-              <meshStandardMaterial color={playerColor} />
-            </mesh>
-            
-            {/* Player body */}
-            <mesh position={[0, 0.9, 0]} castShadow>
-              <capsuleGeometry args={[0.4, 1.2, 4, 8]} />
-              <meshStandardMaterial color={playerColor} />
-            </mesh>
-            
-            {/* Player arm - left */}
-            <mesh position={[-0.6, 0.9, 0]} rotation={[0, 0, -Math.PI / 4]} castShadow>
-              <capsuleGeometry args={[0.15, 0.6, 4, 8]} />
-              <meshStandardMaterial color={playerColor} />
-            </mesh>
-            
-            {/* Player arm - right - adjusted position for holding a weapon */}
-            <mesh position={[0.55, 0.95, 0.3]} rotation={[0.3, 0, Math.PI / 4]} castShadow>
-              <capsuleGeometry args={[0.15, 0.6, 4, 8]} />
-              <meshStandardMaterial color={playerColor} />
-            </mesh>
-            
-            {/* Flamethrower/Gun model - adjusted position to better fit in hand */}
-            <group position={[0.7, 0.95, 0.6]} rotation={[-0.1, 0, 0]}>
-              {/* Main body of the flamethrower */}
-              <mesh castShadow position={[0.3, 0, 0]}>
-                <cylinderGeometry args={[0.08, 0.12, 0.5, 8]} />
-                <meshStandardMaterial color="#333333" metalness={0.8} roughness={0.2} />
-              </mesh>
-              
-              {/* Fuel tank */}
-              <mesh castShadow position={[0.3, -0.15, 0]} rotation={[Math.PI/2, 0, 0]}>
-                <cylinderGeometry args={[0.12, 0.12, 0.4, 8]} />
-                <meshStandardMaterial color="#663300" metalness={0.5} roughness={0.3} />
-              </mesh>
-              
-              {/* Nozzle with glow */}
-              <mesh castShadow position={[0.55, 0, 0]}>
-                <cylinderGeometry args={[0.04, 0.08, 0.1, 8]} />
-                <meshStandardMaterial 
-                  color="#555555" 
-                  metalness={0.7} 
-                  roughness={0.3} 
-                  emissive="#ff3300"
-                  emissiveIntensity={0.5}
-                />
-              </mesh>
-              
-              {/* Handle */}
-              <mesh castShadow position={[0.15, -0.1, 0]} rotation={[0, 0, Math.PI/2 - 0.5]}>
-                <cylinderGeometry args={[0.03, 0.03, 0.2, 8]} />
-                <meshStandardMaterial color="#222222" metalness={0.3} roughness={0.7} />
-              </mesh>
-              
-              {/* Pilot light with animated glow */}
-              <PilotLight />
-              
-              {/* Flame effect */}
-              <FlamethrowerFlame />
-            </group>
-            
-            {/* Stable nametag container - attached to group instead of mesh */}
-            <Html position={[0, 2.5, 0]} center sprite distanceFactor={15} 
-                  occlude={false} zIndexRange={[0, 100]}>
-              <div style={{
-                color: 'white',
-                background: 'rgba(0, 0, 0, 0.7)',
-                padding: '5px 8px',
-                borderRadius: '3px',
-                whiteSpace: 'nowrap',
-                fontSize: '14px',
-                fontFamily: 'Arial, sans-serif',
-                userSelect: 'none',
-                textShadow: '0 0 2px black',
-                fontWeight: 'bold',
-                border: `1px solid ${playerColor}`
-              }}>
-                {id.substring(0, 8)}
-              </div>
-            </Html>
-          </group>
-        </group>
-      );
+export const RemotePlayer = ({ playerId, position, rotation, playerType }: RemotePlayerData) => {
+  const meshRef = useRef<THREE.Mesh>(null);
+
+  // Log a one-time warning if we get invalid data
+  useEffect(() => {
+    if (!position) {
+      console.warn('RemotePlayer received invalid position', { playerId, position });
     }
-  ),
-  // Custom comparison function for React.memo
-  // Only re-render if player ID changes, ignore position/rotation changes
-  (prevProps, nextProps) => {
-    return prevProps.id === nextProps.id;
+    if (rotation === undefined || rotation === null) {
+      console.warn('RemotePlayer received invalid rotation', { playerId, rotation });
+    }
+  }, [playerId]);
+
+  useFrame(() => {
+    if (!meshRef.current) return;
+    
+    // Safely update position with error checking
+    if (position && typeof position.x === 'number' && 
+        typeof position.y === 'number' && 
+        typeof position.z === 'number') {
+      meshRef.current.position.set(position.x, position.y, position.z);
+    }
+    
+    // Safely update rotation with error checking
+    if (rotation !== undefined && rotation !== null) {
+      meshRef.current.rotation.set(0, rotation, 0);
+    }
+  });
+
+  // For merc type, use the MercModel
+  if (playerType === 'merc') {
+    return (
+      <MercModel 
+        position={position ? [position.x, position.y, position.z] : [0, 0, 0]} 
+        rotation={[0, rotation || 0, 0]}
+        animation="walk"
+      />
+    );
   }
-); 
+
+  // For other player types (jackalope), use the geometric representation
+  const color = useMemo(() => {
+    // Generate a consistent color based on the player ID
+    if (!playerId) {
+      return new THREE.Color('#888888'); // Default gray color if no playerId
+    }
+    
+    let hash = 0;
+    for (let i = 0; i < playerId.length; i++) {
+      hash = playerId.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    const r = (hash & 0xff0000) >> 16;
+    const g = (hash & 0x00ff00) >> 8;
+    const b = hash & 0x0000ff;
+    
+    return new THREE.Color(`rgb(${r}, ${g}, ${b})`);
+  }, [playerId]);
+
+  return (
+    <mesh ref={meshRef} position={[position.x, position.y, position.z]} rotation={[0, rotation, 0]}>
+      {/* Body */}
+      <boxGeometry args={[0.5, 1, 0.25]} />
+      <meshStandardMaterial color={color} />
+      
+      {/* Head */}
+      <mesh position={[0, 0.65, 0]}>
+        <sphereGeometry args={[0.15, 16, 16]} />
+        <meshStandardMaterial color={color} />
+      </mesh>
+      
+      {/* Indicator with player ID */}
+      <mesh position={[0, 1.1, 0]}>
+        <boxGeometry args={[0.1, 0.1, 0.1]} />
+        <meshStandardMaterial color="yellow" />
+      </mesh>
+    </mesh>
+  );
+};
+
+// Custom comparison function for React.memo
+// Only re-render if player ID changes, ignore position/rotation changes
+const compareRemotePlayers = (prevProps: RemotePlayerData, nextProps: RemotePlayerData) => {
+  return prevProps.playerId === nextProps.playerId;
+};
+
+export const RemotePlayerMemo = React.memo(RemotePlayer, compareRemotePlayers); 

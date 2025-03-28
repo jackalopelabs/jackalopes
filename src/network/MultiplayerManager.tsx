@@ -21,10 +21,11 @@ const DEBUG_LEVEL = 1;
 
 // Types for multiplayer system
 type RemotePlayerData = {
-  id: string;
-  position: [number, number, number];
-  rotation: [number, number, number, number];
-  lastUpdate: number;
+  playerId: string;
+  position: { x: number, y: number, z: number };
+  rotation: number;
+  lastUpdate?: number;
+  playerType?: 'merc' | 'jackalope';
 };
 
 // Interface for RemotePlayer props
@@ -442,14 +443,30 @@ export const useMultiplayer = (
         
         console.log(`Adding new remote player: ${data.id}`);
         
+        // Determine player type - let's assume merc or jackalope based on some pattern
+        // In a full implementation, this would come from the server
+        // For now, we'll use a simple algorithm: odd player IDs get jackalope, even get merc
+        const playerType = data.id && data.id.charCodeAt(data.id.length - 1) % 2 === 0 ? 'merc' : 'jackalope';
+        console.log(`Assigning player type ${playerType} to ${data.id}`);
+        
+        // Convert position and rotation to the format expected by RemotePlayer
+        const position = data.state?.position 
+          ? arrayToObjectPosition(data.state.position) 
+          : { x: 0, y: 1, z: 0 };
+          
+        const rotation = data.state?.rotation 
+          ? quaternionToAngle(data.state.rotation) 
+          : 0;
+        
         // Add the new player with their initial state
         return {
           ...prev,
           [data.id]: {
-            id: data.id,
-            position: data.state?.position || [0, 1, 0],
-            rotation: data.state?.rotation || [0, 0, 0, 1],
-            lastUpdate: Date.now()
+            playerId: data.id,
+            position,
+            rotation,
+            lastUpdate: Date.now(),
+            playerType
           }
         };
       });
@@ -486,37 +503,29 @@ export const useMultiplayer = (
         console.log(`📡 Remote player update for ${data.id}:`, data);
       }
       
-      // Apply rate limiting for updates - throttle incoming messages
-      if (!playerUpdateThrottleRef.current[data.id]) {
-        playerUpdateThrottleRef.current[data.id] = { 
-          lastTime: 0, 
-          minInterval: 25 // Reduced from 50ms to 25ms = max 40 updates/second per player
-        };
-      }
-      
+      // Apply rate limiting for updates - skip some to avoid overwhelming the component
       const now = Date.now();
-      const playerThrottle = playerUpdateThrottleRef.current[data.id];
-      const timeSinceLastUpdate = now - playerThrottle.lastTime;
-      
-      // Skip this update if we're getting them too frequently
-      if (timeSinceLastUpdate < playerThrottle.minInterval) {
-        return;
-      }
-      
-      // Update the last update time
-      playerThrottle.lastTime = now;
       
       setRemotePlayers(prev => {
+        // Convert position and rotation
+        const position = data.position 
+          ? arrayToObjectPosition(data.position) 
+          : { x: 0, y: 1, z: 0 };
+          
+        const rotation = data.rotation 
+          ? quaternionToAngle(data.rotation) 
+          : 0;
+        
         // If we don't have this player yet, add them
         if (!prev[data.id]) {
           console.log(`Adding player ${data.id} from update - wasn't in our list`);
           return {
             ...prev,
             [data.id]: {
-              id: data.id,
-              position: data.position,
-              rotation: data.rotation,
-              lastUpdate: Date.now()
+              playerId: data.id,
+              position,
+              rotation,
+              lastUpdate: now
             }
           };
         }
@@ -526,9 +535,9 @@ export const useMultiplayer = (
           ...prev,
           [data.id]: {
             ...prev[data.id],
-            position: data.position,
-            rotation: data.rotation,
-            lastUpdate: Date.now()
+            position,
+            rotation,
+            lastUpdate: now
           }
         };
       });
@@ -1036,114 +1045,24 @@ export const RemotePlayers = React.memo(({
 }: { 
   players: Record<string, RemotePlayerData> 
 }) => {
-  const playerRefsMap = useRef<Record<string, React.RefObject<RemotePlayerMethods>>>({});
-  const [playerList, setPlayerList] = useState<string[]>([]);
-  
-  // Store initial positions/rotations for each player to prevent remounting on updates
-  const initialValuesRef = useRef<Record<string, {
-    position: [number, number, number], 
-    rotation: [number, number, number, number]
-  }>>({});
-
-  // Create refs for new players without re-rendering
-  // This effect handles adding new refs and updating player list
-  useEffect(() => {
-    // Find players that don't have refs yet
-    const playerIds = Object.keys(players);
-    const updatedRefs = {...playerRefsMap.current};
-    let refsChanged = false;
-    
-    // Create refs for new players and store their initial values
-    playerIds.forEach(id => {
-      if (!updatedRefs[id]) {
-        console.log(`Creating ref for new player: ${id}`);
-        updatedRefs[id] = React.createRef<RemotePlayerMethods>();
-        
-        // Store initial position/rotation values
-        initialValuesRef.current[id] = {
-          position: [...players[id].position],
-          rotation: [...players[id].rotation]
-        };
-        
-        refsChanged = true;
-      }
-    });
-    
-    // Clean up removed players
-    Object.keys(updatedRefs).forEach(id => {
-      if (!playerIds.includes(id)) {
-        console.log(`Removing ref for departed player: ${id}`);
-        delete updatedRefs[id];
-        delete initialValuesRef.current[id];
-        refsChanged = true;
-      }
-    });
-    
-    // Only update refs if they've changed
-    if (refsChanged) {
-      playerRefsMap.current = updatedRefs;
-    }
-    
-    // Update player list only when players are added/removed (not on position changes)
-    const newPlayerIds = Object.keys(players);
-    if (JSON.stringify(newPlayerIds.sort()) !== JSON.stringify(playerList.sort())) {
-      console.log('Player list changed, updating component list');
-      setPlayerList(newPlayerIds);
-    }
-  }, [players, playerList]);
-  
-  // Direct updates to the player refs
-  // This effect runs on every update but doesn't trigger re-renders
-  useEffect(() => {
-    let animationId: number;
-    
-    const updatePlayerPositions = () => {
-      // Only update existing players (avoid errors)
-      Object.entries(players).forEach(([id, data]) => {
-        const ref = playerRefsMap.current[id];
-        if (ref && ref.current) {
-          // Update via ref instead of re-rendering
-          ref.current.updateTransform(data.position, data.rotation);
-        }
-      });
-      
-      // Continue updates on next frame
-      animationId = requestAnimationFrame(updatePlayerPositions);
-    };
-    
-    // Start the update loop
-    animationId = requestAnimationFrame(updatePlayerPositions);
-    
-    // Clean up animation frame on unmount or when deps change
-    return () => {
-      cancelAnimationFrame(animationId);
-    };
-  }, [players]); // This dependency still triggers effect runs but not re-renders
-  
   // Reduce debug logging frequency
   const renderCount = useRef(0);
   renderCount.current++;
   if (renderCount.current % 10 === 1 && DEBUG_LEVEL >= 2) {
-    console.log(`RemotePlayers rendering #${renderCount.current} with ${playerList.length} players`);
+    console.log(`RemotePlayers rendering #${renderCount.current} with ${Object.keys(players).length} players`);
   }
   
   return (
     <>
-      {playerList.map(id => {
-        // Only return null if we don't have initial values yet
-        if (!initialValuesRef.current[id]) return null;
-        
-        // Use stable initial values to prevent remounting
-        return (
-          <RemotePlayer
-            key={id}
-            id={id}
-            initialPosition={initialValuesRef.current[id].position}
-            initialRotation={initialValuesRef.current[id].rotation}
-            ref={playerRefsMap.current[id]}
-          />
-        );
-      })}
+      {Object.entries(players).map(([id, playerData]) => (
+        <RemotePlayer
+          key={id}
+          playerId={id}
+          position={playerData.position}
+          rotation={playerData.rotation}
+          playerType={playerData.playerType || 'merc'}
+        />
+      ))}
     </>
   );
 });
@@ -1246,14 +1165,30 @@ export const MultiplayerManager: React.FC<{
         
         console.log(`Adding new remote player: ${data.id}`);
         
+        // Determine player type - let's assume merc or jackalope based on some pattern
+        // In a full implementation, this would come from the server
+        // For now, we'll use a simple algorithm: odd player IDs get jackalope, even get merc
+        const playerType = data.id && data.id.charCodeAt(data.id.length - 1) % 2 === 0 ? 'merc' : 'jackalope';
+        console.log(`Assigning player type ${playerType} to ${data.id}`);
+        
+        // Convert position and rotation to the format expected by RemotePlayer
+        const position = data.state?.position 
+          ? arrayToObjectPosition(data.state.position) 
+          : { x: 0, y: 1, z: 0 };
+          
+        const rotation = data.state?.rotation 
+          ? quaternionToAngle(data.state.rotation) 
+          : 0;
+        
         // Add the new player with their initial state
         return {
           ...prev,
           [data.id]: {
-            id: data.id,
-            position: data.state?.position || [0, 1, 0],
-            rotation: data.state?.rotation || [0, 0, 0, 1],
-            lastUpdate: Date.now()
+            playerId: data.id,
+            position,
+            rotation,
+            lastUpdate: Date.now(),
+            playerType
           }
         };
       });
@@ -1290,37 +1225,29 @@ export const MultiplayerManager: React.FC<{
         console.log(`📡 Remote player update for ${data.id}:`, data);
       }
       
-      // Apply rate limiting for updates - throttle incoming messages
-      if (!playerUpdateThrottleRef.current[data.id]) {
-        playerUpdateThrottleRef.current[data.id] = { 
-          lastTime: 0, 
-          minInterval: 25 // Reduced from 50ms to 25ms = max 40 updates/second per player
-        };
-      }
-      
+      // Apply rate limiting for updates - skip some to avoid overwhelming the component
       const now = Date.now();
-      const playerThrottle = playerUpdateThrottleRef.current[data.id];
-      const timeSinceLastUpdate = now - playerThrottle.lastTime;
-      
-      // Skip this update if we're getting them too frequently
-      if (timeSinceLastUpdate < playerThrottle.minInterval) {
-        return;
-      }
-      
-      // Update the last update time
-      playerThrottle.lastTime = now;
       
       setRemotePlayers(prev => {
+        // Convert position and rotation
+        const position = data.position 
+          ? arrayToObjectPosition(data.position) 
+          : { x: 0, y: 1, z: 0 };
+          
+        const rotation = data.rotation 
+          ? quaternionToAngle(data.rotation) 
+          : 0;
+        
         // If we don't have this player yet, add them
         if (!prev[data.id]) {
           console.log(`Adding player ${data.id} from update - wasn't in our list`);
           return {
             ...prev,
             [data.id]: {
-              id: data.id,
-              position: data.position,
-              rotation: data.rotation,
-              lastUpdate: Date.now()
+              playerId: data.id,
+              position,
+              rotation,
+              lastUpdate: now
             }
           };
         }
@@ -1330,9 +1257,9 @@ export const MultiplayerManager: React.FC<{
           ...prev,
           [data.id]: {
             ...prev[data.id],
-            position: data.position,
-            rotation: data.rotation,
-            lastUpdate: Date.now()
+            position,
+            rotation,
+            lastUpdate: now
           }
         };
       });
@@ -1681,4 +1608,18 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
   }, [connectionManager]);
   
   return shots;
+};
+
+// Function to convert array position to object position
+const arrayToObjectPosition = (pos: [number, number, number]): { x: number, y: number, z: number } => {
+  return { x: pos[0], y: pos[1], z: pos[2] };
+};
+
+// Function to convert quaternion to rotation angle
+const quaternionToAngle = (quat: [number, number, number, number]): number => {
+  // Extract yaw (y-axis rotation) from quaternion
+  // This is a simplified conversion assuming we only care about y-rotation
+  const q = new THREE.Quaternion(quat[0], quat[1], quat[2], quat[3]);
+  const euler = new THREE.Euler().setFromQuaternion(q);
+  return euler.y;
 }; 

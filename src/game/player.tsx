@@ -11,6 +11,7 @@ import { Component, Entity, EntityType } from './ecs'
 // Update import to use MultiplayerManager
 import { ConnectionManager } from '../network/ConnectionManager'
 import { useMultiplayer } from '../network/MultiplayerManager'
+import { MercModel } from './MercModel' // Import our new MercModel component
 
 const _direction = new THREE.Vector3()
 const _frontVector = new THREE.Vector3()
@@ -102,6 +103,9 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     const [isWalking, setIsWalking] = useState(false)
     const [isRunning, setIsRunning] = useState(false)
 
+    // Animation state for Mixamo model
+    const [currentAnimation, setCurrentAnimation] = useState('idle')
+
     // Add a reference for the model
     const playerModelRef = useRef<THREE.Group>(null);
 
@@ -132,6 +136,10 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     fireAction.setLoop(THREE.LoopOnce, 1)
                     fireAction.reset().play()
                 }
+                
+                // For now, continue using the walk animation for shooting
+                // until a shoot animation is added
+                setCurrentAnimation('walk')
             }
         }
 
@@ -474,6 +482,17 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         }
     }, [thirdPersonView]);
 
+    // Set the current animation based on movement state
+    useEffect(() => {
+        // We only have walk animation from your fbx, so let's use it for all movement states
+        // and adjust this when you add more animations
+        if (isRunning || isWalking) {
+            setCurrentAnimation('walk') // Use walk animation for both walking and running
+        } else {
+            setCurrentAnimation('walk') // Use walk animation for idle too until we have more animations
+        }
+    }, [isWalking, isRunning, jumping.current])
+
     return (
         <>
             <Entity isPlayer ref={playerRef}>
@@ -492,13 +511,14 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             </Entity>
             {/* Only render arms model when not in third-person view */}
             {!thirdPersonView && (
-                <primitive 
-                    object={gltf.scene} 
-                    position={[x, y, z]}
-                    rotation={[0, Math.PI, 0]}
-                    scale={0.7}
-                    parent={camera}
-                />
+                <group position={[x, y, z]}>
+                    <primitive 
+                        object={gltf.scene} 
+                        position={[0, 0, 0]}
+                        rotation={[0, Math.PI, 0]}
+                        scale={0.7}
+                    />
+                </group>
             )}
             
             {/* Render player model when in third-person view or visible is true */}
@@ -543,6 +563,27 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                         </mesh>
                     </group>
                 </group>
+            )}
+            
+            {visible && thirdPersonView && ( // Show the Mixamo model in third-person view
+                <MercModel 
+                    animation={currentAnimation} 
+                    visible={visible}
+                    position={[0, -0.9, 0]} // Adjusted position to better match the ground
+                    rotation={[0, Math.PI, 0]} // Rotated to face forward
+                />
+            )}
+            
+            {!thirdPersonView && (
+                <PerspectiveCamera
+                    makeDefault
+                    fov={normalFov}
+                    position={[0, 0.75, 0]}
+                />
+            )}
+            
+            {document.pointerLockElement && !thirdPersonView && (
+                <PointerLockControls />
             )}
         </>
     )

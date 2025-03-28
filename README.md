@@ -222,3 +222,31 @@ The game uses Rapier's kinematic character controller for player movement with:
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Asset Management
+
+We've implemented a new approach to asset management for better organization and build optimization:
+
+- Assets are now stored in the `src/assets` directory, organized by type
+- A centralized asset index at `src/assets/index.ts` manages all asset references
+- This allows Vite to properly optimize and bundle assets during builds
+
+For complete details on the new asset management system, see [ASSET_MANAGEMENT.md](./ASSET_MANAGEMENT.md).
+
+### Quick Migration Guide
+
+To move existing assets from the public directory to the new assets structure:
+
+```
+node move-assets.js
+```
+
+Then, update your imports to use the asset index:
+
+```diff
+- // Old way - hardcoded paths
+- const modelPath = '/src/game/characters/merc.glb';
+- 
++ // New way - centralized asset management
++ import { MercModelPath } from '../assets';
+```

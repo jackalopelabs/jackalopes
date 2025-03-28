@@ -21,6 +21,9 @@ import { NetworkStats } from './network/NetworkStats'
 import { ConnectionManager } from './network/ConnectionManager'
 import { ConnectionTest } from './components/ConnectionTest'
 import { VirtualGamepad } from './components/VirtualGamepad'
+import { RemotePlayer } from './game/RemotePlayer'
+import { KeyDisplay } from './common/components/key-display'
+import { ModelTester } from './game/ModelTester'
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -108,6 +111,110 @@ const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height
                 shadow-radius={1} // Smaller shadow radius for harder edges
             />
         </>
+    );
+};
+
+// Add a Stars component using instanced meshes for performance
+const Stars = ({ count = 1000, depth = 100, size = 0.2, color = "#ffffff", twinkle = true }: {
+    count?: number;
+    depth?: number;
+    size?: number;
+    color?: string;
+    twinkle?: boolean;
+}) => {
+    // Reference to the instanced mesh
+    const instancedMeshRef = useRef<THREE.InstancedMesh>(null);
+    
+    // Create stars once using instanced meshes for efficiency
+    useEffect(() => {
+        if (!instancedMeshRef.current) return;
+        
+        const dummy = new THREE.Object3D();
+        
+        // Place stars in a hemisphere above the level
+        for (let i = 0; i < count; i++) {
+            // Random position in a hemisphere
+            const theta = Math.random() * Math.PI * 2; // Around
+            const phi = Math.acos((Math.random() * 2) - 1) * 0.5; // Up (hemisphere)
+            const radius = depth * (0.5 + Math.random() * 0.5); // Vary the distance
+            
+            // Calculate position
+            const x = radius * Math.sin(phi) * Math.cos(theta);
+            const y = radius * Math.cos(phi) + 20; // Offset upward
+            const z = radius * Math.sin(phi) * Math.sin(theta);
+            
+            // Random scale for varied star sizes
+            const scale = size * (0.3 + Math.random() * 0.7);
+            
+            // Set position and scale
+            dummy.position.set(x, y, z);
+            dummy.scale.set(scale, scale, scale);
+            dummy.updateMatrix();
+            
+            // Apply to instance
+            instancedMeshRef.current.setMatrixAt(i, dummy.matrix);
+        }
+        
+        // Update the instance matrix
+        instancedMeshRef.current.instanceMatrix.needsUpdate = true;
+    }, [count, depth, size]);
+    
+    // Subtle twinkling animation using shader material
+    const starMaterial = useMemo(() => {
+        return new THREE.ShaderMaterial({
+            uniforms: {
+                time: { value: 0 },
+                color: { value: new THREE.Color(color) },
+                twinkleEnabled: { value: twinkle ? 1.0 : 0.0 }
+            },
+            vertexShader: `
+                varying vec2 vUv;
+                void main() {
+                    vUv = uv;
+                    gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float time;
+                uniform vec3 color;
+                uniform float twinkleEnabled;
+                varying vec2 vUv;
+                
+                void main() {
+                    // Create a radial gradient for each star point
+                    float dist = length(vUv - vec2(0.5, 0.5));
+                    
+                    // Smooth falloff for star points
+                    float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
+                    
+                    // Simple noise-based twinkling
+                    float twinkle = mix(
+                        1.0,
+                        0.75 + 0.25 * sin(time * 0.5 + gl_FragCoord.x * 0.01 + gl_FragCoord.y * 0.01),
+                        twinkleEnabled
+                    );
+                    
+                    gl_FragColor = vec4(color * twinkle, alpha);
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false // Improve performance by skipping depth write
+        });
+    }, [color, twinkle]);
+    
+    // Update time uniform for twinkling animation
+    useFrame(({ clock }) => {
+        if (starMaterial) {
+            starMaterial.uniforms.time.value = clock.elapsedTime;
+        }
+    });
+    
+    return (
+        <instancedMesh ref={instancedMeshRef} args={[undefined, undefined, count]}>
+            <sphereGeometry args={[1, 4, 4]} /> {/* Low-poly sphere for better performance */}
+            <primitive object={starMaterial} attach="material" />
+        </instancedMesh>
     );
 };
 
@@ -1280,7 +1387,12 @@ export function App() {
         moonVisible,
         bloomEnabled,
         bloomIntensity,
-        bloomLuminanceThreshold
+        bloomLuminanceThreshold,
+        starsEnabled,
+        starsCount,
+        starsSize,
+        starsColor,
+        starsTwinkle
     } = useControls({
         fog: folder({
             fogEnabled: true,
@@ -1297,6 +1409,13 @@ export function App() {
             moonOrbitSpeed: { value: 0.005, min: 0.001, max: 0.1, step: 0.001, label: 'Orbit Speed' },
             moonVisible: { value: false, label: 'Show Moon Mesh' },
             highQualityShadows: { value: false, label: 'High Quality Shadows' },
+        }, { collapsed: true }),
+        stars: folder({
+            starsEnabled: { value: true, label: 'Show Stars' },
+            starsCount: { value: 1000, min: 200, max: 3000, step: 100, label: 'Star Count' },
+            starsSize: { value: 0.2, min: 0.05, max: 0.5, step: 0.05, label: 'Star Size' },
+            starsColor: { value: '#ffffff', label: 'Star Color' },
+            starsTwinkle: { value: true, label: 'Twinkling Effect' }
         }, { collapsed: true }),
         postProcessing: folder({
             enablePostProcessing: true,
@@ -1779,8 +1898,14 @@ export function App() {
         setSphereDarkMode(darkMode);
     }, [darkMode]);
 
+    // Add state for model tester
+    const [showModelTester, setShowModelTester] = useState(false)
+
     return (
         <>
+            {/* Show model tester if enabled */}
+            {showModelTester && <ModelTester />}
+            
             <div style={{
                 position: 'absolute',
                 top: '20px',
@@ -1828,6 +1953,15 @@ export function App() {
                     blur={0.4} // Further reduced blur
                     resolution={64} // Drastically reduced for performance
                 />
+
+                {/* Add stars to night sky */}
+                {(starsEnabled || darkMode) && <Stars 
+                    count={darkMode ? Math.min(starsCount * 1.5, 3000) : starsCount} 
+                    size={darkMode ? starsSize * 1.2 : starsSize} 
+                    color={darkMode ? "#c4e1ff" : starsColor} 
+                    twinkle={starsTwinkle}
+                    depth={darkMode ? 120 : 100} // Deeper stars in dark mode
+                />}
 
                 {/* Add Stats Collector - must be inside Canvas */}
                 <StatsCollector />
@@ -2177,6 +2311,36 @@ export function App() {
                     Player ID: <strong>{connectionManager.getPlayerId?.() || 'None'}</strong><br />
                     Connection: <strong>{connectionManager.isOfflineMode() ? 'Offline' : 'Online'}</strong><br />
                     Multiplayer: <strong>{enableMultiplayer ? 'Enabled' : 'Disabled'}</strong>
+                </div>
+            )}
+            
+            {/* Model tester button */}
+            <div style={{
+                position: 'absolute',
+                bottom: '10px',
+                right: '10px',
+                zIndex: 1000
+            }}>
+                <button 
+                    onClick={() => setShowModelTester(!showModelTester)}
+                    style={{
+                        padding: '8px 12px',
+                        backgroundColor: showModelTester ? '#f44336' : '#4CAF50',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontWeight: 'bold'
+                    }}
+                >
+                    {showModelTester ? 'Close Model Tester' : 'Test Model Animations'}
+                </button>
+            </div>
+
+            {/* Model tester for debugging */}
+            {showModelTester && (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 1000 }}>
+                    <ModelTester />
                 </div>
             )}
         </>
