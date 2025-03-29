@@ -298,8 +298,13 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             
             // Only update if the position is valid
             if (position && !Number.isNaN(position.x) && !Number.isNaN(position.y) && !Number.isNaN(position.z)) {
-                // Create target position
-                _modelTargetPosition.set(position.x, position.y - 0.3, position.z); // Lower position for jackalope so it's on the ground
+                // Create target position (adding offset to raise jackalope out of ground)
+                _modelTargetPosition.set(position.x, position.y, position.z);
+                
+                // Debug output every 5 seconds to avoid log spam
+                if (Date.now() % 5000 < 20) {
+                    console.log(`Jackalope local model position: (${_modelTargetPosition.x.toFixed(2)}, ${_modelTargetPosition.y.toFixed(2)}, ${_modelTargetPosition.z.toFixed(2)})`);
+                }
             }
         } catch (error) {
             console.error("Error updating jackalope model target position:", error);
@@ -482,9 +487,9 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 <JackalopeModel
                     animation={currentAnimation}
                     visible={visible}
-                    position={[_modelTargetPosition.x, _modelTargetPosition.y, _modelTargetPosition.z]}
-                    rotation={[0, Math.PI, 0]} // Rotated to face forward
-                    scale={[2, 2, 2]} // Larger scale to make it more visible
+                    position={[_modelTargetPosition.x, _modelTargetPosition.y + 0.3, _modelTargetPosition.z]}
+                    rotation={[0, Math.PI + (Math.PI/2), 0]} // Adjusted rotation to match remote view
+                    scale={[2, 2, 2]} // Match scale with remote view
                 />
             )}
         </>

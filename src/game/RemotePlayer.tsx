@@ -272,16 +272,21 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
 
   // For jackalope type, use the new JackalopeModel
   if (playerType === 'jackalope') {
+    // Debug output occasionally to help diagnose position issues
+    if (Date.now() % 5000 < 20) {
+      console.log(`Remote jackalope position: (${position?.x.toFixed(2)}, ${position?.y.toFixed(2)}, ${position?.z.toFixed(2)})`);
+    }
+    
     return (
       <>
         <JackalopeModel 
-          position={position ? [position.x, position.y, position.z] : [0, 0, 0]} 
-          rotation={[0, rotation || 0, 0]}
+          position={position ? [position.x, position.y + 0.3, position.z] : [0, 0.3, 0]} 
+          rotation={[0, (rotation || 0) + (Math.PI/2), 0]}
           animation={localIsMoving ? "walk" : "idle"}
-          scale={[1, 1, 1]}
+          scale={[2, 2, 2]}
         />
         {/* Player ID tag */}
-        <Html position={[position?.x || 0, (position?.y || 0) + 1.5, position?.z || 0]} center>
+        <Html position={[position?.x || 0, (position?.y || 0) + 2.5, position?.z || 0]} center>
           <div style={{ 
             background: 'rgba(0,0,0,0.5)', 
             padding: '2px 6px', 
