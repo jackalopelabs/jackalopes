@@ -12,6 +12,7 @@
 // Character Models
 export const MercModelPath = 'src/assets/characters/merc.glb';
 export const JackalopeModelPath = 'src/assets/characters/jackalope.glb';
+export const FpsArmsModelPath = '/fps.glb'; // FPS arms model is still in public directory
 
 // Animations embedded in models
 export const AnimationNames = {

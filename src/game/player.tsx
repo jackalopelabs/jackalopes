@@ -4,7 +4,6 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { CapsuleCollider, RigidBody, RigidBodyProps, useBeforePhysicsStep, useRapier } from '@react-three/rapier'
 import { useEffect, useRef, useState, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { useGamepad } from '../common/hooks/use-gamepad'
-import { useControls } from 'leva'
 import * as THREE from 'three'
 import { Component, Entity, EntityType } from './ecs'
 
@@ -13,6 +12,7 @@ import { ConnectionManager } from '../network/ConnectionManager'
 import { useMultiplayer } from '../network/MultiplayerManager'
 import { MercModel } from './MercModel' // Import our new MercModel component
 import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel
+import { FpsArmsModelPath } from '../assets' // Import FPS arms model path
 
 const _direction = new THREE.Vector3()
 const _frontVector = new THREE.Vector3()
@@ -63,8 +63,18 @@ export type PlayerProps = RigidBodyProps & {
 
 export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, connectionManager, visible = false, thirdPersonView = false, playerType = 'merc', ...props }, ref) => {
     const playerRef = useRef<EntityType>(null!)
-    const gltf = useGLTF('/fps.glb')
+    const gltf = useGLTF(FpsArmsModelPath)
     const { actions } = useAnimations(gltf.animations, gltf.scene)
+    
+    // Debug log for FPS arms model loading
+    useEffect(() => {
+        if (gltf?.scene) {
+            console.log('FPS arms model loaded successfully:', gltf.scene);
+            console.log('FPS arms animations:', Object.keys(actions));
+        } else {
+            console.error('Failed to load FPS arms model');
+        }
+    }, [gltf.scene, actions]);
     
     // For client-side prediction
     const lastStateTime = useRef(0)
@@ -75,16 +85,6 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     
     // Add a ref for the player's rotation (for the third-person camera)
     const playerRotation = useRef(new THREE.Quaternion())
-
-    const { x, y, z } = useControls('Arms Position', {
-        x: { value: 0.1, min: -1, max: 1, step: 0.1 },
-        y: { value: -0.62, min: -1, max: 1, step: 0.1 },
-        z: { value: -0.2, min: -2, max: 0, step: 0.1 }
-    }, {
-        collapsed: true,
-        order: 998,
-        hidden: true
-    })
 
     const rapier = useRapier()
     const camera = useThree((state) => state.camera)
@@ -582,17 +582,6 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     </RigidBody>
                 </Component>
             </Entity>
-            {/* Only render arms model when not in third-person view */}
-            {!thirdPersonView && (
-                <group position={[x, y, z]}>
-                    <primitive 
-                        object={gltf.scene} 
-                        position={[0, 0, 0]}
-                        rotation={[0, Math.PI, 0]}
-                        scale={0.7}
-                    />
-                </group>
-            )}
             
             {/* Render player model when in third-person view or visible is true */}
             {(thirdPersonView || visible) && playerType === 'merc' && (
@@ -662,7 +651,25 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     makeDefault
                     fov={normalFov}
                     position={[0, 0.75, 0]}
-                />
+                >
+                    {/* Move arms model inside camera to ensure it's attached to camera view */}
+                    {playerType === 'merc' && (
+                        <group position={[0, -0.5, -0.6]}>
+                            {/* Add a debug sphere to help visualize the position */}
+                            <mesh position={[0, 0, 0]}>
+                                <sphereGeometry args={[0.05, 16, 16]} />
+                                <meshStandardMaterial color="red" />
+                            </mesh>
+                            
+                            <primitive 
+                                object={gltf.scene} 
+                                position={[0, 0, 0]}
+                                rotation={[0, Math.PI, 0]}
+                                scale={1.2} // Increase scale for better visibility
+                            />
+                        </group>
+                    )}
+                </PerspectiveCamera>
             )}
             
             {document.pointerLockElement && !thirdPersonView && (
@@ -729,4 +736,4 @@ export const PlayerControls = ({ children, thirdPersonView = false }: PlayerCont
 }
 
 // Preload the model to ensure it's cached
-useGLTF.preload('/fps.glb')
+useGLTF.preload(FpsArmsModelPath)
