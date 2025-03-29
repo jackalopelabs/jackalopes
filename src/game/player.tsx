@@ -141,8 +141,8 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     // Access the primitive directly if needed
                     const primitive = fpsArmsRef.current.children.find(child => child.type === 'Group' && child.userData?.type === 'primitive');
                     if (primitive) {
-                        // Use this specific rotation to fix the upside-down and backwards issues
-                        primitive.rotation.set(0, Math.PI, Math.PI);
+                        // Fix upside-down issue by rotating 180° on Z axis instead of X axis
+                        primitive.rotation.set(0, Math.PI, 0);
                     }
                 } catch (e) {
                     // Ignore errors accessing children
@@ -245,9 +245,9 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                         // Find all child objects and reset them as well
                         fpsArmsRef.current.traverse((child) => {
                             if (child.type === 'Group' && child.userData?.type === 'primitive') {
-                                // Apply the correct rotation to the primitive specifically
-                                child.rotation.set(0, Math.PI, Math.PI);
-                                console.log('[FPS ARMS] Set primitive rotation to [0, Math.PI, Math.PI]');
+                                // Fix upside-down issue by rotating 180° on Y axis only
+                                child.rotation.set(0, Math.PI, 0);
+                                console.log('[FPS ARMS] Set primitive rotation to [0, Math.PI, 0]');
                             }
                         });
                         
@@ -793,8 +793,8 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     // Access the primitive directly if needed
                     const primitive = fpsArmsRef.current.children.find(child => child.type === 'Group' && child.userData?.type === 'primitive');
                     if (primitive) {
-                        // Use this specific rotation to fix the upside-down and backwards issues
-                        primitive.rotation.set(0, Math.PI, Math.PI);
+                        // Fix upside-down issue by rotating 180° on Y axis only
+                        primitive.rotation.set(0, Math.PI, 0);
                     }
                 } catch (e) {
                     // Ignore errors accessing children
@@ -901,7 +901,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                             <primitive 
                                 object={gltf.scene} 
                                 position={[0, 0, 0]}
-                                rotation={[0, Math.PI, Math.PI]} // This specific rotation fixes both issues
+                                rotation={[0, Math.PI, 0]} // Fixed rotation that solves the upside-down issue
                                 scale={scaleArms}
                                 userData={{ type: 'primitive' }} // Add a marker to find this child
                             />
