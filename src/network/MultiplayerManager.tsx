@@ -432,8 +432,38 @@ export const useMultiplayer = (
     
     console.log("⚡ Setting up remote player tracking in MultiplayerManager");
     
+    // Handle player joined event
     const handlePlayerJoined = (data: any) => {
       console.log("➕ Player joined:", data);
+      
+      if (data.id === connectionManager.getPlayerId()) {
+        console.log('Ignoring join event for local player');
+        return;
+      }
+      
+      console.log(`Adding new remote player: ${data.id}`);
+      
+      // Get player type from the server data if available, or use a determinate assignment based on player count
+      let playerType = data.state?.playerType || data.playerType || 'unknown';
+      
+      // If we don't have a specific player type from the server
+      if (playerType === 'unknown') {
+        // Count existing remote players to determine the next alternating type
+        const remotePlayerCount = Object.keys(remotePlayers).length;
+        playerType = remotePlayerCount % 2 === 0 ? 'jackalope' : 'merc';
+        console.log(`No player type in data - assigning based on player count: ${playerType}`);
+      }
+      
+      console.log(`Assigning player type ${playerType} to ${data.id}`);
+      
+      // Check if this aligns with expected alternating pattern and log any discrepancies
+      const remotePlayerCount = Object.keys(remotePlayers).length;
+      const expectedType = remotePlayerCount % 2 === 0 ? 'jackalope' : 'merc';
+      if (playerType !== expectedType) {
+        console.log(`⚠️ Player ${data.id} has type ${playerType} but expected ${expectedType} based on remote player count ${remotePlayerCount}`);
+      }
+      
+      console.log(`Final player type assignment for ${data.id}: ${playerType}`);
       
       setRemotePlayers(prev => {
         // Skip if player already exists
@@ -441,14 +471,6 @@ export const useMultiplayer = (
           console.log(`Player ${data.id} already exists in our list`);
           return prev;
         }
-        
-        console.log(`Adding new remote player: ${data.id}`);
-        
-        // Determine player type - let's assume merc or jackalope based on some pattern
-        // In a full implementation, this would come from the server
-        // For now, we'll use a simple algorithm: odd player IDs get jackalope, even get merc
-        const playerType = data.id && data.id.charCodeAt(data.id.length - 1) % 2 === 0 ? 'merc' : 'jackalope';
-        console.log(`Assigning player type ${playerType} to ${data.id}`);
         
         // Convert position and rotation to the format expected by RemotePlayer
         const position = data.state?.position 
@@ -467,7 +489,8 @@ export const useMultiplayer = (
             position,
             rotation,
             lastUpdate: Date.now(),
-            playerType
+            playerType: playerType as 'merc' | 'jackalope',
+            isMoving: false // Start as idle
           }
         };
       });
@@ -494,6 +517,11 @@ export const useMultiplayer = (
     };
     
     const handlePlayerUpdate = (data: any) => {
+      // Log playerType from incoming data
+      if (DEBUG_LEVEL >= 2) {
+        console.log(`🧩 Player update for ${data.id} with playerType: ${data.playerType || 'undefined'}, state.playerType: ${data.state?.playerType || 'undefined'}`);
+      }
+      
       // Skip updates from ourselves
       if (data.id === connectionManager.getPlayerId()) {
         return;
@@ -560,7 +588,7 @@ export const useMultiplayer = (
               position,
               rotation,
               lastUpdate: now,
-              playerType: data.playerType || 'merc',
+              playerType: data.state?.playerType || data.playerType || 'merc',
               isMoving: false // Start as idle
             }
           };
@@ -574,7 +602,9 @@ export const useMultiplayer = (
             position,
             rotation,
             lastUpdate: now,
-            isMoving
+            isMoving,
+            // Extract playerType from state if available, otherwise keep existing or default to merc
+            playerType: data.state?.playerType || data.playerType || prev[data.id].playerType || 'merc'
           }
         };
       });
@@ -1191,8 +1221,38 @@ export const MultiplayerManager: React.FC<{
     
     console.log("⚡ Setting up remote player tracking in MultiplayerManager");
     
+    // Handle player joined event
     const handlePlayerJoined = (data: any) => {
       console.log("➕ Player joined:", data);
+      
+      if (data.id === connectionManager.getPlayerId()) {
+        console.log('Ignoring join event for local player');
+        return;
+      }
+      
+      console.log(`Adding new remote player: ${data.id}`);
+      
+      // Get player type from the server data if available, or use a determinate assignment based on player count
+      let playerType = data.state?.playerType || data.playerType || 'unknown';
+      
+      // If we don't have a specific player type from the server
+      if (playerType === 'unknown') {
+        // Count existing remote players to determine the next alternating type
+        const remotePlayerCount = Object.keys(remotePlayers).length;
+        playerType = remotePlayerCount % 2 === 0 ? 'jackalope' : 'merc';
+        console.log(`No player type in data - assigning based on player count: ${playerType}`);
+      }
+      
+      console.log(`Assigning player type ${playerType} to ${data.id}`);
+      
+      // Check if this aligns with expected alternating pattern and log any discrepancies
+      const remotePlayerCount = Object.keys(remotePlayers).length;
+      const expectedType = remotePlayerCount % 2 === 0 ? 'jackalope' : 'merc';
+      if (playerType !== expectedType) {
+        console.log(`⚠️ Player ${data.id} has type ${playerType} but expected ${expectedType} based on remote player count ${remotePlayerCount}`);
+      }
+      
+      console.log(`Final player type assignment for ${data.id}: ${playerType}`);
       
       setRemotePlayers(prev => {
         // Skip if player already exists
@@ -1200,14 +1260,6 @@ export const MultiplayerManager: React.FC<{
           console.log(`Player ${data.id} already exists in our list`);
           return prev;
         }
-        
-        console.log(`Adding new remote player: ${data.id}`);
-        
-        // Determine player type - let's assume merc or jackalope based on some pattern
-        // In a full implementation, this would come from the server
-        // For now, we'll use a simple algorithm: odd player IDs get jackalope, even get merc
-        const playerType = data.id && data.id.charCodeAt(data.id.length - 1) % 2 === 0 ? 'merc' : 'jackalope';
-        console.log(`Assigning player type ${playerType} to ${data.id}`);
         
         // Convert position and rotation to the format expected by RemotePlayer
         const position = data.state?.position 
@@ -1226,7 +1278,8 @@ export const MultiplayerManager: React.FC<{
             position,
             rotation,
             lastUpdate: Date.now(),
-            playerType
+            playerType: playerType as 'merc' | 'jackalope',
+            isMoving: false // Start as idle
           }
         };
       });
@@ -1253,6 +1306,11 @@ export const MultiplayerManager: React.FC<{
     };
     
     const handlePlayerUpdate = (data: any) => {
+      // Log playerType from incoming data
+      if (DEBUG_LEVEL >= 2) {
+        console.log(`🧩 Player update for ${data.id} with playerType: ${data.playerType || 'undefined'}, state.playerType: ${data.state?.playerType || 'undefined'}`);
+      }
+      
       // Skip updates from ourselves
       if (data.id === connectionManager.getPlayerId()) {
         return;
@@ -1319,7 +1377,7 @@ export const MultiplayerManager: React.FC<{
               position,
               rotation,
               lastUpdate: now,
-              playerType: data.playerType || 'merc',
+              playerType: data.state?.playerType || data.playerType || 'merc',
               isMoving: false // Start as idle
             }
           };
@@ -1333,7 +1391,9 @@ export const MultiplayerManager: React.FC<{
             position,
             rotation,
             lastUpdate: now,
-            isMoving
+            isMoving,
+            // Extract playerType from state if available, otherwise keep existing or default to merc
+            playerType: data.state?.playerType || data.playerType || prev[data.id].playerType || 'merc'
           }
         };
       });

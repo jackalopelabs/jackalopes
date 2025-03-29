@@ -422,267 +422,252 @@ const SnapshotDebugOverlay = ({
 const MultiplayerDebugPanel = ({ 
   connectionManager, 
   visible,
-  isOfflineMode
+  isOfflineMode,
+  setPlayerCharacterInfo
 }: { 
   connectionManager: any, 
   visible: boolean,
-  isOfflineMode: boolean
+  isOfflineMode: boolean,
+  setPlayerCharacterInfo: (info: { type: 'merc' | 'jackalope', thirdPerson: boolean }) => void
 }) => {
-  // Set to false by default to keep it collapsed
-  const [isExpanded, setIsExpanded] = useState(false);
-  const [activeTestPlayers, setActiveTestPlayers] = useState<string[]>([]);
+  const [shots, setShots] = useState(0);
+  const [universals, setUniversals] = useState(0);
+  const [forceMercCharacter, setForceMercCharacter] = useState(false);
   
-  if (!visible) return null;
+  // Insert a toggle button for testing character type override
+  const [characterTypeOverride, setCharacterTypeOverride] = useState<'merc' | 'jackalope' | null>(null);
+  
+  // Track forces
+  const [forceCount, setForceCount] = useState(0);
+  
+  useEffect(() => {
+    if (!connectionManager || !characterTypeOverride) return;
+    
+    // Force character type using our new helper method
+    const characterInfo = connectionManager.forceCharacterType(characterTypeOverride);
+    console.log(`🎮 Forced character type to ${characterTypeOverride}:`, characterInfo);
+    
+    // Increment force count to trigger our dependency
+    setForceCount(prev => prev + 1);
+    
+    // Reset override
+    setCharacterTypeOverride(null);
+  }, [connectionManager, characterTypeOverride]);
 
   const sendTestShot = () => {
-    // Generate a test shot and broadcast it
-    const testShot = {
-      id: 'test-player',
-      shotId: `test-shot-${Date.now()}`,
-      origin: [0, 0, 0],
-      direction: [0, 1, 0],
-      timestamp: Date.now()
-    };
+    if (!connectionManager) return;
     
-    // Trigger a shot via connectionManager
-    connectionManager.emit('player_shoot', testShot);
-    console.log('Manual test shot fired:', testShot);
-  };
-
-  const sendUniversalBroadcast = () => {
-    // Use the global broadcast function if available
-    if (window.__shotBroadcast) {
-      const testShot = {
-        id: 'broadcast-player',
-        shotId: `universal-broadcast-${Date.now()}`,
-        origin: [0, 0, 0],
-        direction: [0, 1, 0],
-        timestamp: Date.now()
-      };
-      
-      // Use our more robust broadcast method
-      window.__shotBroadcast(testShot);
-    } else {
-      // Fallback to simple localStorage method
-      const testShot = {
-        id: 'broadcast-player',
-        shotId: `universal-broadcast-${Date.now()}`,
-        origin: [0, 0, 0],
-        direction: [0, 1, 0],
-        timestamp: Date.now()
-      };
-      
-      // Store in localStorage for cross-browser communication
-      localStorage.setItem('jackalopes_shot_events', JSON.stringify(testShot));
-      console.log('UNIVERSAL BROADCAST sent (fallback):', testShot);
+    // Generate a random shot direction
+    const randomAngle = Math.random() * Math.PI * 2;
+    const randomDirection: [number, number, number] = [
+      Math.sin(randomAngle),
+      0, // No vertical component
+      Math.cos(randomAngle)
+    ];
+    
+    // Player's current position (hardcoded for test)
+    const origin: [number, number, number] = [0, 1, 0];
+    
+    // Send the shot through the connection manager
+    try {
+      connectionManager.sendShootEvent(origin, randomDirection);
+      setShots(s => s + 1);
+      console.log('Test shot sent');
+    } catch (error) {
+      console.error('Error sending test shot:', error);
     }
   };
-
+  
+  const sendUniversalBroadcast = () => {
+    // Use the browser broadcast API if window.__shotBroadcast is available
+    if (window.__shotBroadcast) {
+      const testShotData = {
+        id: 'test-player-universal',
+        origin: [0, 1, 0] as [number, number, number],
+        direction: [1, 0, 0] as [number, number, number],
+        color: '#ff0000',
+        timestamp: Date.now(),
+        shotId: `universal-${Date.now()}`
+      };
+      
+      try {
+        window.__shotBroadcast(testShotData);
+        setUniversals(u => u + 1);
+        console.log('Universal broadcast sent');
+      } catch (error) {
+        console.error('Error sending universal broadcast:', error);
+      }
+    } else {
+      console.error('Universal broadcast not available - window.__shotBroadcast is not defined');
+    }
+  };
+  
   const forceOfflineMode = () => {
-    console.log('Forcing offline mode...');
     if (connectionManager && connectionManager.forceReady) {
       connectionManager.forceReady();
     }
   };
   
-  // Add test player functions
-  const addTestPlayer = () => {
-    if (connectionManager && connectionManager.addTestPlayer) {
-      const testPlayerId = connectionManager.addTestPlayer();
-      setActiveTestPlayers(prev => [...prev, testPlayerId]);
-      console.log('Added test player:', testPlayerId);
-    } else {
-      console.warn('Test player functionality not available');
-    }
-  };
-  
-  const removeAllTestPlayers = () => {
-    if (connectionManager && connectionManager.removeAllTestPlayers) {
-      connectionManager.removeAllTestPlayers();
-      setActiveTestPlayers([]);
-      console.log('Removed all test players');
-    }
-  };
-  
-  // Add reset player count function
   const resetPlayerCount = () => {
-    console.log('Resetting player count...');
-    try {
-      if (connectionManager && connectionManager.resetPlayerCount) {
-        // Use the ConnectionManager's method which handles events
-        connectionManager.resetPlayerCount();
-        
-        // The confirm dialog will be shown by the event handler
-      } else {
-        // Fallback if method not available
-        localStorage.removeItem('jackalopes_player_count');
-        localStorage.removeItem('jackalopes_last_activity');
-        localStorage.setItem('jackalopes_player_count', '-1');
-        
-        console.log('Reset jackalopes_player_count in localStorage.');
-        
-        if (confirm('Character assignment reset! Reload now to be assigned as a Jackalope in 3rd-person view?')) {
-          window.location.reload();
-        }
+    if (connectionManager && connectionManager.resetPlayerCount) {
+      connectionManager.resetPlayerCount();
+      console.log('🔄 Reset player count - next reload will assign new player types');
+      
+      // After reset, force a reload to get a new player type
+      if (confirm('Reset player count successful! Reload now to get a new player type?')) {
+        window.location.reload();
       }
-    } catch (e) {
-      console.error('Failed to reset player count:', e);
-      alert('Failed to reset player count: ' + e);
     }
   };
 
-  return (
+  return visible ? (
     <div style={{
       position: 'fixed',
-      bottom: isExpanded ? '180px' : '10px', // Move up when expanded
-      right: '10px', // Changed from left to right
-      backgroundColor: isOfflineMode ? 'rgba(244, 67, 54, 0.8)' : 'rgba(0, 0, 0, 0.7)',
+      top: '10px',
+      right: '10px',
+      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+      color: 'white',
       padding: '10px',
-      borderRadius: '4px',
+      borderRadius: '5px',
       zIndex: 1000,
-      border: isOfflineMode ? '1px solid #ff8a80' : 'none',
+      width: '300px',
+      fontFamily: 'monospace'
     }}>
-      <div style={{ 
-        fontSize: '14px', 
-        color: 'white', 
-        marginBottom: '10px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
-        <span>
-          {isOfflineMode ? '🔴 OFFLINE MODE' : 'Multiplayer Tools'}
-        </span>
+      <div style={{ marginBottom: '10px', fontWeight: 'bold' }}>Multiplayer Test Panel</div>
+      
+      <div style={{ marginBottom: '10px' }}>
         <button 
-          onClick={() => setIsExpanded(!isExpanded)}
-          style={{
-            backgroundColor: '#333',
-            color: 'white',
-            border: 'none',
-            padding: '3px 6px',
-            borderRadius: '2px',
-            fontSize: '10px',
-            cursor: 'pointer',
-          }}
-        >
-          {isExpanded ? 'Collapse' : 'Expand'}
-        </button>
-      </div>
-      <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-        <button
           onClick={sendTestShot}
-          style={{
-            backgroundColor: '#4CAF50',
-            color: 'white',
-            border: 'none',
-            padding: '5px 10px',
-            borderRadius: '4px',
-            cursor: 'pointer',
+          style={{ 
+            backgroundColor: '#4CAF50', 
+            border: 'none', 
+            color: 'white', 
+            padding: '5px 10px', 
+            margin: '0 5px 5px 0',
+            borderRadius: '3px',
+            cursor: 'pointer'
           }}
         >
           TEST SHOT
         </button>
-        <button
+        <span>Shots: {shots}</span>
+      </div>
+      
+      <div style={{ marginBottom: '10px' }}>
+        <button 
           onClick={sendUniversalBroadcast}
-          style={{
-            backgroundColor: '#2196F3',
-            color: 'white',
-            border: 'none',
-            padding: '5px 10px',
-            borderRadius: '4px',
-            cursor: 'pointer',
+          style={{ 
+            backgroundColor: '#2196F3', 
+            border: 'none', 
+            color: 'white', 
+            padding: '5px 10px', 
+            margin: '0 5px 5px 0',
+            borderRadius: '3px',
+            cursor: 'pointer'
           }}
         >
           UNIVERSAL BROADCAST
         </button>
-        <button
+        <span>Sent: {universals}</span>
+      </div>
+      
+      <div style={{ marginBottom: '10px' }}>
+        <button 
           onClick={forceOfflineMode}
-          style={{
-            backgroundColor: isOfflineMode ? '#666' : '#FF5722',
-            color: 'white',
-            border: 'none',
-            padding: '5px 10px',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            opacity: isOfflineMode ? 0.7 : 1,
-          }}
-          disabled={isOfflineMode}
-        >
-          {isOfflineMode ? 'ALREADY OFFLINE' : 'FORCE OFFLINE MODE'}
-        </button>
-        
-        {/* Add test player controls */}
-        <button
-          onClick={addTestPlayer}
-          style={{
-            backgroundColor: '#9C27B0',
-            color: 'white',
-            border: 'none',
-            padding: '5px 10px',
-            borderRadius: '4px',
-            cursor: 'pointer',
+          style={{ 
+            backgroundColor: '#FF9800', 
+            border: 'none', 
+            color: 'white', 
+            padding: '5px 10px', 
+            margin: '0 5px 5px 0',
+            borderRadius: '3px',
+            cursor: 'pointer'
           }}
         >
-          ADD TEST PLAYER
+          FORCE OFFLINE MODE
         </button>
-        <button
-          onClick={removeAllTestPlayers}
-          style={{
-            backgroundColor: '#F44336',
-            color: 'white',
-            border: 'none',
-            padding: '5px 10px',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            opacity: activeTestPlayers.length === 0 ? 0.7 : 1,
+        <span>{isOfflineMode ? '✅ OFFLINE' : '❌ ONLINE'}</span>
+      </div>
+      
+      <div style={{ marginBottom: '10px' }}>
+        <button 
+          onClick={() => setCharacterTypeOverride('merc')}
+          style={{ 
+            backgroundColor: '#E91E63', 
+            border: 'none', 
+            color: 'white', 
+            padding: '5px 10px', 
+            margin: '0 5px 5px 0',
+            borderRadius: '3px',
+            cursor: 'pointer'
           }}
-          disabled={activeTestPlayers.length === 0}
         >
-          {activeTestPlayers.length ? `REMOVE TEST PLAYERS (${activeTestPlayers.length})` : 'NO TEST PLAYERS'}
+          FORCE MERC
         </button>
-        <button
+        <button 
+          onClick={() => setCharacterTypeOverride('jackalope')}
+          style={{ 
+            backgroundColor: '#9C27B0', 
+            border: 'none', 
+            color: 'white', 
+            padding: '5px 10px', 
+            margin: '0 5px 5px 0',
+            borderRadius: '3px',
+            cursor: 'pointer'
+          }}
+        >
+          FORCE JACKALOPE
+        </button>
+      </div>
+      
+      <div style={{ marginBottom: '10px' }}>
+        <button 
           onClick={resetPlayerCount}
-          style={{
-            backgroundColor: '#FFA500',
-            color: 'white',
-            border: 'none',
-            padding: '5px 10px',
-            borderRadius: '4px',
-            cursor: 'pointer',
+          style={{ 
+            backgroundColor: '#F44336', 
+            border: 'none', 
+            color: 'white', 
+            padding: '5px 10px', 
+            margin: '0 5px 5px 0',
+            borderRadius: '3px',
+            cursor: 'pointer'
           }}
         >
           RESET PLAYER COUNT
         </button>
       </div>
       
-      {isExpanded && (
-        <div style={{
-          marginTop: '10px',
-          fontSize: '12px',
-          color: 'white',
-          backgroundColor: 'rgba(0, 0, 0, 0.3)',
-          padding: '8px',
-          borderRadius: '4px',
-        }}>
-          <p style={{ margin: '5px 0' }}>
-            <strong>Connection Status:</strong> {connectionManager.isReadyToSend() ? 'Ready' : 'Not Ready'}
-          </p>
-          <p style={{ margin: '5px 0' }}>
-            <strong>Socket State:</strong> {connectionManager.getSocketState?.() || 'Unknown'}
-          </p>
-          <p style={{ margin: '5px 0' }}>
-            <strong>Player ID:</strong> {connectionManager.getPlayerId?.() || 'None'}
-          </p>
-          <p style={{ margin: '5px 0' }}>
-            <strong>Offline Mode:</strong> {isOfflineMode ? 'Yes' : 'No'}
-          </p>
-          <p style={{ margin: '5px 0' }}>
-            <strong>Test Players:</strong> {activeTestPlayers.length ? activeTestPlayers.join(', ') : 'None'}
-          </p>
-        </div>
-      )}
+      <div style={{ fontSize: '10px', opacity: 0.8 }}>
+        Connection: {connectionManager ? 'Ready' : 'Not initialized'}<br />
+        Mode: {isOfflineMode ? 'Offline (LocalStorage)' : 'Online (WebSocket)'}<br />
+        Forces: {forceCount}
+      </div>
+      
+      <div style={{ marginBottom: '10px' }}>
+        <button 
+          onClick={() => {
+            if (connectionManager && connectionManager.resetAndCorrectCharacterType) {
+              // Force character type correction
+              const characterInfo = connectionManager.resetAndCorrectCharacterType();
+              console.log(`🎮 Force corrected character type: ${characterInfo.type}`);
+              setPlayerCharacterInfo(characterInfo);
+            }
+          }}
+          style={{ 
+            backgroundColor: '#673AB7', 
+            border: 'none', 
+            color: 'white', 
+            padding: '5px 10px', 
+            margin: '0 5px 5px 0',
+            borderRadius: '3px',
+            cursor: 'pointer'
+          }}
+        >
+          CORRECT CHARACTER TYPE
+        </button>
+      </div>
     </div>
-  );
+  ) : null;
 };
 
 // Simplified ThirdPersonCameraControls component without OrbitControls
@@ -1448,7 +1433,7 @@ export function App() {
     })
 
     // Update the Game UI controls to include virtual gamepad toggle
-    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType, darkMode } = useControls('Game UI', {
+    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType, darkMode, set: setControls } = useControls('Game UI', {
         showTools: {
             value: false,
             label: 'Show Multiplayer Tools'
@@ -1847,39 +1832,79 @@ export function App() {
             return;
         }
         
-        // Make sure connection is ready
-        if (!connectionManager.isReadyToSend()) {
-            console.log('Connection not ready yet, will check again when ready');
-            
-            // Set up a listener for when the connection becomes ready
-            const handleInitialized = () => {
-                console.log('Connection initialized, checking character type');
-                const characterInfo = connectionManager.getPlayerCharacterType();
-                console.log('Character based on connection order:', characterInfo);
-                
-                // Update the character type and view settings
-                setPlayerCharacterInfo(characterInfo);
-            };
-            
-            // Add listener
-            connectionManager.on('initialized', handleInitialized);
-            
-            // Clean up listener
-            return () => {
-                connectionManager.off('initialized', handleInitialized);
-            };
-        } else {
-            // Connection is already ready, get character type
-            console.log('Connection already ready, setting character type');
+        // IMPORTANT: First check the player index 
+        const playerIndex = connectionManager.getPlayerIndex();
+        console.log(`🎮 Current player index: ${playerIndex}`);
+        
+        // Only get character info after player has a valid index
+        if (playerIndex >= 0) {
+            // Get character info from connection manager
             const characterInfo = connectionManager.getPlayerCharacterType();
-            console.log('Character based on connection order:', characterInfo);
+            console.log('🎮 Character assignment from ConnectionManager:', characterInfo);
+            
+            // Double-check that assignment matches index
+            if ((playerIndex % 2 === 0 && characterInfo.type !== 'jackalope') || 
+                (playerIndex % 2 === 1 && characterInfo.type !== 'merc')) {
+                console.error(`⚠️ Character type mismatch! Index ${playerIndex} should be ${playerIndex % 2 === 0 ? 'JACKALOPE' : 'MERC'} but is ${characterInfo.type.toUpperCase()}`);
+            }
+            
+            // Update local state and ensure UI updates
+            // IMPORTANT: Override any previous settings with the connection-manager assigned type
             setPlayerCharacterInfo(characterInfo);
+            
+            // Also set the player type in the connection manager so it will be sent in updates
+            connectionManager.setPlayerType(characterInfo.type);
+            
+            // Auto-switch to third person view if character type requires it
+            if (characterInfo.thirdPerson) {
+                console.log('Character requires third-person view');
+            }
+        } else {
+            console.log('Waiting for player index assignment before setting character type');
         }
-    }, [connectionManager, enableMultiplayer]);
+    }, [connectionManager, enableMultiplayer, connectionManager?.getPlayerIndex()]);
+
+    // Force characterType to match playerCharacterInfo when it changes
+    useEffect(() => {
+        if (playerCharacterInfo && playerCharacterInfo.type) {
+            // Log the character type change
+            console.log(`Character type set to ${playerCharacterInfo.type} (third-person: ${playerCharacterInfo.thirdPerson})`);
+            
+            // If this is a third-person character, force third-person camera setup
+            if (playerCharacterInfo.thirdPerson) {
+                // Manually set up third-person camera
+                console.log('Forcing third-person camera setup for', playerCharacterInfo.type);
+                // The third-person view will be handled by the rendering logic
+            }
+        }
+    }, [playerCharacterInfo]);
+
+    // Ensure we respect the character info when the player index changes
+    useEffect(() => {
+        // Check if connected and player index is valid
+        if (connectionManager && connectionManager.getPlayerIndex() >= 0) {
+            // Get updated character info based on the latest player index
+            const characterInfo = connectionManager.getPlayerCharacterType();
+            console.log('🎮 Updated character assignment from ConnectionManager:', characterInfo);
+            
+            // CRITICAL: This update must override any previous settings
+            // This ensures the player type is correctly set based on player index
+            setPlayerCharacterInfo(characterInfo);
+            
+            // Set player type in connection manager for network updates
+            connectionManager.setPlayerType(characterInfo.type);
+        }
+    }, [connectionManager?.getPlayerIndex?.()]);
 
     // Add a separate effect to log when the character info changes
     useEffect(() => {
         console.log('Player character info updated:', playerCharacterInfo);
+        
+        // If this is a third-person character, force third-person view
+        if (playerCharacterInfo.thirdPerson) {
+            // Configure third-person camera
+            console.log('Enabling third-person view for', playerCharacterInfo.type);
+        }
     }, [playerCharacterInfo]);
 
     // Add a conditional class to the body element for dark mode
@@ -1900,6 +1925,37 @@ export function App() {
 
     // Add state for model tester
     const [showModelTester, setShowModelTester] = useState(false)
+
+    // Add an effect to forcibly correct character type based on player index when component mounts
+    useEffect(() => {
+        // Only run this once on component mount
+        console.log('Adding character correction check');
+        
+        // Set a timer to check and correct the character type after the player index is assigned
+        const timer = setTimeout(() => {
+            if (connectionManager && connectionManager.getPlayerIndex() >= 0) {
+                // Get the player index
+                const playerIndex = connectionManager.getPlayerIndex();
+                console.log(`Checking if character type matches player index ${playerIndex}`);
+                
+                // Get current character info
+                const characterInfo = playerCharacterInfo;
+                
+                // Check if the type matches the index parity
+                const expectedType = playerIndex % 2 === 0 ? 'jackalope' : 'merc';
+                if (characterInfo.type !== expectedType) {
+                    console.error(`Character type mismatch! Forcing correction...`);
+                    // Correct the character type
+                    const correctedInfo = connectionManager.resetAndCorrectCharacterType();
+                    setPlayerCharacterInfo(correctedInfo);
+                } else {
+                    console.log(`Character type ${characterInfo.type} correctly matches player index ${playerIndex}`);
+                }
+            }
+        }, 3000); // Check after 3 seconds to allow for player index assignment
+        
+        return () => clearTimeout(timer);
+    }, []);
 
     return (
         <>
@@ -2264,6 +2320,7 @@ export function App() {
                     connectionManager={connectionManager} 
                     visible={true} 
                     isOfflineMode={isOfflineMode}
+                    setPlayerCharacterInfo={setPlayerCharacterInfo}
                 />
             )}
 

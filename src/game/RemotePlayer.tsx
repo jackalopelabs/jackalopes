@@ -130,6 +130,9 @@ const PilotLight = () => {
 
 // Remote Player Component
 export const RemotePlayer = ({ playerId, position, rotation, playerType, isMoving }: RemotePlayerData) => {
+  // Add debug logging for player type
+  console.log(`🎮 RemotePlayer ${playerId} rendering with playerType: ${playerType || 'undefined'}`);
+  
   const meshRef = useRef<THREE.Mesh>(null);
   const lastPosition = useRef<THREE.Vector3 | null>(null);
   const [localIsMoving, setLocalIsMoving] = useState(false);
@@ -250,7 +253,100 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
     );
   }
 
-  // For other player types (jackalope), use the geometric representation
+  // For jackalope type, use the same model as in jackalope.tsx
+  if (playerType === 'jackalope') {
+    return (
+      <group position={[position.x, position.y, position.z]} rotation={[0, rotation || 0, 0]}>
+        {/* Jackalope body - white bunny */}
+        <mesh position={[0, 0.3, 0]} castShadow>
+          <capsuleGeometry args={[0.3, 0.4, 4, 8]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        
+        {/* Jackalope head */}
+        <mesh position={[0, 0.8, 0.2]} castShadow>
+          <sphereGeometry args={[0.25, 16, 16]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        
+        {/* Jackalope ears - left */}
+        <mesh position={[-0.1, 1.1, 0.2]} rotation={[0.2, 0, -0.1]} castShadow>
+          <capsuleGeometry args={[0.03, 0.4, 4, 8]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        
+        {/* Jackalope ears - right */}
+        <mesh position={[0.1, 1.1, 0.2]} rotation={[0.2, 0, 0.1]} castShadow>
+          <capsuleGeometry args={[0.03, 0.4, 4, 8]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        
+        {/* Jackalope tiny antlers - left */}
+        <mesh position={[-0.1, 1, 0.3]} rotation={[0.4, 0, -0.5]} castShadow>
+          <cylinderGeometry args={[0.01, 0.02, 0.2, 8]} />
+          <meshStandardMaterial color="#8B4513" />
+        </mesh>
+        
+        {/* Jackalope tiny antlers - right */}
+        <mesh position={[0.1, 1, 0.3]} rotation={[0.4, 0, 0.5]} castShadow>
+          <cylinderGeometry args={[0.01, 0.02, 0.2, 8]} />
+          <meshStandardMaterial color="#8B4513" />
+        </mesh>
+        
+        {/* Jackalope front legs */}
+        <mesh position={[-0.15, 0.15, 0.1]} rotation={[0.3, 0, 0]} castShadow>
+          <capsuleGeometry args={[0.06, 0.25, 4, 8]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        <mesh position={[0.15, 0.15, 0.1]} rotation={[0.3, 0, 0]} castShadow>
+          <capsuleGeometry args={[0.06, 0.25, 4, 8]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        
+        {/* Jackalope back legs (slightly larger for jumping) */}
+        <mesh position={[-0.15, 0.15, -0.2]} rotation={[-0.3, 0, 0]} castShadow>
+          <capsuleGeometry args={[0.08, 0.3, 4, 8]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        <mesh position={[0.15, 0.15, -0.2]} rotation={[-0.3, 0, 0]} castShadow>
+          <capsuleGeometry args={[0.08, 0.3, 4, 8]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        
+        {/* Jackalope tail */}
+        <mesh position={[0, 0.3, -0.35]} castShadow>
+          <sphereGeometry args={[0.1, 8, 8]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        
+        {/* Eyes */}
+        <mesh position={[-0.12, 0.85, 0.4]} castShadow>
+          <sphereGeometry args={[0.03, 8, 8]} />
+          <meshStandardMaterial color="#ff0000" />
+        </mesh>
+        <mesh position={[0.12, 0.85, 0.4]} castShadow>
+          <sphereGeometry args={[0.03, 8, 8]} />
+          <meshStandardMaterial color="#ff0000" />
+        </mesh>
+        
+        {/* Player ID tag */}
+        <Html position={[0, 1.5, 0]} center>
+          <div style={{ 
+            background: 'rgba(0,0,0,0.5)', 
+            padding: '2px 6px', 
+            borderRadius: '4px', 
+            color: 'white',
+            fontSize: '10px',
+            fontFamily: 'Arial, sans-serif'
+          }}>
+            {playerId?.split('-')[0]}
+          </div>
+        </Html>
+      </group>
+    );
+  }
+
+  // For other player types, use the geometric representation
   const color = useMemo(() => {
     // Generate a consistent color based on the player ID
     if (!playerId) {

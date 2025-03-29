@@ -283,7 +283,8 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 position: [position.x, position.y, position.z],
                 rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
                 velocity: [velocity.x, velocity.y, velocity.z],
-                sequence: Date.now()
+                sequence: Date.now(),
+                playerType: 'jackalope'
             });
         }
 

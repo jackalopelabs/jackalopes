@@ -15,6 +15,7 @@ type GameState = {
     position: [number, number, number];
     rotation: [number, number, number, number];
     health: number;
+    playerType: 'merc' | 'jackalope';
   }>;
 };
 
@@ -32,6 +33,7 @@ interface PlayerSnapshot {
   rotation: [number, number, number, number];
   velocity?: [number, number, number];
   health: number;
+  playerType: 'merc' | 'jackalope';
 }
 
 export class ConnectionManager extends EventEmitter {
@@ -78,6 +80,9 @@ export class ConnectionManager extends EventEmitter {
   
   // For testing with simulated players
   private testPlayerIntervals: Record<string, number> = {};
+  
+  // Store player character type
+  private playerType: 'merc' | 'jackalope' = 'merc';
   
   constructor(private serverUrl: string = 'ws://localhost:8082') {
     super();
@@ -483,17 +488,27 @@ export class ConnectionManager extends EventEmitter {
     });
   }
   
+  // Method to set player type
+  setPlayerType(type: 'merc' | 'jackalope'): void {
+    this.log(LogLevel.INFO, `Setting player type to ${type}`);
+    this.playerType = type;
+  }
+  
   // New version of sendPlayerUpdate that accepts a single updateData object
   sendPlayerUpdate(updateData: {
     position: [number, number, number],
     rotation: [number, number, number, number],
     velocity?: [number, number, number],
-    sequence?: number
+    sequence?: number,
+    playerType?: 'merc' | 'jackalope' // Add optional playerType parameter
   }): void {
     if (!this.isReadyToSend()) {
       this.log(LogLevel.INFO, 'Cannot send player update: not connected to server or not authenticated yet');
       return;
     }
+    
+    // Use explicitly provided playerType or default to this.playerType
+    const typeToSend = updateData.playerType || this.playerType;
     
     if (!this.offlineMode) { 
       // For online mode, send to server
@@ -503,7 +518,8 @@ export class ConnectionManager extends EventEmitter {
           position: updateData.position,
           rotation: updateData.rotation,
           velocity: updateData.velocity || [0, 0, 0],
-          sequence: updateData.sequence || Date.now()
+          sequence: updateData.sequence || Date.now(),
+          playerType: typeToSend // Use explicit or default playerType
         }
       });
     } else {
@@ -514,11 +530,13 @@ export class ConnectionManager extends EventEmitter {
           this.gameState.players[this.playerId] = {
             position: updateData.position,
             rotation: updateData.rotation,
-            health: 100
+            health: 100,
+            playerType: typeToSend // Use explicit or default playerType
           };
         } else {
           this.gameState.players[this.playerId].position = updateData.position;
           this.gameState.players[this.playerId].rotation = updateData.rotation;
+          this.gameState.players[this.playerId].playerType = typeToSend; // Use explicit or default playerType
         }
       }
     }
@@ -715,10 +733,12 @@ export class ConnectionManager extends EventEmitter {
         this.log(LogLevel.INFO, '👤 Player joined event received:', message);
         // Handle both formats the server might send
         const playerId = message.id || message.player_id;
+        const playerType = (message.playerType || message.state?.playerType || 'merc') as 'merc' | 'jackalope';
         const playerState = message.initialState || {
           position: message.position || [0, 1, 0],
           rotation: message.rotation || [0, 0, 0, 1],
-          health: 100
+          health: 100,
+          playerType
         };
         
         // Skip if this is our own player ID
@@ -784,7 +804,8 @@ export class ConnectionManager extends EventEmitter {
               const newPlayerState = {
                 position: position,
                 rotation: rotation || [0, 0, 0, 1], // Default quaternion if missing
-                health: 100
+                health: 100,
+                playerType: (message.state?.playerType || 'merc') as 'merc' | 'jackalope'
               };
               
               // Add to our game state
@@ -828,384 +849,43 @@ export class ConnectionManager extends EventEmitter {
             
             // Only emit player_update if actual changes occurred
             if (positionChanged || rotationChanged) {
+              // Extract playerType from the message or use existing playerType from gameState
+              const playerType = message.state?.playerType || this.gameState.players[updatePlayerId].playerType;
+              
+              // If there's a playerType in the state, update it in gameState
+              if (message.state?.playerType) {
+                this.gameState.players[updatePlayerId].playerType = message.state.playerType;
+              }
+              
               this.emit('player_update', { 
                 id: updatePlayerId, 
                 position: position, 
-                rotation: rotation || this.gameState.players[updatePlayerId].rotation 
+                rotation: rotation || this.gameState.players[updatePlayerId].rotation,
+                playerType: playerType // Include the playerType in the update
               });
             }
           } else {
             this.log(LogLevel.WARN, 'Received player_update without position data:', message);
           }
         }
+        
         // If message is for local player, emit server_state_update for reconciliation
         if (updatePlayerId === this.playerId) {
           this.emit('server_state_update', {
             position: message.position || (message.state && message.state.position),
             rotation: message.rotation || (message.state && message.state.rotation),
-            timestamp: message.timestamp || Date.now(), // Use server timestamp if available
+            timestamp: message.timestamp || Date.now(),
             sequence: message.sequence || (message.state && message.state.sequence),
-            positionError: message.positionError, // Server reported error
-            serverCorrection: message.serverCorrection // Whether server made a major correction
+            positionError: message.positionError,
+            serverCorrection: message.serverCorrection
           });
         }
         break;
         
-      case 'game_event':
-        // Handle game events - could be various types including shots
-        this.log(LogLevel.INFO, 'Game event received:', message);
-        
-        // Check for shot events
-        if (message.event_type === 'player_shoot' || 
-            (message.event && message.event.event_type === 'player_shoot') ||
-            (message.data && message.data.event_type === 'player_shoot')) {
-          
-          // Handle different server formats
-          const eventData = message.data || message.event || message;
-          const shooterId = eventData.player_id || eventData.player || eventData.id;
-          
-          // Make sure we don't process our own shots
-          if (shooterId !== this.playerId) {
-            this.log(LogLevel.INFO, 'Emitting player_shoot event for shot from player:', shooterId);
-            this.emit('player_shoot', {
-              id: shooterId,
-              shotId: eventData.shotId || 'server-' + Date.now(),
-              origin: eventData.origin,
-              direction: eventData.direction,
-              timestamp: eventData.timestamp || Date.now()
-            });
-          } else {
-            this.log(LogLevel.INFO, 'Ignoring our own shot event from server (player ID:', this.playerId, ')');
-          }
-        }
-        break;
-        
-      case 'shoot':
-        this.log(LogLevel.INFO, 'Received shot event:', message);
-        // Make sure we don't process our own shots
-        if (message.id !== this.playerId) {
-          this.log(LogLevel.INFO, 'Emitting player_shoot event for shot from player:', message.id);
-          this.emit('player_shoot', {
-            id: message.id,
-            shotId: message.shotId || 'no-id',
-            origin: message.origin,
-            direction: message.direction
-          });
-        } else {
-          this.log(LogLevel.INFO, 'Ignoring our own shot event from server (player ID:', this.playerId, ')');
-        }
-        break;
-        
-      case 'pong':
-        this.handlePong(message);
-        break;
-        
-      case 'heartbeat':
-        if (message.action === 'pong') {
-          this.handlePong(message);
-        }
-        break;
-        
-      case 'error':
-        this.log(LogLevel.ERROR, 'Error from server:', message.message);
-        
-        // If it's an unknown message type, don't consider it a connection error
-        if (message.message && message.message.includes('Unknown message type')) {
-          this.log(LogLevel.INFO, 'Server does not recognize a message type, but connection is still active');
-          
-          // Switch to client-side estimation if our ping attempts are failing
-          this.useServerPong = false;
-          this.log(LogLevel.INFO, 'Switching to client-side latency estimation due to server error');
-        } else {
-          // Some other error
-          this.log(LogLevel.ERROR, 'Server error:', message.message);
-          this.emit('server_error', message.message);
-        }
+      default:
+        this.log(LogLevel.WARN, 'Unknown message type:', message.type);
         break;
     }
-  }
-  
-  private handleClose(): void {
-    this.log(LogLevel.INFO, 'Disconnected from server');
-    this.isConnected = false;
-    this.emit('disconnected');
-    
-    // Stop ping interval
-    this.stopPingInterval();
-    
-    // Try to reconnect
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      setTimeout(() => this.connect(), this.reconnectInterval);
-    }
-  }
-  
-  private handleError(error: Event): void {
-    this.log(LogLevel.ERROR, 'WebSocket error:', error);
-    // Don't emit error if we're not connected yet - this is expected if server isn't running
-    if (this.isConnected) {
-      this.emit('error', error);
-    } else {
-      this.log(LogLevel.INFO, 'WebSocket connection failed - server might not be running');
-    }
-  }
-  
-  getGameState(): GameState {
-    return this.gameState;
-  }
-  
-  getPlayerId(): string | null {
-    return this.playerId;
-  }
-  
-  isPlayerConnected(): boolean {
-    return this.isConnected;
-  }
-  
-  // Add public method to get socket state
-  getSocketState(): string {
-    if (!this.socket) return 'NO_SOCKET';
-    const stateMap = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
-    return stateMap[this.socket.readyState];
-  }
-  
-  // Get the server URL
-  getServerUrl(): string {
-    return this.serverUrl;
-  }
-  
-  // Public wrapper for send method 
-  sendMessage(data: any): void {
-    // Call the private send method
-    this.send(data);
-  }
-  
-  private clearReconnectTimeout() {
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-  }
-  
-  private handleDisconnect(): void {
-    this.isConnected = false;
-    this.emit('disconnected');
-    this.log(LogLevel.INFO, 'Disconnected from server');
-    
-    // Stop ping interval
-    this.stopPingInterval();
-    
-    // Stop keep-alive interval
-    this.stopKeepAliveInterval();
-    
-    // Clear any existing reconnect timeout
-    this.clearReconnectTimeout();
-    
-    // For staging server, switch to offline mode immediately after first attempt
-    if (this.serverUrl.includes('staging.games.bonsai.so') && this.reconnectAttempts >= 2) {
-      this.log(LogLevel.INFO, 'Staging server unreachable after attempt, switching to offline mode');
-      this.connectionFailed = true;
-      this.forceReady();
-      return;
-    }
-    
-    if (this.reconnectAttempts < this.maxReconnectAttempts) {
-      this.reconnectAttempts++;
-      // Implement exponential backoff with jitter for reconnection
-      const baseDelay = this.reconnectInterval;
-      const exponentialBackoff = baseDelay * Math.pow(1.5, this.reconnectAttempts - 1);
-      const jitter = Math.random() * 1000; // Add up to 1 second of jitter
-      const delay = Math.min(exponentialBackoff + jitter, 30000); // Cap at 30 seconds
-      
-      this.log(LogLevel.INFO, `Reconnect attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts} in ${Math.round(delay)}ms`);
-      this.reconnectTimeout = setTimeout(() => this.connect(), delay);
-    } else {
-      this.log(LogLevel.INFO, `Max reconnect attempts (${this.maxReconnectAttempts}) reached. Switching to offline mode.`);
-      // Mark as failed
-      this.connectionFailed = true;
-      // Switch to offline mode after max reconnect attempts
-      this.forceReady();
-    }
-  }
-  
-  // Add server-side game snapshot for state synchronization
-  sendGameSnapshot(snapshot: GameSnapshot): void {
-    if (!this.isConnected) {
-      this.log(LogLevel.INFO, 'Cannot send game snapshot: not connected to server');
-      return;
-    }
-    
-    this.send({
-      type: 'game_snapshot',
-      snapshot
-    });
-  }
-  
-  // Expose snapshots and related methods for UI components
-  get snapshots(): GameSnapshot[] {
-    return [];  // Return empty array as a fallback
-  }
-  
-  getSnapshotAtTime(timestamp: number): GameSnapshot | null {
-    return null;  // Return null as a fallback
-  }
-  
-  get reconciliationMetrics(): any {
-    return this._reconciliationMetrics;
-  }
-  
-  // Check if we're in offline mode
-  isOfflineMode(): boolean {
-    return this.offlineMode;
-  }
-  
-  // Get current connection state for debugging
-  getConnectionState(): string {
-    if (this.offlineMode) {
-      return "OFFLINE_MODE";
-    }
-    
-    if (!this.socket) {
-      return "NO_SOCKET";
-    }
-    
-    const states = ["CONNECTING", "OPEN", "CLOSING", "CLOSED"];
-    return states[this.socket.readyState] || "UNKNOWN";
-  }
-  
-  // Add a test player for development when no server is available
-  addTestPlayer(): string {
-    const testPlayerId = `test-player-${Math.floor(Math.random() * 10000)}`;
-    
-    this.log(LogLevel.INFO, 'Adding simulated test player for debugging:', testPlayerId);
-    
-    // Create initial position
-    const startPosition: [number, number, number] = [
-      (Math.random() * 10) - 5,  // Random x position between -5 and 5
-      1,                          // Fixed height slightly above ground
-      (Math.random() * 10) - 5    // Random z position between -5 and 5
-    ];
-    
-    // Default rotation
-    const rotation: [number, number, number, number] = [0, 0, 0, 1];
-    
-    // Create a fake player joined event
-    this.emit('player_joined', {
-      id: testPlayerId,
-      state: {
-        position: startPosition,
-        rotation: rotation,
-        health: 100
-      }
-    });
-    
-    // Add to game state
-    this.gameState.players[testPlayerId] = {
-      position: startPosition,
-      rotation: rotation,
-      health: 100
-    };
-    
-    // Create animation loop for this test player
-    let angle = 0;
-    const radius = 3;
-    const center = [...startPosition];
-    
-    // Store interval ID so we can clear it later
-    const intervalId = setInterval(() => {
-      // Move in a circle
-      angle += 0.02;
-      const newPosition: [number, number, number] = [
-        center[0] + Math.cos(angle) * radius,
-        center[1],
-        center[2] + Math.sin(angle) * radius
-      ];
-      
-      // Calculate rotation to face movement direction
-      const facingAngle = angle + Math.PI/2;
-      const newRotation: [number, number, number, number] = [
-        0,
-        Math.sin(facingAngle/2),
-        0,
-        Math.cos(facingAngle/2)
-      ];
-      
-      // Update game state
-      this.gameState.players[testPlayerId].position = newPosition;
-      this.gameState.players[testPlayerId].rotation = newRotation;
-      
-      // Emit update event
-      this.emit('player_update', {
-        id: testPlayerId,
-        position: newPosition,
-        rotation: newRotation
-      });
-      
-      // Occasionally emit a shot event from the test player
-      if (Math.random() < 0.01) {
-        const shotId = `test-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
-        
-        // Calculate direction based on player rotation
-        const direction: [number, number, number] = [
-          Math.sin(angle),
-          0,
-          Math.cos(angle)
-        ];
-        
-        // Emit shot event
-        this.emit('player_shoot', {
-          id: testPlayerId,
-          shotId: shotId,
-          origin: newPosition,
-          direction: direction,
-          timestamp: Date.now()
-        });
-      }
-    }, 50); // 20 updates per second
-    
-    // Store test player data for cleanup
-    this._testPlayers = this._testPlayers || {};
-    this._testPlayers[testPlayerId] = intervalId;
-    
-    return testPlayerId;
-  }
-  
-  // Remove test player
-  removeTestPlayer(testPlayerId: string): void {
-    // Check if this is a test player
-    if (!this._testPlayers || !this._testPlayers[testPlayerId]) {
-      this.log(LogLevel.WARN, `Not a test player: ${testPlayerId}`);
-      return;
-    }
-    
-    // Stop the animation interval
-    clearInterval(this._testPlayers[testPlayerId]);
-    
-    // Remove from test players list
-    delete this._testPlayers[testPlayerId];
-    
-    // Remove from game state
-    delete this.gameState.players[testPlayerId];
-    
-    // Emit player left event
-    this.emit('player_left', {
-      id: testPlayerId
-    });
-    
-    this.log(LogLevel.INFO, `Removed test player: ${testPlayerId}`);
-  }
-  
-  // Remove all test players
-  removeAllTestPlayers(): void {
-    if (!this._testPlayers) return;
-    
-    // Remove each test player
-    Object.keys(this._testPlayers).forEach(playerId => {
-      this.removeTestPlayer(playerId);
-    });
-    
-    // Reset test players object
-    this._testPlayers = {};
   }
   
   // Initialize session with the server
@@ -1256,7 +936,7 @@ export class ConnectionManager extends EventEmitter {
       }
     }
     
-    this.log(LogLevel.INFO, `Player joining as index #${this.playerIndex} (${this.getPlayerCharacterType()})`);
+    this.log(LogLevel.INFO, `Player joining as index #${this.playerIndex} (${this.getPlayerCharacterType().type})`);
     
     // Try auth first (most common WebSocket server pattern)
     this.send({
@@ -1296,10 +976,19 @@ export class ConnectionManager extends EventEmitter {
     // Fallback to a valid index if somehow playerIndex is still -1
     const index = this.playerIndex >= 0 ? this.playerIndex : 0;
     
-    // First player (index 0) = Jackalope in third-person
-    // Second player (index 1) = Merc in first-person
-    // Third player (index 2) = Jackalope in third-person
-    // And so on...
+    // First force the local storage to be set for cross-tab coordination
+    // This will ensure player assignments are consistent across tabs/browsers
+    try {
+      const storedCount = localStorage.getItem('jackalopes_player_count');
+      if (!storedCount || parseInt(storedCount) < index) {
+        localStorage.setItem('jackalopes_player_count', index.toString());
+      }
+    } catch (e) {
+      // Ignore localStorage errors
+    }
+    
+    // Even indexes (0, 2, 4...) = Jackalope in third-person
+    // Odd indexes (1, 3, 5...) = Merc in first-person
     if (index % 2 === 0) {
       console.error(`⭐ Player #${index} (player ${index + 1}) assigned as JACKALOPE in 3rd-person view`);
       return { type: 'jackalope' as const, thirdPerson: true };
@@ -1307,6 +996,28 @@ export class ConnectionManager extends EventEmitter {
       console.error(`⭐ Player #${index} (player ${index + 1}) assigned as MERC in 1st-person view`);
       return { type: 'merc' as const, thirdPerson: false };
     }
+  }
+
+  // Add a method to force character type assignment for testing/debugging
+  forceCharacterType(type: 'merc' | 'jackalope'): { type: 'merc' | 'jackalope', thirdPerson: boolean } {
+    // Force the player index to match the desired type
+    if (type === 'merc') {
+      // Force an odd player index for merc
+      this.playerIndex = this.playerIndex % 2 === 0 ? this.playerIndex + 1 : this.playerIndex;
+      console.error(`⭐ Forced player index to ${this.playerIndex} for MERC character type`);
+      return { type: 'merc', thirdPerson: false };
+    } else {
+      // Force an even player index for jackalope
+      this.playerIndex = this.playerIndex % 2 === 0 ? this.playerIndex : this.playerIndex + 1;
+      console.error(`⭐ Forced player index to ${this.playerIndex} for JACKALOPE character type`);
+      return { type: 'jackalope', thirdPerson: true };
+    }
+  }
+
+  // Add a method to get just the player type (for MultiplayerManager)
+  getAssignedPlayerType(): 'merc' | 'jackalope' {
+    const index = this.playerIndex >= 0 ? this.playerIndex : 0;
+    return index % 2 === 0 ? 'jackalope' : 'merc';
   }
 
   // Add a method to reset the localStorage player count (for testing)
@@ -1350,5 +1061,122 @@ export class ConnectionManager extends EventEmitter {
     const inactivityDuration = now - lastActivity;
     const resetDuration = 5 * 60 * 1000; // 5 minutes in milliseconds
     return inactivityDuration > resetDuration;
+  }
+
+  // Add after the getLatency method
+  isOfflineMode(): boolean {
+    return this.offlineMode;
+  }
+
+  // Add the missing methods
+
+  private handleDisconnect(): void {
+    this.isConnected = false;
+    this.emit('disconnected');
+    this.log(LogLevel.INFO, 'Disconnected from server');
+    
+    // Stop ping interval
+    this.stopPingInterval();
+    
+    // Stop keep-alive interval
+    this.stopKeepAliveInterval();
+    
+    // Clear any existing reconnect timeout
+    this.clearReconnectTimeout();
+    
+    // Try to reconnect
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts++;
+      setTimeout(() => this.connect(), this.reconnectInterval);
+    }
+  }
+
+  private handleError(error: Event): void {
+    this.log(LogLevel.ERROR, 'WebSocket error:', error);
+    // Don't emit error if we're not connected yet - this is expected if server isn't running
+    if (this.isConnected) {
+      this.emit('error', error);
+    } else {
+      this.log(LogLevel.INFO, 'WebSocket connection failed - server might not be running');
+    }
+  }
+
+  private clearReconnectTimeout(): void {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout as any);
+      this.reconnectTimeout = null;
+    }
+  }
+
+  // Get the server URL
+  getServerUrl(): string {
+    return this.serverUrl;
+  }
+
+  // Get the player ID
+  getPlayerId(): string | null {
+    return this.playerId;
+  }
+
+  // Check if the player is connected
+  isPlayerConnected(): boolean {
+    return this.isConnected;
+  }
+
+  // Get socket state string
+  getSocketState(): string {
+    if (!this.socket) return 'NO_SOCKET';
+    const stateMap = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
+    return stateMap[this.socket.readyState] || 'UNKNOWN';
+  }
+
+  // Public wrapper for send method
+  sendMessage(data: any): void {
+    this.send(data);
+  }
+
+  // Send a game snapshot
+  sendGameSnapshot(snapshot: GameSnapshot): void {
+    if (!this.isReadyToSend()) {
+      this.log(LogLevel.INFO, 'Cannot send game snapshot: not connected to server');
+      return;
+    }
+    
+    this.send({
+      type: 'game_snapshot',
+      snapshot
+    });
+  }
+
+  // Get snapshot at time (stub for compatibility)
+  getSnapshotAtTime(timestamp: number): GameSnapshot | null {
+    return null;
+  }
+
+  // Get player index for client-side logic
+  getPlayerIndex(): number {
+    return this.playerIndex;
+  }
+
+  // Add a method to forcibly reset and correct the character type assignment
+  resetAndCorrectCharacterType(): { type: 'merc' | 'jackalope', thirdPerson: boolean } {
+    console.error('🔄 Forcing character type correction based on player index');
+    
+    // Get the player index (should be assigned already)
+    const index = this.playerIndex >= 0 ? this.playerIndex : 0;
+    
+    // Determine the correct character type based on the index
+    const isEven = index % 2 === 0;
+    const type = isEven ? 'jackalope' : 'merc';
+    const thirdPerson = isEven;
+    
+    // Set the player type
+    this.playerType = type;
+    
+    // Log the correction
+    console.error(`🔄 Reset character to ${type.toUpperCase()} (index: ${index}, third-person: ${thirdPerson})`);
+    
+    // Return the corrected character info
+    return { type, thirdPerson };
   }
 } 
