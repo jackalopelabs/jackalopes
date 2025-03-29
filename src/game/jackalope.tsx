@@ -9,6 +9,7 @@ import { Component, Entity, EntityType } from './ecs'
 
 // Import ConnectionManager for multiplayer support
 import { ConnectionManager } from '../network/ConnectionManager'
+import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel component
 
 // Reuse these vectors from the player component
 const _direction = new THREE.Vector3()
@@ -101,6 +102,9 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
     // Animation states
     const [isWalking, setIsWalking] = useState(false)
     const [isRunning, setIsRunning] = useState(false)
+    
+    // Add state for animation
+    const [currentAnimation, setCurrentAnimation] = useState('idle')
 
     // Reference for the model
     const jackalopModelRef = useRef<THREE.Group>(null);
@@ -288,57 +292,71 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             });
         }
 
-        // Update jackalope model position with smoothing
-        if ((thirdPersonView || visible) && jackalopModelRef.current && jackalopeRef.current && jackalopeRef.current.rigidBody) {
+        // Update model target position regardless of view mode
+        try {
+            const position = characterRigidBody.translation();
+            
+            // Only update if the position is valid
+            if (position && !Number.isNaN(position.x) && !Number.isNaN(position.y) && !Number.isNaN(position.z)) {
+                // Create target position
+                _modelTargetPosition.set(position.x, position.y - 0.3, position.z); // Lower position for jackalope so it's on the ground
+            }
+        } catch (error) {
+            console.error("Error updating jackalope model target position:", error);
+        }
+
+        // Update jackalope geometric model position with smoothing (only when geometric model is visible)
+        if (visible && !thirdPersonView && jackalopModelRef.current && jackalopeRef.current && jackalopeRef.current.rigidBody) {
             try {
-                const position = jackalopeRef.current.rigidBody.translation();
+                // First time setup
+                if (_lastModelPosition.lengthSq() === 0) {
+                    _lastModelPosition.copy(_modelTargetPosition);
+                    jackalopModelRef.current.position.copy(_modelTargetPosition);
+                } else {
+                    // Smoother interpolation for position - use slower rate for more stability
+                    const lerpFactor = 0.5;
+                    jackalopModelRef.current.position.lerp(_modelTargetPosition, lerpFactor);
+                    _lastModelPosition.copy(jackalopModelRef.current.position);
+                }
                 
-                // Only update if the position is valid
-                if (position && !Number.isNaN(position.x) && !Number.isNaN(position.y) && !Number.isNaN(position.z)) {
-                    // Create target position
-                    _modelTargetPosition.set(position.x, position.y - 0.3, position.z); // Lower position for jackalope so it's on the ground
-                    
-                    // First time setup
-                    if (_lastModelPosition.lengthSq() === 0) {
-                        _lastModelPosition.copy(_modelTargetPosition);
-                        jackalopModelRef.current.position.copy(_modelTargetPosition);
-                    } else {
-                        // Smoother interpolation for position - use slower rate for more stability
-                        const lerpFactor = thirdPersonView ? 0.15 : 0.5; // Slower in third-person for stability
-                        jackalopModelRef.current.position.lerp(_modelTargetPosition, lerpFactor);
-                        _lastModelPosition.copy(jackalopModelRef.current.position);
-                    }
-                    
-                    // Calculate model rotation based on movement direction
-                    if (isWalking || isRunning) {
-                        // Get velocity for direction
-                        const velocity = characterRigidBody.linvel();
-                        if (velocity && velocity.x !== 0 && velocity.z !== 0) {
-                            _jackalopDirection.set(velocity.x, 0, velocity.z).normalize();
+                // Calculate model rotation based on movement direction
+                if (isWalking || isRunning) {
+                    // Get velocity for direction
+                    const velocity = characterRigidBody.linvel();
+                    if (velocity && velocity.x !== 0 && velocity.z !== 0) {
+                        _jackalopDirection.set(velocity.x, 0, velocity.z).normalize();
+                        
+                        if (_jackalopDirection.length() > 0.1) {
+                            // Calculate target rotation
+                            const targetRotation = Math.atan2(_jackalopDirection.x, _jackalopDirection.z);
                             
-                            if (_jackalopDirection.length() > 0.1) {
-                                // Calculate target rotation
-                                const targetRotation = Math.atan2(_jackalopDirection.x, _jackalopDirection.z);
-                                
-                                // Apply smooth rotation
-                                const currentRotY = jackalopModelRef.current.rotation.y;
-                                const newRotY = THREE.MathUtils.lerp(
-                                    currentRotY,
-                                    targetRotation,
-                                    0.1 // Smooth rotation factor
-                                );
-                                
-                                jackalopModelRef.current.rotation.y = newRotY;
-                                
-                                // Save rotation for third-person camera
-                                jackalopRotation.current.setFromEuler(new THREE.Euler(0, newRotY, 0));
-                            }
+                            // Apply smooth rotation
+                            const currentRotY = jackalopModelRef.current.rotation.y;
+                            const newRotY = THREE.MathUtils.lerp(
+                                currentRotY,
+                                targetRotation,
+                                0.1 // Smooth rotation factor
+                            );
+                            
+                            jackalopModelRef.current.rotation.y = newRotY;
+                            
+                            // Save rotation for third-person camera
+                            jackalopRotation.current.setFromEuler(new THREE.Euler(0, newRotY, 0));
                         }
                     }
                 }
             } catch (error) {
                 console.error("Error updating jackalope model:", error);
             }
+        }
+
+        // Update animation based on movement state
+        if (isRunning) {
+            setCurrentAnimation('run');
+        } else if (isWalking) {
+            setCurrentAnimation('walk');
+        } else {
+            setCurrentAnimation('idle');
         }
     });
 
@@ -382,8 +400,8 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 </Component>
             </Entity>
             
-            {/* Render jackalope model when in third-person view or visible is true */}
-            {(thirdPersonView || visible) && (
+            {/* Only show geometric model when NOT in third-person view but still visible */}
+            {visible && !thirdPersonView && (
                 <group ref={jackalopModelRef}>
                     {/* Jackalope body - white bunny */}
                     <mesh position={[0, 0.3, 0]} castShadow>
@@ -457,6 +475,17 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         <meshStandardMaterial color="#ff0000" />
                     </mesh>
                 </group>
+            )}
+            
+            {/* Show JackalopeModel in third-person view */}
+            {visible && thirdPersonView && (
+                <JackalopeModel
+                    animation={currentAnimation}
+                    visible={visible}
+                    position={[_modelTargetPosition.x, _modelTargetPosition.y, _modelTargetPosition.z]}
+                    rotation={[0, Math.PI, 0]} // Rotated to face forward
+                    scale={[2, 2, 2]} // Larger scale to make it more visible
+                />
             )}
         </>
     )

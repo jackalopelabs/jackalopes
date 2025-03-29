@@ -12,6 +12,7 @@ import { Component, Entity, EntityType } from './ecs'
 import { ConnectionManager } from '../network/ConnectionManager'
 import { useMultiplayer } from '../network/MultiplayerManager'
 import { MercModel } from './MercModel' // Import our new MercModel component
+import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel
 
 const _direction = new THREE.Vector3()
 const _frontVector = new THREE.Vector3()
@@ -57,9 +58,10 @@ export type PlayerProps = RigidBodyProps & {
     connectionManager?: ConnectionManager // Add optional ConnectionManager for multiplayer
     visible?: boolean // Add visibility option for third-person view
     thirdPersonView?: boolean // Flag for third-person camera mode
+    playerType?: 'merc' | 'jackalope' // Add player type to determine which model to use
 }
 
-export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, connectionManager, visible = false, thirdPersonView = false, ...props }, ref) => {
+export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, connectionManager, visible = false, thirdPersonView = false, playerType = 'merc', ...props }, ref) => {
     const playerRef = useRef<EntityType>(null!)
     const gltf = useGLTF('/fps.glb')
     const { actions } = useAnimations(gltf.animations, gltf.scene)
@@ -387,7 +389,8 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                 position: [position.x, position.y, position.z],
                 rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
                 velocity: [velocity.x, velocity.y, velocity.z],
-                sequence: Date.now()
+                sequence: Date.now(),
+                playerType: playerType // Use the playerType prop when sending updates
             });
         }
 
@@ -592,7 +595,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             )}
             
             {/* Render player model when in third-person view or visible is true */}
-            {(thirdPersonView || visible) && (
+            {(thirdPersonView || visible) && playerType === 'merc' && (
                 <group ref={playerModelRef}>
                     {/* Player head */}
                     <mesh position={[0, 1.7, 0]} castShadow>
@@ -635,12 +638,22 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                 </group>
             )}
             
-            {visible && thirdPersonView && ( // Show the Mixamo model in third-person view
+            {visible && thirdPersonView && playerType === 'merc' && ( // Show the Mixamo model in third-person view for merc
                 <MercModel 
                     animation={currentAnimation} 
                     visible={visible}
                     position={[0, -0.9, 0]} // Adjusted position to better match the ground
                     rotation={[0, Math.PI, 0]} // Rotated to face forward
+                />
+            )}
+            
+            {visible && thirdPersonView && playerType === 'jackalope' && ( // Show the Jackalope model in third-person view
+                <JackalopeModel
+                    animation={currentAnimation}
+                    visible={visible}
+                    position={[0, 0, 0]} // Position for jackalope model
+                    rotation={[0, Math.PI, 0]} // Rotated to face forward
+                    scale={[1, 1, 1]} // Default scale
                 />
             )}
             

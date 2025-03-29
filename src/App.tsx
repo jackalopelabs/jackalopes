@@ -2067,6 +2067,7 @@ export function App() {
                                     jumpForce={jumpForce}
                                     visible={playerCharacterInfo.thirdPerson}
                                     thirdPersonView={playerCharacterInfo.thirdPerson}
+                                    playerType={playerCharacterInfo.type}
                                     connectionManager={enableMultiplayer ? connectionManager : undefined}
                                     onMove={(position) => {
                                         if (directionalLightRef.current && !playerCharacterInfo.thirdPerson) {
@@ -2113,6 +2114,7 @@ export function App() {
                                     jumpForce={jumpForce}
                                     visible={thirdPersonView}
                                     thirdPersonView={thirdPersonView}
+                                    playerType={characterType}
                                     connectionManager={enableMultiplayer ? connectionManager : undefined}
                                     onMove={(position) => {
                                         if (directionalLightRef.current && !thirdPersonView) {
