@@ -4,6 +4,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { CapsuleCollider, RigidBody, RigidBodyProps, useBeforePhysicsStep, useRapier } from '@react-three/rapier'
 import { useEffect, useRef, useState, useMemo, forwardRef, useImperativeHandle } from 'react'
 import { useGamepad } from '../common/hooks/use-gamepad'
+import { useControls } from 'leva'
 import * as THREE from 'three'
 import { Component, Entity, EntityType } from './ecs'
 
@@ -85,6 +86,17 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     
     // Add a ref for the player's rotation (for the third-person camera)
     const playerRotation = useRef(new THREE.Quaternion())
+
+    // Arms position controls
+    const { x, y, z, scaleArms } = useControls('Arms Position', {
+        x: { value: 0, min: -1, max: 1, step: 0.01 },
+        y: { value: -0.9, min: -2, max: 1, step: 0.01 },
+        z: { value: -0.6, min: -2, max: 0, step: 0.01 },
+        scaleArms: { value: 1.2, min: 0.5, max: 3, step: 0.1 },
+    }, {
+        collapsed: false,
+        order: 1
+    })
 
     const rapier = useRapier()
     const camera = useThree((state) => state.camera)
@@ -654,7 +666,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                 >
                     {/* Move arms model inside camera to ensure it's attached to camera view */}
                     {playerType === 'merc' && (
-                        <group position={[0, -0.5, -0.6]}>
+                        <group position={[x, y, z]}>
                             {/* Add a debug sphere to help visualize the position */}
                             <mesh position={[0, 0, 0]}>
                                 <sphereGeometry args={[0.05, 16, 16]} />
@@ -665,7 +677,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                                 object={gltf.scene} 
                                 position={[0, 0, 0]}
                                 rotation={[0, Math.PI, 0]}
-                                scale={1.2} // Increase scale for better visibility
+                                scale={scaleArms} // Increase scale for better visibility
                             />
                         </group>
                     )}
