@@ -974,7 +974,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                 <JackalopeModel
                     animation={currentAnimation}
                     visible={visible}
-                    position={[0, 0, 0]} // Position for jackalope model
+                    position={[0, -0.25, 0]} // Raised position for jackalope model (50% up from -0.5)
                     rotation={[0, Math.PI, 0]} // Rotated to face forward
                     scale={[1, 1, 1]} // Default scale
                 />
@@ -1031,6 +1031,7 @@ const controls = [
     { name: 'right', keys: ['ArrowRight', 'd', 'D'] },
     { name: 'jump', keys: ['Space'] },
     { name: 'sprint', keys: ['Shift'] },
+    { name: 'f', keys: ['f', 'F'] }, // Add F key for flashlight toggle
 ]
 
 type PlayerControlsProps = {

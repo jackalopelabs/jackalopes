@@ -24,6 +24,7 @@ import { VirtualGamepad } from './components/VirtualGamepad'
 import { RemotePlayer } from './game/RemotePlayer'
 // import { KeyDisplay } from './common/components/key-display' // Commenting out unused import
 import { ModelTester } from './game/ModelTester'
+import { KeyboardControls } from '@react-three/drei'
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -2481,7 +2482,7 @@ export function App() {
                     paused={loading}
                     timeStep={1/240} // Increased physics rate to 240Hz for smoother movement
                     interpolate={true}
-                    gravity={[0, -9.81, 0]}>
+                    gravity={[0, -15, 0]}>
                     <PlayerControls thirdPersonView={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}>
                         {/* Conditionally render either the Player (merc) or Jackalope */}
                         {enableMultiplayer ? (

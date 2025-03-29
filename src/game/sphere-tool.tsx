@@ -5,6 +5,7 @@ import { useGamepad } from '../common/hooks/use-gamepad'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { Points, BufferGeometry, NormalBufferAttributes, Material } from 'three'
+import { Sphere as DreiSphere } from '@react-three/drei'
 
 // Fire color palette
 const FIRE_COLORS = [
@@ -706,6 +707,76 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     )
 }
 
+// Add Flashlight component
+interface FlashlightProps {
+    position: [number, number, number]
+    direction: [number, number, number]
+    enabled?: boolean
+    intensity?: number
+    color?: string
+    distance?: number
+    angle?: number
+    penumbra?: number
+    decay?: number
+}
+
+const Flashlight = ({ 
+    position,
+    direction,
+    enabled = true, 
+    intensity = 2.5,
+    color = "#ffffff", 
+    distance = 15,
+    angle = 0.25,  // Make the light beam slightly narrower
+    penumbra = 0.05, // Reduce penumbra for harder edge
+    decay = 1.2     // Slightly less decay for better reach
+}: FlashlightProps) => {
+    const spotlightRef = useRef<THREE.SpotLight>(null)
+    const targetRef = useRef<THREE.Object3D>(null)
+    
+    // Create a target position by adding direction to the position
+    const targetPosition: [number, number, number] = [
+        position[0] + direction[0] * 10, // Look further ahead
+        position[1] + direction[1] * 10,
+        position[2] + direction[2] * 10
+    ]
+    
+    useEffect(() => {
+        if (spotlightRef.current && targetRef.current) {
+            spotlightRef.current.target = targetRef.current
+        }
+    }, [])
+    
+    return (
+        <>
+            <spotLight
+                ref={spotlightRef}
+                position={position}
+                intensity={enabled ? intensity : 0}
+                color={color}
+                distance={distance}
+                angle={angle}
+                penumbra={penumbra}
+                decay={decay}
+                castShadow={false} // Keep shadows off for performance
+                power={2.5} // Increased power for better light output
+            />
+            <object3D ref={targetRef} position={targetPosition} />
+            
+            {/* Add a small point light for a more realistic effect */}
+            {enabled && (
+                <pointLight 
+                    position={position} 
+                    intensity={0.4} 
+                    color={color} 
+                    distance={1.5} 
+                    decay={2}
+                />
+            )}
+        </>
+    )
+}
+
 export const SphereTool = ({ 
     onShoot,
     remoteShots = [],
@@ -727,6 +798,11 @@ export const SphereTool = ({
     const shootingInterval = useRef<number>()
     const isPointerDown = useRef(false)
     const gamepadState = useGamepad()
+    
+    // Add flashlight state
+    const [flashlightEnabled, setFlashlightEnabled] = useState(false)
+    const lastCameraPosition = useRef<[number, number, number]>([0, 0, 0])
+    const lastCameraDirection = useRef<[number, number, number]>([0, 0, 0])
     
     // Keep track of processed remote shots to avoid duplicates
     const processedRemoteShots = useRef<Set<string>>(new Set());
@@ -1046,6 +1122,68 @@ export const SphereTool = ({
         }
     }
 
+    // Add flashlight toggle function
+    const toggleFlashlight = () => {
+        setFlashlightEnabled(prev => !prev)
+    }
+    
+    // Add a proper keyboard event listener for flashlight toggle
+    useEffect(() => {
+        // Handle keyboard events for flashlight toggle
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key === 'f' || event.key === 'F') {
+                if (!lastKeyState.current.flashlight) {
+                    toggleFlashlight()
+                    lastKeyState.current.flashlight = true
+                }
+            }
+        }
+        
+        const handleKeyUp = (event: KeyboardEvent) => {
+            if (event.key === 'f' || event.key === 'F') {
+                lastKeyState.current.flashlight = false
+            }
+        }
+        
+        // Handle gamepad button press for flashlight toggle
+        const handleGamepadButtonPress = (event: CustomEvent) => {
+            if (event.detail.button === 'dpadUp') { // Using D-pad up for flashlight
+                toggleFlashlight()
+            }
+        }
+        
+        window.addEventListener('keydown', handleKeyDown)
+        window.addEventListener('keyup', handleKeyUp)
+        window.addEventListener('gamepadButtonPress', handleGamepadButtonPress as EventListener)
+        
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown)
+            window.removeEventListener('keyup', handleKeyUp)
+            window.removeEventListener('gamepadButtonPress', handleGamepadButtonPress as EventListener)
+        }
+    }, [])
+    
+    // Keep track of last key state to prevent repeat toggling
+    const lastKeyState = useRef({ flashlight: false })
+    
+    // Update camera position and direction for flashlight
+    useFrame(() => {
+        if (!thirdPersonView) {
+            // Get camera world position
+            const cameraWorldPos = new THREE.Vector3()
+            camera.getWorldPosition(cameraWorldPos)
+            
+            // Get camera world direction
+            const cameraWorldDir = new THREE.Vector3()
+            camera.getWorldDirection(cameraWorldDir)
+            
+            // Update refs for flashlight
+            lastCameraPosition.current = [cameraWorldPos.x, cameraWorldPos.y, cameraWorldPos.z]
+            lastCameraDirection.current = [cameraWorldDir.x, cameraWorldDir.y, cameraWorldDir.z]
+        }
+    })
+
+    // Start shooting handler
     const startShooting = () => {
         if (shootCooldownRef.current) return;
         
@@ -1062,6 +1200,7 @@ export const SphereTool = ({
         shootingInterval.current = window.setInterval(shootSphere, 300) // Increased from 150 to 300ms
     }
 
+    // Stop shooting handler
     const stopShooting = () => {
         isPointerDown.current = false
         if (shootingInterval.current) {
@@ -1173,16 +1312,96 @@ export const SphereTool = ({
         };
     }, [spheres]);
 
+    // Calculate the gun muzzle position (slightly in front of the camera)
+    const getMuzzlePosition = (): [number, number, number] => {
+        if (thirdPersonView && playerPosition) {
+            // Third-person - get position from player
+            const position = new THREE.Vector3().copy(playerPosition)
+            
+            // Apply offset for gun muzzle
+            position.y += 1.4 // Approximate character height
+            
+            return [position.x, position.y, position.z]
+        } else {
+            // First-person - get position from camera
+            const position = new THREE.Vector3()
+            camera.getWorldPosition(position)
+            
+            // Offset slightly down and forward from camera eye position
+            const direction = new THREE.Vector3()
+            camera.getWorldDirection(direction)
+            
+            // Apply offset for gun muzzle
+            position.add(direction.multiplyScalar(0.5))
+            position.y -= 0.1 // Lower slightly from eye level
+            
+            return [position.x, position.y, position.z]
+        }
+    }
+
+    // Show flashlight status in UI
+    useEffect(() => {
+        // Create or update flashlight indicator
+        let flashlightIndicator = document.getElementById('flashlight-indicator')
+        
+        if (!flashlightIndicator) {
+            flashlightIndicator = document.createElement('div')
+            flashlightIndicator.id = 'flashlight-indicator'
+            document.body.appendChild(flashlightIndicator)
+        }
+        
+        // Style the indicator
+        Object.assign(flashlightIndicator.style, {
+            position: 'fixed',
+            bottom: '50px',
+            right: '20px',
+            padding: '5px 10px',
+            background: flashlightEnabled ? 'rgba(255, 255, 100, 0.7)' : 'rgba(100, 100, 100, 0.5)',
+            color: flashlightEnabled ? '#000' : '#ccc',
+            fontFamily: 'monospace',
+            borderRadius: '4px',
+            fontSize: '12px',
+            transition: 'all 0.3s',
+            zIndex: '1000',
+            pointerEvents: 'none',
+        })
+        
+        // Update text
+        flashlightIndicator.textContent = flashlightEnabled ? 'FLASHLIGHT: ON' : 'FLASHLIGHT: OFF'
+        
+        // Clean up
+        return () => {
+            if (flashlightIndicator && flashlightIndicator.parentNode) {
+                flashlightIndicator.parentNode.removeChild(flashlightIndicator)
+            }
+        }
+    }, [flashlightEnabled])
+
     return (
-        <group>
-            {/* Render all pooled lights in one place */}
-            <PooledLights />
+        <>
+            {/* Flashlight component - only in first person view */}
+            {!thirdPersonView && (
+                <Flashlight 
+                    position={lastCameraPosition.current}
+                    direction={lastCameraDirection.current}
+                    enabled={flashlightEnabled}
+                    intensity={2.5}
+                    color="#ffffff"
+                    distance={15}
+                    angle={0.25}
+                    penumbra={0.05}
+                    decay={1.2}
+                />
+            )}
             
             {/* Render all spheres */}
             {spheres.map((props) => (
                 <Sphere key={props.id} {...props} />
             ))}
-        </group>
+            
+            {/* Light pool for projectiles */}
+            <PooledLights />
+        </>
     )
 }
 

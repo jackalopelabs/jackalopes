@@ -19,8 +19,8 @@ const BASE_SPEED = 6.8; // Doubled from 3.4 to make jackalope 2x faster
 const RUN_MULTIPLIER = 1.8; // Keep this the same
 
 // Jump handling adjustments
-const JUMP_MULTIPLIER = 6.0; // Increased from 1.5 to 6.0 for a good jump height
-const GRAVITY_REDUCTION = 0.7; // Adjusted from 0.9 to 0.7 for longer jumps
+const JUMP_MULTIPLIER = 9.0; // Increased from 6.0 but not as extreme as 12.0
+const GRAVITY_REDUCTION = 0.9; // Adjusted from 0.7 to 0.9 for quicker falling
 
 // Props for the Jackalope component
 type JackalopeProps = RigidBodyProps & {
@@ -182,8 +182,8 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             velocity.current.y -= 9.8 * delta * GRAVITY_REDUCTION
             
             // Cap falling speed to prevent too rapid descent
-            if (velocity.current.y < -20) {
-                velocity.current.y = -20
+            if (velocity.current.y < -25) {
+                velocity.current.y = -25
             }
         } else if (velocity.current.y < 0) {
             velocity.current.y = 0 // Stop falling if on ground
@@ -231,7 +231,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             // Update model position directly
             jackalopeModelRef.current.position.set(
                 position.current.x,
-                position.current.y - 0.65, // Reduce height offset to lower the model
+                position.current.y - 0.9, // Raise by 50% from previous -1.15 value
                 position.current.z
             )
             // Add PI rotation to make model face the correct direction
@@ -305,7 +305,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         enabledRotations={[false, false, false]}
                     >
                         <object3D name="jackalope" />
-                        <CapsuleCollider args={[1.0, 0.5]} position={[0, -0.65, 0]} />
+                        <CapsuleCollider args={[1.0, 0.5]} position={[0, -0.28, 0]} />
                     </RigidBody>
                 </Component>
             </Entity>
