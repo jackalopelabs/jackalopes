@@ -281,7 +281,7 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       <>
         <JackalopeModel 
           position={position ? [position.x, position.y + 0.3, position.z] : [0, 0.3, 0]} 
-          rotation={[0, (rotation || 0) + (Math.PI/2), 0]}
+          rotation={[0, (rotation || 0) + Math.PI, 0]}
           animation={localIsMoving ? "walk" : "idle"}
           scale={[2, 2, 2]}
         />

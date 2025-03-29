@@ -32,10 +32,22 @@ export const JackalopeModel = ({
   // Try loading the model with error handling
   const { scene } = useGLTF(JackalopeModelPath);
   
-  // Log model loading success or failure
+  // Apply pivot correction to center the model rotation
   useEffect(() => {
     if (scene) {
       console.log('Successfully loaded jackalope model:', scene);
+      
+      // Center the model by moving its children to adjust the pivot point
+      // This makes the model rotate around its visual center instead of its origin point
+      const pivotOffsetZ = 0.3; // Adjust this value as needed - positive moves pivot forward
+      
+      // Apply transformation to all children to offset the pivot
+      scene.children.forEach(child => {
+        child.position.z -= pivotOffsetZ;
+      });
+      
+      // Log the adjustment for debugging
+      console.log(`Applied pivot correction: offset Z by ${pivotOffsetZ}`);
     } else {
       setModelError('Failed to load jackalope model: scene is undefined');
     }
@@ -171,11 +183,13 @@ export const JackalopeModel = ({
     <group 
       ref={group} 
       visible={visible} 
-      // We'll use useFrame to handle position for smooth movement
       rotation={finalRotation}
       scale={scale}
     >
-      <primitive object={scene} />
+      {/* Center the model's pivot point by placing it in an offset group */}
+      <group position={[0, -0.33, 0.2]}>
+        <primitive object={scene} />
+      </group>
     </group>
   )
 }
