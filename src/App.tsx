@@ -22,7 +22,7 @@ import { ConnectionManager } from './network/ConnectionManager'
 import { ConnectionTest } from './components/ConnectionTest'
 import { VirtualGamepad } from './components/VirtualGamepad'
 import { RemotePlayer } from './game/RemotePlayer'
-import { KeyDisplay } from './common/components/key-display'
+// import { KeyDisplay } from './common/components/key-display' // Commenting out unused import
 import { ModelTester } from './game/ModelTester'
 
 // Add TypeScript declaration for window.__setGraphicsQuality
@@ -1433,49 +1433,36 @@ export function App() {
     })
 
     // Update the Game UI controls to include virtual gamepad toggle
-    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType, darkMode, set: setControls } = useControls('Game UI', {
+    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType, darkMode, ...restControls } = useControls('Game UI', {
         showTools: {
             value: false,
             label: 'Show Multiplayer Tools'
         },
         showConnectionTest: {
             value: false,
-            label: 'Show Connection Test UI'
+            label: 'Show Connection Test'  
         },
         virtualGamepad: {
             value: false,
-            label: 'Virtual Gamepad'
+            label: 'Show Virtual Controls'
         },
         thirdPersonView: {
             value: false,
-            label: 'Third-Person View'
+            label: 'Third Person Camera'
         },
         characterType: {
-            value: 'merc',
-            label: 'Character Type',
-            options: ['merc', 'jackalope']
+            value: 'jackalope', // Changed default to jackalope
+            options: ['merc', 'jackalope'],
+            label: 'Character Type'
         },
         darkMode: {
             value: false,
-            label: 'Dark Mode (Fireballs Light)',
-        },
-        logLevel: {
-            value: 0,
-            label: 'Log Level (0=None, 5=Verbose)',
-            min: 0,
-            max: 5,
-            step: 1,
-            onChange: (value) => {
-                // Update ConnectionManager log level
-                if (connectionManager && connectionManager.setLogLevel) {
-                    connectionManager.setLogLevel(value);
-                }
-            }
+            label: 'Dark Mode'
         }
-    }, {
-        collapsed: true,
-        order: 996
     });
+    
+    // Get the setter from the returned controls object
+    const setControls = (restControls as any).set;
     
     // Set showMultiplayerTools based on the control panel toggle
     useEffect(() => {
@@ -1809,10 +1796,120 @@ export function App() {
     
     // Extract graphicsQuality with proper type assertion
     const graphicsQuality = (performanceSettings as any)?.graphicsQuality || 'auto';
+    
+    // Add global rendering quality parameters controlled by graphics quality
+    const [globalQualityParams, setGlobalQualityParams] = useState({
+        shadowMapSize: 2048,
+        bloomQuality: 'medium' as 'high' | 'medium' | 'low',
+        effectsEnabled: true,
+        environmentResolution: 64,
+        maxParticles: 10000,
+        cullingDistance: 100
+    });
+    
+    // Effect to apply graphics quality to global rendering parameters
+    useEffect(() => {
+        // Function to apply quality settings
+        const applyQualitySettings = (quality: 'auto' | 'high' | 'medium' | 'low') => {
+            console.log(`[GRAPHICS] Applying global quality settings: ${quality}`);
+            
+            if (quality === 'auto') {
+                // Keep current settings
+                return;
+            }
+            
+            // Apply settings based on quality level
+            switch (quality) {
+                case 'high':
+                    setGlobalQualityParams({
+                        shadowMapSize: 2048,
+                        bloomQuality: 'high',
+                        effectsEnabled: true,
+                        environmentResolution: 128,
+                        maxParticles: 10000,
+                        cullingDistance: 150
+                    });
+                    // Also update Leva controls if needed
+                    if (setControls) {
+                        setControls({
+                            highQualityShadows: true,
+                            bloomIntensity: 0.7,
+                            starsCount: 1500
+                        });
+                    }
+                    break;
+                    
+                case 'medium':
+                    setGlobalQualityParams({
+                        shadowMapSize: 1024,
+                        bloomQuality: 'medium',
+                        effectsEnabled: true,
+                        environmentResolution: 64,
+                        maxParticles: 5000,
+                        cullingDistance: 100
+                    });
+                    // Also update Leva controls if needed
+                    if (setControls) {
+                        setControls({
+                            highQualityShadows: false,
+                            bloomIntensity: 0.5,
+                            starsCount: 1000
+                        });
+                    }
+                    break;
+                    
+                case 'low':
+                    setGlobalQualityParams({
+                        shadowMapSize: 512,
+                        bloomQuality: 'low',
+                        effectsEnabled: false,
+                        environmentResolution: 32,
+                        maxParticles: 2000,
+                        cullingDistance: 75
+                    });
+                    // Also update Leva controls if needed
+                    if (setControls) {
+                        setControls({
+                            highQualityShadows: false,
+                            enablePostProcessing: false,
+                            starsCount: 500
+                        });
+                    }
+                    break;
+            }
+            
+            // Force camera update to prevent FPS arms disconnection
+            // Use multiple attempts with increasing delays to ensure stability
+            const triggerCameraUpdate = () => {
+                console.log('[GRAPHICS] Triggering camera update to fix FPS arms position');
+                const cameraUpdateEvent = new CustomEvent('cameraUpdateNeeded');
+                window.dispatchEvent(cameraUpdateEvent);
+            };
+            
+            // Multiple attempts with different delays
+            setTimeout(triggerCameraUpdate, 100);
+            setTimeout(triggerCameraUpdate, 500);
+            setTimeout(triggerCameraUpdate, 1000);
+        };
+        
+        // Apply settings when quality changes
+        applyQualitySettings(graphicsQuality);
+        
+        // Also listen for the custom event from sphere-tool.tsx
+        const handleQualityChange = (event: CustomEvent<{quality: 'auto' | 'high' | 'medium' | 'low'}>) => {
+            applyQualitySettings(event.detail.quality);
+        };
+        
+        window.addEventListener('graphicsQualityChanged', handleQualityChange as EventListener);
+        
+        return () => {
+            window.removeEventListener('graphicsQualityChanged', handleQualityChange as EventListener);
+        };
+    }, [graphicsQuality, setControls]);
 
     // Add state to track player character info based on connection order
     const [playerCharacterInfo, setPlayerCharacterInfo] = useState<{ type: 'merc' | 'jackalope', thirdPerson: boolean }>({ 
-        type: 'merc', 
+        type: 'jackalope',  // Set initial state to jackalope 
         thirdPerson: false 
     });
 
@@ -1822,7 +1919,12 @@ export function App() {
         
         // Only proceed if multiplayer is enabled
         if (!enableMultiplayer) {
-            console.log('Multiplayer disabled, using manual character selection');
+            console.log('Multiplayer disabled, using manual character selection:', characterType);
+            // Always respect the user's manual selection when multiplayer is disabled
+            setPlayerCharacterInfo({
+                type: characterType as 'merc' | 'jackalope',
+                thirdPerson: characterType === 'jackalope' ? true : false
+            });
             return;
         }
         
@@ -1861,8 +1963,13 @@ export function App() {
             }
         } else {
             console.log('Waiting for player index assignment before setting character type');
+            // While waiting, set to jackalope by default
+            setPlayerCharacterInfo({
+                type: 'jackalope',
+                thirdPerson: true
+            });
         }
-    }, [connectionManager, enableMultiplayer, connectionManager?.getPlayerIndex()]);
+    }, [connectionManager, enableMultiplayer, connectionManager?.getPlayerIndex(), characterType]);
 
     // Force characterType to match playerCharacterInfo when it changes
     useEffect(() => {
@@ -1957,6 +2064,180 @@ export function App() {
         return () => clearTimeout(timer);
     }, []);
 
+    // Add debug controls for forcing character types
+    const debugSettings = useControls('Debug Options', {
+        force_merc_fps: {
+            value: false,
+            label: 'Force Merc (FPS) Mode'
+        },
+        force_jackalope_third: {
+            value: false,
+            label: 'Force Jackalope (3rd Person)'
+        },
+        disable_character_correction: {
+            value: false,
+            label: 'Disable Auto Character Correction'
+        }
+    }, {
+        collapsed: true,
+        order: 990
+    });
+
+    // Listen for debug option changes - handle merc
+    useEffect(() => {
+        if (debugSettings.force_merc_fps && enableMultiplayer) {
+            console.log("Debug: Forcing merc character with FPS view");
+            
+            // Log debug info
+            console.log("[DEBUG] Force Merc FPS mode activated");
+            
+            // Set character type to merc
+            setPlayerCharacterInfo({
+                type: 'merc',
+                thirdPerson: false
+            });
+            
+            // Update connection manager if available
+            if (connectionManager) {
+                // Use the correct method name
+                connectionManager.setPlayerType('merc');
+            }
+            
+            // Function to trigger camera reset and dispatch the event
+            const triggerCameraReset = () => {
+                console.log("[DEBUG] Dispatching camera update needed event");
+                window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
+            };
+            
+            // Call immediately and also with various delays for reliability
+            triggerCameraReset();
+            setTimeout(triggerCameraReset, 100);
+            setTimeout(triggerCameraReset, 300);
+            setTimeout(triggerCameraReset, 1000);
+            
+            // Also force a reset of the FPS arms
+            const forceArmsReset = () => {
+                console.log("[DEBUG] Dispatching force arms reset event");
+                window.dispatchEvent(new CustomEvent('forceArmsReset'));
+            };
+            
+            // Call with delays for reliability
+            forceArmsReset();
+            setTimeout(forceArmsReset, 300);
+            setTimeout(forceArmsReset, 1000);
+        }
+    }, [debugSettings.force_merc_fps, enableMultiplayer, connectionManager]);
+    
+    // Listen for debug option changes - handle jackalope
+    useEffect(() => {
+        if (debugSettings.force_jackalope_third && enableMultiplayer) {
+            console.log("Debug: Forcing jackalope character with third person view");
+            
+            // Log debug info
+            console.log("[DEBUG] Force Jackalope mode activated");
+            
+            // Set character type to jackalope
+            setPlayerCharacterInfo({
+                type: 'jackalope',
+                thirdPerson: true
+            });
+            
+            // Update connection manager if available
+            if (connectionManager) {
+                connectionManager.setPlayerType('jackalope');
+            }
+            
+            // Just make sure camera is updated appropriately
+            setTimeout(() => {
+                console.log("[DEBUG] Dispatching camera update for jackalope");
+                window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
+            }, 100);
+        }
+    }, [debugSettings.force_jackalope_third, enableMultiplayer, connectionManager]);
+    
+    // Add an effect to force arms reset on initial load
+    useEffect(() => {
+        // Only do this once on component mount
+        const initialLoadTimer = setTimeout(() => {
+            console.log("[App] Initial load complete, forcing arms reset");
+            // Dispatch force arms reset event
+            window.dispatchEvent(new CustomEvent('forceArmsReset'));
+            
+            // Also make sure camera is updated
+            window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
+        }, 1500); // Give extra time for everything to initialize
+        
+        return () => clearTimeout(initialLoadTimer);
+    }, []); // Empty dependency array means this runs once on mount
+    
+    // Add character correction check
+    useEffect(() => {
+        // Add a check to correct character type based on player index
+        // This ensures players are properly assigned as merc/jackalope
+        const checkCharacterCorrection = () => {
+            // Skip correction if disabled in debug settings
+            if (debugSettings.disable_character_correction) {
+                console.log('[DEBUG] Character auto-correction disabled');
+                return;
+            }
+            
+            // Skip correction if force_merc_fps is enabled
+            if (debugSettings.force_merc_fps) {
+                console.log('[DEBUG] Character auto-correction skipped (force_merc_fps active)');
+                return;
+            }
+
+            if (!connectionManager) return;
+            
+            const playerIndex = connectionManager.getPlayerIndex();
+            console.log(`Checking if character type matches player index ${playerIndex}`);
+            
+            if (playerIndex < 0) return; // Skip if no player index assigned
+            
+            // Get correct character for this player index
+            const correctCharacter = connectionManager.getPlayerCharacterType();
+            
+            // Check if current character matches the correct assignment
+            if (playerCharacterInfo.type !== correctCharacter.type || 
+                playerCharacterInfo.thirdPerson !== correctCharacter.thirdPerson) {
+                
+                console.error('Character type mismatch! Forcing correction...');
+                console.error('🔄 Forcing character type correction based on player index');
+                console.error(`🔄 Reset character to ${correctCharacter.type.toUpperCase()} (index: ${playerIndex}, third-person: ${correctCharacter.thirdPerson})`);
+                
+                // Apply correction
+                setPlayerCharacterInfo(correctCharacter);
+                
+                // Set player type in connection manager for network updates
+                connectionManager.setPlayerType(correctCharacter.type);
+            } else {
+                console.log(`Character type ${playerCharacterInfo.type} correctly matches player index ${playerIndex}`);
+            }
+        };
+        
+        console.log('Adding character correction check');
+        
+        // Check for correct character assignment periodically
+        if (enableMultiplayer) {
+            const interval = setInterval(checkCharacterCorrection, 5000);
+            // Also check immediately
+            setTimeout(checkCharacterCorrection, 500);
+            
+            return () => clearInterval(interval);
+        }
+    }, [enableMultiplayer, connectionManager, playerCharacterInfo.type, playerCharacterInfo.thirdPerson, debugSettings.disable_character_correction, debugSettings.force_merc_fps]);
+
+    // Add this effect to update playerCharacterInfo when characterType changes in non-multiplayer mode
+    useEffect(() => {
+        if (!enableMultiplayer) {
+            console.log(`Manual character selection changed to: ${characterType}`);
+            setPlayerCharacterInfo({
+                type: characterType as 'merc' | 'jackalope',
+                thirdPerson: characterType === 'jackalope' ? true : false
+            });
+        }
+    }, [characterType, enableMultiplayer]);
+    
     return (
         <>
             {/* Show model tester if enabled */}
@@ -2007,7 +2288,7 @@ export function App() {
                     preset="sunset"
                     background
                     blur={0.4} // Further reduced blur
-                    resolution={64} // Drastically reduced for performance
+                    resolution={globalQualityParams.environmentResolution} // Use quality-based resolution
                 />
 
                 {/* Add stars to night sky */}
@@ -2028,7 +2309,7 @@ export function App() {
                     position={[-directionalDistance, directionalHeight, -directionalDistance]}
                     ref={directionalLightRef}
                     intensity={darkMode ? 0.1 : directionalIntensity}
-                    shadow-mapSize={[highQualityShadows ? 2048 : 1024, highQualityShadows ? 2048 : 1024]}
+                    shadow-mapSize={[globalQualityParams.shadowMapSize, globalQualityParams.shadowMapSize]}
                     shadow-camera-left={-40}
                     shadow-camera-right={40}
                     shadow-camera-top={40}
@@ -2231,14 +2512,14 @@ export function App() {
                 {/* Add MoonOrbit component if orbiting is enabled */}
                 {moonOrbit && <MoonOrbit />}
 
-                {enablePostProcessing && (
+                {enablePostProcessing && globalQualityParams.effectsEnabled && (
                     <EffectComposer>
                         {bloomEnabled ? (
                             <Bloom 
                                 intensity={darkMode ? bloomIntensity * 2.0 : bloomIntensity}
                                 luminanceThreshold={darkMode ? 0.03 : bloomLuminanceThreshold}
                                 luminanceSmoothing={darkMode ? 0.7 : 0.9}
-                                mipmapBlur
+                                mipmapBlur={globalQualityParams.bloomQuality !== 'low'}
                             />
                         ) : <></>}
                         <Vignette
@@ -2277,10 +2558,21 @@ export function App() {
                 <NetworkStats connectionManager={connectionManager} visible={true} />
             )}
 
-            {showMultiplayerTools && showDebug && connectionManager?.snapshots && (
+            {showMultiplayerTools && showDebug && connectionManager && (
+                <MultiplayerDebugPanel 
+                    connectionManager={connectionManager}
+                    visible={showMultiplayerTools}
+                    isOfflineMode={connectionManager?.isOfflineMode?.() || false}
+                    setPlayerCharacterInfo={setPlayerCharacterInfo}
+                />
+            )}
+
+            {showMultiplayerTools && showDebug && connectionManager && 
+              // Check if snapshots exist on connectionManager before using them
+              'snapshots' in connectionManager && 'getSnapshotAtTime' in connectionManager && (
                 <SnapshotDebugOverlay 
-                    snapshots={connectionManager.snapshots} 
-                    getSnapshotAtTime={connectionManager.getSnapshotAtTime}
+                    snapshots={(connectionManager as any).snapshots} 
+                    getSnapshotAtTime={(connectionManager as any).getSnapshotAtTime}
                 />
             )}
 
@@ -2403,7 +2695,7 @@ export function App() {
                 </div>
             )}
         </>
-    )
+    );
 }
 
 export default App

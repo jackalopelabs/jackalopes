@@ -67,13 +67,37 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     const gltf = useGLTF(FpsArmsModelPath)
     const { actions } = useAnimations(gltf.animations, gltf.scene)
     
+    // Add a flag to track when arms model is ready to use
+    const armsModelReady = useRef(false);
+    
+    // Get required hooks early to avoid linter errors
+    const rapier = useRapier()
+    const camera = useThree((state) => state.camera)
+    const clock = useThree((state) => state.clock)
+    
     // Debug log for FPS arms model loading
     useEffect(() => {
         if (gltf?.scene) {
             console.log('FPS arms model loaded successfully:', gltf.scene);
             console.log('FPS arms animations:', Object.keys(actions));
+            armsModelReady.current = true;
+            
+            // Immediately position the arms when model loads successfully
+            if (playerType === 'merc' && !thirdPersonView) {
+                console.log('[FPS ARMS] Model loaded, applying initial positioning');
+                // Add slight delay to ensure model is fully processed
+                setTimeout(repositionFpsArms, 10);
+                setTimeout(repositionFpsArms, 50);
+                setTimeout(repositionFpsArms, 100);
+                
+                // Also trigger a full reset
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('forceArmsReset'));
+                }, 200);
+            }
         } else {
             console.error('Failed to load FPS arms model');
+            armsModelReady.current = false;
         }
     }, [gltf.scene, actions]);
     
@@ -98,9 +122,177 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         order: 1
     })
 
-    const rapier = useRapier()
-    const camera = useThree((state) => state.camera)
-    const clock = useThree((state) => state.clock)
+    // Create a ref for the FPS arms to ensure position consistency
+    const fpsArmsRef = useRef<THREE.Group>(null);
+    
+    // Function to reposition FPS arms (extracted to make it reusable)
+    const repositionFpsArms = () => {
+        if (fpsArmsRef.current && !thirdPersonView && playerType === 'merc') {
+            try {
+                // Fix rotation issues - adjust rotation to correct the upside-down and backwards orientation
+                fpsArmsRef.current.position.set(x, y, z);
+                // Just reset the group rotation and let the primitive handle rotation
+                fpsArmsRef.current.rotation.set(0, 0, 0);
+                fpsArmsRef.current.scale.set(scaleArms, scaleArms, scaleArms);
+                console.log('[FPS ARMS] Repositioned FPS arms with rotation:', { x, y, z, rotation: 'Group: X:0, Y:0, Z:0', scale: scaleArms });
+                
+                // Ensure primitive rotation is set properly too
+                try {
+                    // Access the primitive directly if needed
+                    const primitive = fpsArmsRef.current.children.find(child => child.type === 'Group' && child.userData?.type === 'primitive');
+                    if (primitive) {
+                        // Use this specific rotation to fix the upside-down and backwards issues
+                        primitive.rotation.set(0, Math.PI, Math.PI);
+                    }
+                } catch (e) {
+                    // Ignore errors accessing children
+                }
+            } catch (err) {
+                console.error('[FPS ARMS] Error repositioning arms:', err);
+            }
+        }
+    };
+    
+    // Add an effect to ensure FPS arms stay positioned correctly after graphics quality changes
+    useEffect(() => {
+        // Position FPS arms consistently when visible
+        if (playerType === 'merc' && !thirdPersonView) {
+            repositionFpsArms();
+        }
+    }, [x, y, z, scaleArms, thirdPersonView, playerType]);
+    
+    // Add an effect for when the player type changes to handle the arms visibility
+    useEffect(() => {
+        console.log(`[PLAYER] Player type changed to ${playerType}, third person: ${thirdPersonView}`);
+        
+        // When switching to merc in first person, make sure arms are repositioned
+        if (playerType === 'merc' && !thirdPersonView) {
+            if (armsModelReady.current) {
+                console.log('[FPS ARMS] Player type is merc in first person, repositioning arms');
+                
+                // Multiple attempts to reposition
+                setTimeout(repositionFpsArms, 0);
+                setTimeout(repositionFpsArms, 50);
+                setTimeout(repositionFpsArms, 150);
+                
+                // Also dispatch arms reset event
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('forceArmsReset'));
+                }, 200);
+            } else {
+                console.log('[FPS ARMS] Arms model not ready yet for repositioning');
+            }
+        }
+    }, [playerType, thirdPersonView]);
+    
+    // This will detect when the component has mounted after a page load/reload
+    useEffect(() => {
+        console.log('[FPS ARMS] Triggering automatic reset after page load/reload');
+        // Use a short delay to allow everything to initialize
+        const initialLoadTimer = setTimeout(() => {
+            // Dispatch force arms reset event
+            window.dispatchEvent(new CustomEvent('forceArmsReset'));
+        }, 500);
+        
+        return () => clearTimeout(initialLoadTimer);
+    }, []); // Empty dependency array means this runs once on mount
+    
+    // Listen for graphics quality changes and camera update events
+    useEffect(() => {
+        const handleQualityChange = () => {
+            // Ensure FPS arms are positioned correctly after quality change
+            if (fpsArmsRef.current && !thirdPersonView && playerType === 'merc') {
+                // Use multiple delayed attempts to ensure rendering pipeline has updated
+                setTimeout(repositionFpsArms, 50);
+                setTimeout(repositionFpsArms, 100);
+                setTimeout(repositionFpsArms, 300);
+            }
+        };
+        
+        // Also listen for camera update events
+        const handleCameraUpdate = () => {
+            if (fpsArmsRef.current && !thirdPersonView && playerType === 'merc') {
+                // Multiple attempts at repositioning
+                setTimeout(repositionFpsArms, 50);
+                setTimeout(repositionFpsArms, 100);
+                setTimeout(repositionFpsArms, 300);
+                setTimeout(() => {
+                    repositionFpsArms();
+                    
+                    // Also update camera FOV to default to ensure consistency
+                    if (camera instanceof THREE.PerspectiveCamera) {
+                        camera.fov = normalFov;
+                        camera.updateProjectionMatrix();
+                    }
+                }, 500);
+            }
+        };
+        
+        // Handle force arms reset event (more aggressive reset)
+        const handleForceArmsReset = () => {
+            console.log('[FPS ARMS] Received force arms reset command - executing complete reset');
+            
+            // If we're not currently in the right mode, this will prepare for when we switch
+            setTimeout(() => {
+                if (fpsArmsRef.current) {
+                    // Force extreme reset with completely fresh positioning
+                    try {
+                        // Use vanilla DOM methods to access and reset the arms model
+                        fpsArmsRef.current.position.set(x, y, z);
+                        fpsArmsRef.current.rotation.set(0, 0, 0);
+                        fpsArmsRef.current.scale.set(scaleArms, scaleArms, scaleArms);
+                        
+                        // Find all child objects and reset them as well
+                        fpsArmsRef.current.traverse((child) => {
+                            if (child.type === 'Group' && child.userData?.type === 'primitive') {
+                                // Apply the correct rotation to the primitive specifically
+                                child.rotation.set(0, Math.PI, Math.PI);
+                                console.log('[FPS ARMS] Set primitive rotation to [0, Math.PI, Math.PI]');
+                            }
+                        });
+                        
+                        console.log('[FPS ARMS] Forced complete arms reset successful');
+                    } catch (err) {
+                        console.error('[FPS ARMS] Error during forced reset:', err);
+                    }
+                } else {
+                    console.log('[FPS ARMS] Arms ref not available for reset yet');
+                }
+            }, 200);
+            
+            // Multiple aggressive timed attempts
+            for (let i = 1; i <= 5; i++) {
+                setTimeout(repositionFpsArms, i * 200);
+            }
+        };
+        
+        // Listen for our custom events
+        window.addEventListener('graphicsQualityChanged', handleQualityChange);
+        window.addEventListener('cameraUpdateNeeded', handleCameraUpdate);
+        window.addEventListener('forceArmsReset', handleForceArmsReset);
+        
+        return () => {
+            window.removeEventListener('graphicsQualityChanged', handleQualityChange);
+            window.removeEventListener('cameraUpdateNeeded', handleCameraUpdate);
+            window.removeEventListener('forceArmsReset', handleForceArmsReset);
+        };
+    }, [playerType, thirdPersonView, camera, x, y, z, scaleArms]);
+    
+    // Add special handling for the camera FOV to prevent glitches
+    useEffect(() => {
+        // Reset FOV when switching to/from third person view
+        if (camera instanceof THREE.PerspectiveCamera) {
+            camera.fov = normalFov;
+            camera.updateProjectionMatrix();
+            
+            if (!thirdPersonView) {
+                // Force position update for FPS arms when switching to first-person
+                setTimeout(repositionFpsArms, 50);
+                setTimeout(repositionFpsArms, 200);
+                setTimeout(repositionFpsArms, 500);
+            }
+        }
+    }, [thirdPersonView, camera]);
 
     const characterController = useRef<Rapier.KinematicCharacterController>(null!)
 
@@ -382,10 +574,18 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         
         camera.position.lerp(cameraPosition, delta * 30)
         
-        // FOV change for sprint
+        // FOV change for sprint with improved stability
         if (camera instanceof THREE.PerspectiveCamera) {
-            camera.fov = THREE.MathUtils.lerp(camera.fov, isSprinting && currentSpeed > 0.1 ? sprintFov : normalFov, 10 * delta)
-            camera.updateProjectionMatrix()
+            // Make FOV change more stable with less interpolation
+            const targetFov = isSprinting && currentSpeed > 0.1 ? sprintFov : normalFov;
+            camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 5 * delta); // Reduced from 10 to 5 for more stability
+            camera.updateProjectionMatrix();
+            
+            // Ensure FPS arms follow camera immediately if they exist
+            if (fpsArmsRef.current && !thirdPersonView && playerType === 'merc') {
+                // Keep arms attached to camera at all times
+                fpsArmsRef.current.position.set(x, y, z);
+            }
         }
 
         // Send position to multiplayer system if connected
@@ -578,6 +778,31 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         }
     }, [thirdPersonView]);
 
+    // Add a more aggressive approach to ensure arms stay attached
+    useFrame(() => {
+        // This ensures the FPS arms stay attached to the camera EVERY frame
+        if (!thirdPersonView && playerType === 'merc') {
+            if (fpsArmsRef.current) {
+                // Force position update every frame for stability
+                fpsArmsRef.current.position.set(x, y, z);
+                // Force the proper rotation as well - group stays at neutral rotation
+                fpsArmsRef.current.rotation.set(0, 0, 0);
+                
+                // Ensure the primitive inside stays properly positioned too
+                try {
+                    // Access the primitive directly if needed
+                    const primitive = fpsArmsRef.current.children.find(child => child.type === 'Group' && child.userData?.type === 'primitive');
+                    if (primitive) {
+                        // Use this specific rotation to fix the upside-down and backwards issues
+                        primitive.rotation.set(0, Math.PI, Math.PI);
+                    }
+                } catch (e) {
+                    // Ignore errors accessing children
+                }
+            }
+        }
+    });
+
     return (
         <>
             <Entity isPlayer ref={playerRef}>
@@ -664,9 +889,9 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     fov={normalFov}
                     position={[0, 0.75, 0]}
                 >
-                    {/* Move arms model inside camera to ensure it's attached to camera view */}
+                    {/* Only render FPS arms if player type is merc */}
                     {playerType === 'merc' && (
-                        <group position={[x, y, z]}>
+                        <group ref={fpsArmsRef} position={[x, y, z]} rotation={[0, 0, 0]}>
                             {/* Add a debug sphere to help visualize the position */}
                             <mesh position={[0, 0, 0]}>
                                 <sphereGeometry args={[0.05, 16, 16]} />
@@ -676,8 +901,9 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                             <primitive 
                                 object={gltf.scene} 
                                 position={[0, 0, 0]}
-                                rotation={[0, Math.PI, 0]}
-                                scale={scaleArms} // Increase scale for better visibility
+                                rotation={[0, Math.PI, Math.PI]} // This specific rotation fixes both issues
+                                scale={scaleArms}
+                                userData={{ type: 'primitive' }} // Add a marker to find this child
                             />
                         </group>
                     )}

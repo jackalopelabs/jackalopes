@@ -1245,12 +1245,13 @@ declare global {
 
 // Add a global function to set quality from UI
 window.__setGraphicsQuality = (quality: 'auto' | 'high' | 'medium' | 'low') => {
-    console.log(`Setting graphics quality to: ${quality}`);
+    console.log(`%c[GRAPHICS] Setting graphics quality to: ${quality}`, 'background: #222; color: #bada55; font-size: 14px');
     
     window.__currentQuality = quality; // Store the current quality
     
     if (quality === 'auto') {
         // Keep current auto-detection settings
+        console.log('[GRAPHICS] Using auto quality settings');
         return;
     }
     
@@ -1299,7 +1300,13 @@ window.__setGraphicsQuality = (quality: 'auto' | 'high' | 'medium' | 'low') => {
             break;
     }
     
-    console.log('Applied new performance settings:', PERFORMANCE_CONFIG);
+    console.log('[GRAPHICS] Applied new sphere performance settings');
+    
+    // Dispatch an event that other components can listen for
+    const graphicsEvent = new CustomEvent('graphicsQualityChanged', { 
+        detail: { quality } 
+    });
+    window.dispatchEvent(graphicsEvent);
 };
 
 // Now expose a global function to set dark mode
