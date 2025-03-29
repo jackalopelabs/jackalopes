@@ -221,7 +221,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             // Update model position directly
             jackalopeModelRef.current.position.set(
                 position.current.x,
-                position.current.y + 0.3, // Height offset for model
+                position.current.y - 0.65, // Reduce height offset to lower the model
                 position.current.z
             )
             // Add PI rotation to make model face the correct direction
@@ -295,7 +295,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         enabledRotations={[false, false, false]}
                     >
                         <object3D name="jackalope" />
-                        <CapsuleCollider args={[1.0, 0.5]} />
+                        <CapsuleCollider args={[1.0, 0.5]} position={[0, -0.65, 0]} />
                     </RigidBody>
                 </Component>
             </Entity>
