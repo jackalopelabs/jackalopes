@@ -10,12 +10,14 @@ export const MercModel = ({
   animation = 'walk', 
   visible = true, 
   position = [0, 0, 0] as [number, number, number],
-  rotation = [0, 0, 0] as [number, number, number]
+  rotation = [0, 0, 0] as [number, number, number],
+  scale = [1, 1, 1] as [number, number, number]
 }: {
   animation?: string;
   visible?: boolean;
   position?: [number, number, number] | THREE.Vector3;
   rotation?: [number, number, number] | THREE.Euler;
+  scale?: [number, number, number];
 }) => {
   // Load merc model from the assets with animations
   const group = useRef<THREE.Group>(null);
@@ -201,6 +203,7 @@ export const MercModel = ({
         visible={visible} 
         position={finalPosition}
         rotation={finalRotation}
+        scale={scale}
       >
         <mesh>
           <boxGeometry args={[1, 2, 1]} />
@@ -222,6 +225,7 @@ export const MercModel = ({
       visible={visible} 
       position={finalPosition}
       rotation={finalRotation}
+      scale={scale}
     >
       <primitive object={scene} />
       {!currentAnimation && (

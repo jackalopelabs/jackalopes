@@ -246,9 +246,10 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   if (playerType === 'merc') {
     return (
       <MercModel 
-        position={position ? [position.x, position.y, position.z] : [0, 0, 0]} 
+        position={position ? [position.x, position.y - 1.6, position.z] : [0, -1.6, 0]} 
         rotation={[0, rotation || 0, 0]}
         animation={localIsMoving ? "walk" : "idle"}
+        scale={[5, 5, 5]}
       />
     );
   }
