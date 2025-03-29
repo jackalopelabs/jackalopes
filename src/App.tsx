@@ -2318,21 +2318,32 @@ export function App() {
             
             // Function to trigger all needed updates
             const resetCameraAndArms = () => {
+                // First dispatch camera update event
                 window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
-                window.dispatchEvent(new CustomEvent('forceArmsReset'));
                 
-                // Also force a camera position sync
-                window.dispatchEvent(new CustomEvent('forceCameraSync', { 
-                    detail: { forceDarkLevel } 
-                }));
+                // Then dispatch arms reset event (with small delay)
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('forceArmsReset'));
+                }, 50);
+                
+                // Finally force a camera position sync with detailed info
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('forceCameraSync', { 
+                        detail: { 
+                            forceDarkLevel,
+                            timestamp: Date.now(),
+                            operation: 'toggle_dark_level'
+                        } 
+                    }));
+                }, 100);
             };
             
-            // Execute immediately and with multiple delays to ensure it works
+            // Execute several times with increasing delays for reliability
+            // This improves chances of successful sync across various frame timings
             resetCameraAndArms();
-            setTimeout(resetCameraAndArms, 100);
-            setTimeout(resetCameraAndArms, 300);
-            setTimeout(resetCameraAndArms, 800);
-            setTimeout(resetCameraAndArms, 1500);
+            for (let i = 1; i <= 5; i++) {
+                setTimeout(resetCameraAndArms, i * 300);
+            }
         }
     }, [forceDarkLevel]);
     

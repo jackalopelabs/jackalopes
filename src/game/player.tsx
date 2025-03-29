@@ -284,9 +284,32 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                             camera.updateProjectionMatrix();
                         }
                         
+                        // Request pointer lock again if it was lost
+                        if (!document.pointerLockElement && document.body && !thirdPersonView) {
+                            try {
+                                console.log('[FPS CAMERA] Re-acquiring pointer lock after dark level change');
+                                document.body.requestPointerLock();
+                            } catch (e) {
+                                console.error('[FPS CAMERA] Failed to request pointer lock:', e);
+                            }
+                        }
+                        
                         console.log('[FPS ARMS] Camera and arms sync complete');
                     }
                 }, 100);
+                
+                // Add multiple attempts to ensure pointer lock and camera sync
+                for (let i = 2; i <= 5; i++) {
+                    setTimeout(() => {
+                        if (!document.pointerLockElement && document.body && !thirdPersonView) {
+                            try {
+                                document.body.requestPointerLock();
+                            } catch (e) {
+                                // Ignore errors in retry attempts
+                            }
+                        }
+                    }, i * 200);
+                }
             }
         };
         
@@ -829,6 +852,27 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         }
     }, [thirdPersonView]);
 
+    // Keep a stable reference to the PerspectiveCamera
+    const fpsCameraRef = useRef<THREE.PerspectiveCamera>(null);
+    
+    // Special frame handler just for camera stability
+    useFrame(() => {
+        // Ensure camera remains properly connected to the player's position
+        if (!thirdPersonView && playerType === 'merc' && fpsCameraRef.current) {
+            // Maintain stability by resetting camera position if needed
+            if (fpsCameraRef.current.parent && fpsCameraRef.current.parent.type === 'Object3D') {
+                // Camera should always be positioned at player's head height
+                fpsCameraRef.current.position.set(0, 0.75, 0);
+                
+                // Ensure camera has correct FOV (could be changed by sprint)
+                if (fpsCameraRef.current.fov !== normalFov) {
+                    fpsCameraRef.current.fov = normalFov;
+                    fpsCameraRef.current.updateProjectionMatrix();
+                }
+            }
+        }
+    });
+
     return (
         <>
             <Entity isPlayer ref={playerRef}>
@@ -911,6 +955,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             
             {!thirdPersonView && (
                 <PerspectiveCamera
+                    ref={fpsCameraRef}
                     makeDefault
                     fov={normalFov}
                     position={[0, 0.75, 0]}
@@ -969,6 +1014,7 @@ type PlayerControlsProps = {
 export const PlayerControls = ({ children, thirdPersonView = false }: PlayerControlsProps) => {
     // Track whether pointer lock was released due to third-person toggle
     const [pointerLockDisabled, setPointerLockDisabled] = useState(false);
+    const pointerLockRef = useRef<any>(null);
     
     // Effect to handle mode switching
     useEffect(() => {
@@ -984,17 +1030,51 @@ export const PlayerControls = ({ children, thirdPersonView = false }: PlayerCont
             // to prevent immediately re-locking when toggling modes
             const timeout = setTimeout(() => {
                 setPointerLockDisabled(false);
+                
+                // Re-acquire pointer lock if we're in first-person mode
+                if (!document.pointerLockElement && document.body && !thirdPersonView) {
+                    try {
+                        document.body.requestPointerLock();
+                    } catch (e) {
+                        console.error('[CONTROLS] Failed to request pointer lock:', e);
+                    }
+                }
             }, 500);
             
             return () => clearTimeout(timeout);
         }
     }, [thirdPersonView]);
     
+    // Listen for dark level changes
+    useEffect(() => {
+        const handleDarkLevelChange = (event: CustomEvent) => {
+            // When dark level changes, ensure pointer lock is maintained
+            if (!thirdPersonView && !pointerLockDisabled) {
+                // If pointer lock is lost, try to reacquire it
+                if (!document.pointerLockElement && document.body) {
+                    try {
+                        console.log('[CONTROLS] Reacquiring pointer lock after dark level change');
+                        document.body.requestPointerLock();
+                    } catch (e) {
+                        console.error('[CONTROLS] Failed to request pointer lock:', e);
+                    }
+                }
+            }
+        };
+        
+        // Listen for force dark level changes
+        window.addEventListener('forceCameraSync', handleDarkLevelChange as EventListener);
+        
+        return () => {
+            window.removeEventListener('forceCameraSync', handleDarkLevelChange as EventListener);
+        };
+    }, [thirdPersonView, pointerLockDisabled]);
+    
     return (
         <KeyboardControls map={controls}>
             {children}
             {/* Only use pointer lock controls in first-person view */}
-            {!thirdPersonView && !pointerLockDisabled && <PointerLockControls makeDefault />}
+            {!thirdPersonView && !pointerLockDisabled && <PointerLockControls ref={pointerLockRef} makeDefault />}
         </KeyboardControls>
     )
 }
