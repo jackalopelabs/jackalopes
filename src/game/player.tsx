@@ -461,15 +461,16 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
 
         const grounded = characterController.current.computedGrounded()
 
-        // x and z movement
+        // x and z movement - align calculation with Jackalope
         _frontVector.set(0, 0, Number(moveForward) - Number(moveBackward))
         _sideVector.set(Number(moveRight) - Number(moveLeft), 0, 0)
 
         const cameraWorldDirection = camera.getWorldDirection(_cameraWorldDirection)
         const cameraYaw = Math.atan2(cameraWorldDirection.x, cameraWorldDirection.z)
 
+        // Modified to match Jackalope implementation
         _direction.subVectors(_frontVector, _sideVector).normalize().multiplyScalar(speed)
-        _direction.applyAxisAngle(up, cameraYaw).multiplyScalar(-1)
+        _direction.applyAxisAngle(up, cameraYaw)
 
         const horizontalVelocitySmoothing = velocityXZSmoothing * (grounded ? accelerationTimeGrounded : accelerationTimeAirborne)
         const horizontalVelocityLerpFactor = 1 - Math.pow(horizontalVelocitySmoothing, 0.116)
