@@ -2318,21 +2318,50 @@ export function App() {
             
             // Function to trigger all needed updates
             const resetCameraAndArms = () => {
+                // First send camera update needed
                 window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
-                window.dispatchEvent(new CustomEvent('forceArmsReset'));
                 
-                // Also force a camera position sync
-                window.dispatchEvent(new CustomEvent('forceCameraSync', { 
-                    detail: { forceDarkLevel } 
-                }));
+                // Then force arms reset with a slight delay
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('forceArmsReset'));
+                }, 50);
+                
+                // Finally force camera sync with a bit more delay
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('forceCameraSync', { 
+                        detail: { forceDarkLevel, timestamp: Date.now() } 
+                    }));
+                }, 100);
             };
             
-            // Execute immediately and with multiple delays to ensure it works
-            resetCameraAndArms();
-            setTimeout(resetCameraAndArms, 100);
-            setTimeout(resetCameraAndArms, 300);
-            setTimeout(resetCameraAndArms, 800);
-            setTimeout(resetCameraAndArms, 1500);
+            // Ensure FPS arms are properly connected to the camera after Dark Level toggle
+            const syncArmsToCamera = () => {
+                // Completely reset camera projection first
+                const cameraElement = document.querySelector('canvas')?.parentElement?.querySelector('camera');
+                
+                // Force a global camera reset at the DOM level
+                window.dispatchEvent(new CustomEvent('globalCameraReset', {
+                    detail: {
+                        forceDarkLevel,
+                        timestamp: Date.now(),
+                        fullReset: true
+                    }
+                }));
+                
+                // Make multiple aggressive attempts at syncing arms to camera
+                const intervals = [0, 100, 300, 600, 1000, 2000, 3000];
+                intervals.forEach(delay => {
+                    setTimeout(resetCameraAndArms, delay);
+                });
+            };
+            
+            // Execute with multiple delays for reliability
+            syncArmsToCamera();
+            
+            // Additional failsafe for extra reliability - after all rendering completes
+            requestAnimationFrame(() => {
+                setTimeout(syncArmsToCamera, 500);
+            });
         }
     }, [forceDarkLevel]);
     
@@ -2462,7 +2491,7 @@ export function App() {
                                     position={[0, 7, 10]}
                                     walkSpeed={0.02}
                                     runSpeed={0.025}
-                                    jumpForce={jumpForce * 0.7}
+                                    jumpForce={jumpForce * 1.2}
                                     visible={playerCharacterInfo.thirdPerson}
                                     thirdPersonView={playerCharacterInfo.thirdPerson}
                                     playerType={playerCharacterInfo.type}
@@ -2485,7 +2514,7 @@ export function App() {
                                     position={[0, 7, 10]} // Increased height to start well above the ground
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
-                                    jumpForce={jumpForce * 0.8}
+                                    jumpForce={jumpForce * 1.5}
                                     visible={playerCharacterInfo.thirdPerson}
                                     thirdPersonView={playerCharacterInfo.thirdPerson}
                                     connectionManager={enableMultiplayer ? connectionManager : undefined}
@@ -2509,7 +2538,7 @@ export function App() {
                                     position={[0, 7, 10]}
                                     walkSpeed={0.02}
                                     runSpeed={0.025}
-                                    jumpForce={jumpForce * 0.7}
+                                    jumpForce={jumpForce * 1.2}
                                     visible={thirdPersonView}
                                     thirdPersonView={thirdPersonView}
                                     playerType={characterType}
@@ -2532,7 +2561,7 @@ export function App() {
                                     position={[0, 7, 10]} // Increased height to start well above the ground
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
-                                    jumpForce={jumpForce * 0.8}
+                                    jumpForce={jumpForce * 1.5}
                                     visible={thirdPersonView}
                                     thirdPersonView={thirdPersonView}
                                     connectionManager={enableMultiplayer ? connectionManager : undefined}

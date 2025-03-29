@@ -19,8 +19,8 @@ const BASE_SPEED = 6.8; // Doubled from 3.4 to make jackalope 2x faster
 const RUN_MULTIPLIER = 1.8; // Keep this the same
 
 // Jump handling adjustments
-const JUMP_MULTIPLIER = 4; // Reduced from 12 to about 1/3
-const GRAVITY_REDUCTION = 0.7; // Increased from 0.5 to make jumps shorter
+const JUMP_MULTIPLIER = 6.0; // Increased from 1.5 to 6.0 for a good jump height
+const GRAVITY_REDUCTION = 0.7; // Adjusted from 0.9 to 0.7 for longer jumps
 
 // Props for the Jackalope component
 type JackalopeProps = RigidBodyProps & {
@@ -178,7 +178,13 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         
         // Apply gravity if not on ground
         if (!groundCheck) {
-            velocity.current.y -= 9.8 * delta * GRAVITY_REDUCTION // Reduced gravity effect for higher/longer jumps
+            // Apply gravity with smoothing and cap the fall speed
+            velocity.current.y -= 9.8 * delta * GRAVITY_REDUCTION
+            
+            // Cap falling speed to prevent too rapid descent
+            if (velocity.current.y < -20) {
+                velocity.current.y = -20
+            }
         } else if (velocity.current.y < 0) {
             velocity.current.y = 0 // Stop falling if on ground
         }

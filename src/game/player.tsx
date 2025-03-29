@@ -31,12 +31,12 @@ const autoStepMaxHeight = 2
 const autoStepMinWidth = 0.05
 const accelerationTimeAirborne = 0.5
 const accelerationTimeGrounded = 0.15
-const timeToJumpApex = 2
-const maxJumpHeight = 0.5
-const minJumpHeight = 0.2
+const timeToJumpApex = 2.5
+const maxJumpHeight = 1.2
+const minJumpHeight = 0.7
 const velocityXZSmoothing = 0.25
 const velocityXZMin = 0.001
-const jumpGravity = -(2 * maxJumpHeight) / Math.pow(timeToJumpApex, 3)
+const jumpGravity = -(2 * maxJumpHeight) / Math.pow(timeToJumpApex, 2)
 const maxJumpVelocity = Math.abs(jumpGravity) * timeToJumpApex
 const minJumpVelocity = Math.sqrt(2 * Math.abs(jumpGravity) * minJumpHeight)
 
@@ -228,6 +228,47 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             }
         };
         
+        // Handle global camera reset (more extreme than forceCameraSync)
+        const handleGlobalCameraReset = (event: CustomEvent) => {
+            if (!thirdPersonView && playerType === 'merc') {
+                console.log('[FPS ARMS] Executing global camera reset');
+                
+                // Immediately try to reposition
+                if (fpsArmsRef.current) {
+                    try {
+                        // Force camera FOV reset first
+                        if (camera instanceof THREE.PerspectiveCamera) {
+                            camera.fov = normalFov;
+                            camera.updateProjectionMatrix();
+                        }
+                        
+                        // Schedule multiple repositionings with exponential backoff
+                        [0, 50, 150, 300, 600, 1000, 2000].forEach((delay, index) => {
+                            setTimeout(() => {
+                                if (fpsArmsRef.current) {
+                                    // Reset position, rotation, and scale
+                                    fpsArmsRef.current.position.set(x, y, z);
+                                    fpsArmsRef.current.rotation.set(0, 0, 0);
+                                    fpsArmsRef.current.scale.set(scaleArms, scaleArms, scaleArms);
+                                    
+                                    // Ensure all children have correct transforms
+                                    fpsArmsRef.current.traverse((child) => {
+                                        if (child.type === 'Group' && child.userData?.type === 'primitive') {
+                                            child.rotation.set(0, Math.PI, 0);
+                                        }
+                                    });
+                                    
+                                    console.log(`[FPS ARMS] Global reset attempt ${index+1} complete`);
+                                }
+                            }, delay);
+                        });
+                    } catch (err) {
+                        console.error('[FPS ARMS] Error during global camera reset:', err);
+                    }
+                }
+            }
+        };
+        
         // Handle force arms reset event (more aggressive reset)
         const handleForceArmsReset = () => {
             console.log('[FPS ARMS] Received force arms reset command - executing complete reset');
@@ -268,25 +309,51 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         
         // Handle forceCameraSync event specifically for dark level changes
         const handleForceCameraSync = (event: CustomEvent) => {
-            if (!thirdPersonView && playerType === 'merc' && fpsArmsRef.current) {
+            if (!thirdPersonView && playerType === 'merc') {
                 console.log('[FPS ARMS] Forcing camera sync due to lighting changes');
                 
-                // More aggressive positioning with timing attempts
-                setTimeout(() => {
-                    if (fpsArmsRef.current) {
-                        fpsArmsRef.current.position.set(x, y, z);
-                        fpsArmsRef.current.rotation.set(0, 0, 0);
-                        fpsArmsRef.current.scale.set(scaleArms, scaleArms, scaleArms);
-                        
-                        // Make sure FOV is also reset
-                        if (camera instanceof THREE.PerspectiveCamera) {
-                            camera.fov = normalFov;
-                            camera.updateProjectionMatrix();
+                // Multiple attempts with increasing delays for more reliable syncing
+                const applySyncAttempt = (delay: number, attempt: number) => {
+                    setTimeout(() => {
+                        if (fpsArmsRef.current) {
+                            try {
+                                // Hard reset position
+                                fpsArmsRef.current.position.set(x, y, z);
+                                fpsArmsRef.current.rotation.set(0, 0, 0);
+                                fpsArmsRef.current.scale.set(scaleArms, scaleArms, scaleArms);
+                                
+                                // Reset all children rotations
+                                fpsArmsRef.current.traverse((child) => {
+                                    if (child.type === 'Group' && child.userData?.type === 'primitive') {
+                                        child.rotation.set(0, Math.PI, 0);
+                                    }
+                                });
+                                
+                                // Make sure FOV is also reset
+                                if (camera instanceof THREE.PerspectiveCamera) {
+                                    camera.fov = normalFov;
+                                    camera.updateProjectionMatrix();
+                                }
+                                
+                                console.log(`[FPS ARMS] Camera and arms sync attempt ${attempt} complete`);
+                            } catch (err) {
+                                console.error(`[FPS ARMS] Error during sync attempt ${attempt}:`, err);
+                            }
                         }
-                        
-                        console.log('[FPS ARMS] Camera and arms sync complete');
-                    }
-                }, 100);
+                    }, delay);
+                };
+                
+                // Try multiple times with increasing delays
+                applySyncAttempt(50, 1);
+                applySyncAttempt(150, 2);
+                applySyncAttempt(300, 3);
+                applySyncAttempt(600, 4);
+                applySyncAttempt(1000, 5);
+                
+                // Also trigger a full arms reset for good measure
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('forceArmsReset'));
+                }, 500);
             }
         };
         
@@ -295,12 +362,14 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         window.addEventListener('cameraUpdateNeeded', handleCameraUpdate);
         window.addEventListener('forceArmsReset', handleForceArmsReset);
         window.addEventListener('forceCameraSync', handleForceCameraSync as EventListener);
+        window.addEventListener('globalCameraReset', handleGlobalCameraReset as EventListener);
         
         return () => {
             window.removeEventListener('graphicsQualityChanged', handleQualityChange);
             window.removeEventListener('cameraUpdateNeeded', handleCameraUpdate);
             window.removeEventListener('forceArmsReset', handleForceArmsReset);
             window.removeEventListener('forceCameraSync', handleForceCameraSync as EventListener);
+            window.removeEventListener('globalCameraReset', handleGlobalCameraReset as EventListener);
         };
     }, [playerType, thirdPersonView, camera, x, y, z, scaleArms]);
     
@@ -321,18 +390,18 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     }, [thirdPersonView, camera]);
 
     // Ensure FPS arms are updated every frame to stay attached to the camera
-    useFrame(() => {
-        if (fpsArmsRef.current && !thirdPersonView && playerType === 'merc') {
-            // Position the arms on every frame
-            fpsArmsRef.current.position.set(x, y, z);
-            fpsArmsRef.current.scale.set(scaleArms, scaleArms, scaleArms);
-            
-            // Ensure primitive rotation is correct on every frame
-            fpsArmsRef.current.traverse((child) => {
-                if (child.type === 'Group' && child.userData?.type === 'primitive') {
-                    child.rotation.set(0, Math.PI, 0);
-                }
-            });
+    useFrame((state) => {
+        // No need to sync FPS arms here anymore - CameraArmsSync component handles that
+        // Just maintain basic camera functionality
+        
+        // Optionally update camera FOV if needed
+        if (state.camera instanceof THREE.PerspectiveCamera) {
+            // Reset FOV if needed
+            if (Math.abs(state.camera.fov - normalFov) > 5 && !getKeyboardControls().sprint) {
+                // Reset FOV if it's drifted significantly and not sprinting
+                state.camera.fov = normalFov;
+                state.camera.updateProjectionMatrix();
+            }
         }
     });
 
@@ -504,10 +573,17 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             }
         }
 
-        if (!isJumping && grounded) {
+        // Always apply gravity more consistently to prevent ceiling bouncing
+        if (grounded && !isJumping) {
             jumpVelocity.current = 0
         } else {
-            jumpVelocity.current += jumpGravity * 0.116
+            // Apply gravity with a smoother curve and cap the negative velocity
+            jumpVelocity.current += jumpGravity * 0.1
+            
+            // Cap the downward velocity to prevent too rapid falling
+            if (jumpVelocity.current < -maxJumpVelocity * 0.8) {
+                jumpVelocity.current = -maxJumpVelocity * 0.8;
+            }
         }
 
         holdingJump.current = isJumping
@@ -624,17 +700,12 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             camera.fov = THREE.MathUtils.lerp(camera.fov, targetFov, 5 * delta); // Reduced from 10 to 5 for more stability
             camera.updateProjectionMatrix();
             
-            // Ensure FPS arms follow camera immediately if they exist
-            if (fpsArmsRef.current && !thirdPersonView && playerType === 'merc') {
-                // Keep arms attached to camera at all times
-                fpsArmsRef.current.position.set(x, y, z);
-                
-                // Also ensure primitive rotation is maintained correctly on every frame
-                fpsArmsRef.current.traverse((child) => {
-                    if (child.type === 'Group' && child.userData?.type === 'primitive') {
-                        // Fix upside-down issue by rotating 180° on Y axis
-                        child.rotation.set(0, Math.PI, 0);
-                    }
+            // Ensure our FOV change doesn't trigger a camera-arms sync issue
+            // by dispatching an event the CameraArmsSync component will listen for
+            if (Math.abs(camera.fov - targetFov) < 0.1) {
+                // FOV has reached target, ensure arms update
+                requestAnimationFrame(() => {
+                    window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
                 });
             }
         }
@@ -910,30 +981,31 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             )}
             
             {!thirdPersonView && (
-                <PerspectiveCamera
-                    makeDefault
-                    fov={normalFov}
-                    position={[0, 0.75, 0]}
-                >
-                    {/* Only render FPS arms if player type is merc */}
+                <>
+                    {/* Create a simpler, more direct camera structure */}
+                    <PerspectiveCamera
+                        makeDefault
+                        fov={normalFov}
+                        position={[0, 0.75, 0]}
+                    />
+                    
+                    {/* Create a Group that directly follows the camera every frame */}
                     {playerType === 'merc' && (
-                        <group ref={fpsArmsRef} position={[x, y, z]} rotation={[0, 0, 0]}>
-                            {/* Add a debug sphere to help visualize the position */}
-                            <mesh position={[0, 0, 0]}>
-                                <sphereGeometry args={[0.05, 16, 16]} />
-                                <meshStandardMaterial color="red" />
-                            </mesh>
-                            
+                        <CameraArmsSync 
+                            position={[x, y, z]} 
+                            scale={scaleArms} 
+                            fpsArmsRef={fpsArmsRef}
+                            camera={camera}
+                        >
                             <primitive 
                                 object={gltf.scene} 
                                 position={[0, 0, 0]}
-                                rotation={[0, Math.PI, 0]} // Fixed rotation that solves the upside-down issue
-                                scale={scaleArms}
-                                userData={{ type: 'primitive' }} // Add a marker to find this child
+                                rotation={[0, Math.PI, 0]} 
+                                userData={{ type: 'primitive' }}
                             />
-                        </group>
+                        </CameraArmsSync>
                     )}
-                </PerspectiveCamera>
+                </>
             )}
             
             {document.pointerLockElement && !thirdPersonView && (
@@ -1001,3 +1073,242 @@ export const PlayerControls = ({ children, thirdPersonView = false }: PlayerCont
 
 // Preload the model to ensure it's cached
 useGLTF.preload(FpsArmsModelPath)
+
+// Create a dedicated component to sync camera and arms
+type CameraArmsSyncProps = {
+    position: [number, number, number] | { x: number, y: number, z: number }
+    scale: number
+    fpsArmsRef: React.RefObject<THREE.Group>
+    camera: THREE.Camera
+    children: React.ReactNode
+}
+
+const CameraArmsSync: React.FC<CameraArmsSyncProps> = ({ 
+    position, 
+    scale, 
+    fpsArmsRef, 
+    camera, 
+    children 
+}) => {
+    // Convert position to tuple if it's an object
+    const positionArray = Array.isArray(position) 
+        ? position 
+        : [position.x, position.y, position.z];
+    
+    // Create refs for vectors to avoid recreating them each frame
+    const cameraPosition = useRef(new THREE.Vector3());
+    const cameraDirection = useRef(new THREE.Vector3());
+    const cameraRight = useRef(new THREE.Vector3());
+    const cameraUp = useRef(new THREE.Vector3());
+    const armsPosition = useRef(new THREE.Vector3());
+    
+    // Add a ref to track the last camera quaternion to detect rotation changes
+    const lastCameraQuaternion = useRef(new THREE.Quaternion());
+    
+    // Get the three state for more direct access
+    const state = useThree();
+    
+    // Listen for cameraUpdateNeeded events
+    useEffect(() => {
+        // Keep a reference to the synchronization function
+        const syncCamera = () => {
+            if (fpsArmsRef.current && camera) {
+                try {
+                    // Get camera position and orientation
+                    camera.getWorldPosition(cameraPosition.current);
+                    
+                    // Copy the camera's quaternion to ensure arms rotate with camera view
+                    fpsArmsRef.current.quaternion.copy(camera.quaternion);
+                    
+                    // Store this quaternion for reference
+                    lastCameraQuaternion.current.copy(camera.quaternion);
+                    
+                    // Calculate vectors based on camera orientation
+                    cameraDirection.current.set(0, 0, -1).applyQuaternion(camera.quaternion);
+                    cameraRight.current.set(1, 0, 0).applyQuaternion(camera.quaternion);
+                    cameraUp.current.set(0, 1, 0).applyQuaternion(camera.quaternion);
+                    
+                    // Calculate arm position
+                    armsPosition.current.copy(cameraPosition.current)
+                        .add(cameraRight.current.clone().multiplyScalar(positionArray[0]))
+                        .add(cameraUp.current.clone().multiplyScalar(positionArray[1]))
+                        .add(cameraDirection.current.clone().multiplyScalar(positionArray[2]));
+                    
+                    // Apply position and scaling directly
+                    fpsArmsRef.current.position.copy(armsPosition.current);
+                    fpsArmsRef.current.scale.set(scale, scale, scale);
+                    
+                    // Also ensure primitive rotation is consistent
+                    fpsArmsRef.current.traverse((child) => {
+                        if (child.type === 'Group' && child.userData?.type === 'primitive') {
+                            child.rotation.set(0, Math.PI, 0);
+                        }
+                    });
+                    
+                    // Force update matrices to ensure everything is in the right place
+                    fpsArmsRef.current.updateMatrixWorld(true);
+                } catch (err) {
+                    console.error("Error in camera update event handler:", err);
+                }
+            }
+        };
+        
+        const handleCameraUpdate = () => {
+            if (fpsArmsRef.current && camera) {
+                console.log("[CameraArmsSync] Received camera update event");
+                syncCamera();
+            }
+        };
+        
+        window.addEventListener('cameraUpdateNeeded', handleCameraUpdate);
+        return () => {
+            window.removeEventListener('cameraUpdateNeeded', handleCameraUpdate);
+        };
+    }, [camera, fpsArmsRef, positionArray, scale]);
+    
+    // Handle dark mode changes specifically
+    useEffect(() => {
+        // This effect runs once when component mounts
+        const resetPosition = () => {
+            if (fpsArmsRef.current && camera) {
+                // Immediate reset
+                syncWithCamera();
+                
+                // Then multiple delayed attempts
+                setTimeout(syncWithCamera, 100);
+                setTimeout(syncWithCamera, 300);
+                setTimeout(syncWithCamera, 600);
+                setTimeout(syncWithCamera, 1200);
+            }
+        };
+        
+        // Define the synchronization function
+        const syncWithCamera = () => {
+            if (fpsArmsRef.current && camera) {
+                try {
+                    // Get camera position and orientation
+                    camera.getWorldPosition(cameraPosition.current);
+                    
+                    // Copy the camera's quaternion to ensure arms rotate with camera view
+                    fpsArmsRef.current.quaternion.copy(camera.quaternion);
+                    
+                    // Store current quaternion for reference
+                    lastCameraQuaternion.current.copy(camera.quaternion);
+                    
+                    // Calculate vectors based on camera orientation
+                    cameraDirection.current.set(0, 0, -1).applyQuaternion(camera.quaternion);
+                    cameraRight.current.set(1, 0, 0).applyQuaternion(camera.quaternion);
+                    cameraUp.current.set(0, 1, 0).applyQuaternion(camera.quaternion);
+                    
+                    // Calculate arm position
+                    armsPosition.current.copy(cameraPosition.current)
+                        .add(cameraRight.current.clone().multiplyScalar(positionArray[0]))
+                        .add(cameraUp.current.clone().multiplyScalar(positionArray[1]))
+                        .add(cameraDirection.current.clone().multiplyScalar(positionArray[2]));
+                    
+                    // Apply position and scaling directly
+                    fpsArmsRef.current.position.copy(armsPosition.current);
+                    fpsArmsRef.current.scale.set(scale, scale, scale);
+                    
+                    // Also ensure primitive rotation is consistent
+                    fpsArmsRef.current.traverse((child) => {
+                        if (child.type === 'Group' && child.userData?.type === 'primitive') {
+                            child.rotation.set(0, Math.PI, 0);
+                        }
+                    });
+                    
+                    // Force update matrices to ensure everything is in the right place
+                    fpsArmsRef.current.updateMatrixWorld(true);
+                } catch (err) {
+                    console.error("Error synchronizing camera and arms:", err);
+                }
+            }
+        };
+        
+        // Listen for dark mode toggle events
+        const handleDarkModeToggle = (event: Event) => {
+            console.log("[CameraArmsSync] Handling dark mode toggle event");
+            resetPosition();
+        };
+        
+        // Add custom event listeners
+        window.addEventListener('forceCameraSync', handleDarkModeToggle);
+        window.addEventListener('globalCameraReset', handleDarkModeToggle);
+        window.addEventListener('forceArmsReset', handleDarkModeToggle);
+        
+        // Initial position sync
+        resetPosition();
+        
+        return () => {
+            window.removeEventListener('forceCameraSync', handleDarkModeToggle);
+            window.removeEventListener('globalCameraReset', handleDarkModeToggle);
+            window.removeEventListener('forceArmsReset', handleDarkModeToggle);
+        };
+    }, [camera, fpsArmsRef, positionArray, scale]);
+    
+    // Each frame, ensure the arms stay with the camera - THIS IS THE KEY TO ROTATION SYNC
+    useFrame(() => {
+        if (fpsArmsRef.current && camera) {
+            try {
+                // Get camera position and orientation
+                camera.getWorldPosition(cameraPosition.current);
+                
+                // Check if camera quaternion has changed
+                const currentQuaternion = camera.quaternion;
+                const hasRotationChanged = !currentQuaternion.equals(lastCameraQuaternion.current);
+                
+                // CRITICAL FIX: Always update quaternion to ensure arms follow camera rotation
+                // This ensures the arms follow the camera's head movement
+                fpsArmsRef.current.quaternion.copy(camera.quaternion);
+                lastCameraQuaternion.current.copy(camera.quaternion);
+                
+                // Reset vectors before reuse
+                cameraDirection.current.set(0, 0, -1).applyQuaternion(camera.quaternion);
+                cameraRight.current.set(1, 0, 0).applyQuaternion(camera.quaternion);
+                cameraUp.current.set(0, 1, 0).applyQuaternion(camera.quaternion);
+                
+                // Calculate arm position
+                armsPosition.current.copy(cameraPosition.current)
+                    .add(cameraRight.current.clone().multiplyScalar(positionArray[0]))
+                    .add(cameraUp.current.clone().multiplyScalar(positionArray[1]))
+                    .add(cameraDirection.current.clone().multiplyScalar(positionArray[2]));
+                
+                // Apply position and scaling directly
+                fpsArmsRef.current.position.copy(armsPosition.current);
+                fpsArmsRef.current.scale.set(scale, scale, scale);
+                
+                // IMPORTANT: We DO NOT reset rotation - this was the problem
+                // Instead, we let the quaternion assignment handle rotation
+                
+                // Also ensure primitive rotation is consistent
+                fpsArmsRef.current.traverse((child) => {
+                    if (child.type === 'Group' && child.userData?.type === 'primitive') {
+                        child.rotation.set(0, Math.PI, 0);
+                    }
+                });
+                
+                // Force update matrices to ensure everything is in the right place
+                fpsArmsRef.current.updateMatrixWorld(true);
+                
+                // Log rotation changes occasionally for debugging
+                if (hasRotationChanged && Math.random() < 0.005) {
+                    console.log("[CameraArmsSync] Camera rotation changed, arms following");
+                }
+            } catch (err) {
+                // Silently ignore errors during frame updates
+            }
+        }
+    });
+
+    return (
+        <group ref={fpsArmsRef}>
+            {/* Debug sphere to visualize arms position */}
+            <mesh position={[0, 0, 0]} visible={false}>
+                <sphereGeometry args={[0.05, 16, 16]} />
+                <meshStandardMaterial color="red" />
+            </mesh>
+            
+            {children}
+        </group>
+    );
+};
