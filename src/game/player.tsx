@@ -266,15 +266,41 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             }
         };
         
+        // Handle forceCameraSync event specifically for dark level changes
+        const handleForceCameraSync = (event: CustomEvent) => {
+            if (!thirdPersonView && playerType === 'merc' && fpsArmsRef.current) {
+                console.log('[FPS ARMS] Forcing camera sync due to lighting changes');
+                
+                // More aggressive positioning with timing attempts
+                setTimeout(() => {
+                    if (fpsArmsRef.current) {
+                        fpsArmsRef.current.position.set(x, y, z);
+                        fpsArmsRef.current.rotation.set(0, 0, 0);
+                        fpsArmsRef.current.scale.set(scaleArms, scaleArms, scaleArms);
+                        
+                        // Make sure FOV is also reset
+                        if (camera instanceof THREE.PerspectiveCamera) {
+                            camera.fov = normalFov;
+                            camera.updateProjectionMatrix();
+                        }
+                        
+                        console.log('[FPS ARMS] Camera and arms sync complete');
+                    }
+                }, 100);
+            }
+        };
+        
         // Listen for our custom events
         window.addEventListener('graphicsQualityChanged', handleQualityChange);
         window.addEventListener('cameraUpdateNeeded', handleCameraUpdate);
         window.addEventListener('forceArmsReset', handleForceArmsReset);
+        window.addEventListener('forceCameraSync', handleForceCameraSync as EventListener);
         
         return () => {
             window.removeEventListener('graphicsQualityChanged', handleQualityChange);
             window.removeEventListener('cameraUpdateNeeded', handleCameraUpdate);
             window.removeEventListener('forceArmsReset', handleForceArmsReset);
+            window.removeEventListener('forceCameraSync', handleForceCameraSync as EventListener);
         };
     }, [playerType, thirdPersonView, camera, x, y, z, scaleArms]);
     
@@ -293,6 +319,22 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             }
         }
     }, [thirdPersonView, camera]);
+
+    // Ensure FPS arms are updated every frame to stay attached to the camera
+    useFrame(() => {
+        if (fpsArmsRef.current && !thirdPersonView && playerType === 'merc') {
+            // Position the arms on every frame
+            fpsArmsRef.current.position.set(x, y, z);
+            fpsArmsRef.current.scale.set(scaleArms, scaleArms, scaleArms);
+            
+            // Ensure primitive rotation is correct on every frame
+            fpsArmsRef.current.traverse((child) => {
+                if (child.type === 'Group' && child.userData?.type === 'primitive') {
+                    child.rotation.set(0, Math.PI, 0);
+                }
+            });
+        }
+    });
 
     const characterController = useRef<Rapier.KinematicCharacterController>(null!)
 
@@ -585,6 +627,14 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             if (fpsArmsRef.current && !thirdPersonView && playerType === 'merc') {
                 // Keep arms attached to camera at all times
                 fpsArmsRef.current.position.set(x, y, z);
+                
+                // Also ensure primitive rotation is maintained correctly on every frame
+                fpsArmsRef.current.traverse((child) => {
+                    if (child.type === 'Group' && child.userData?.type === 'primitive') {
+                        // Fix upside-down issue by rotating 180° on Y axis
+                        child.rotation.set(0, Math.PI, 0);
+                    }
+                });
             }
         }
 
@@ -777,31 +827,6 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             }
         }
     }, [thirdPersonView]);
-
-    // Add a more aggressive approach to ensure arms stay attached
-    useFrame(() => {
-        // This ensures the FPS arms stay attached to the camera EVERY frame
-        if (!thirdPersonView && playerType === 'merc') {
-            if (fpsArmsRef.current) {
-                // Force position update every frame for stability
-                fpsArmsRef.current.position.set(x, y, z);
-                // Force the proper rotation as well - group stays at neutral rotation
-                fpsArmsRef.current.rotation.set(0, 0, 0);
-                
-                // Ensure the primitive inside stays properly positioned too
-                try {
-                    // Access the primitive directly if needed
-                    const primitive = fpsArmsRef.current.children.find(child => child.type === 'Group' && child.userData?.type === 'primitive');
-                    if (primitive) {
-                        // Fix upside-down issue by rotating 180° on Y axis only
-                        primitive.rotation.set(0, Math.PI, 0);
-                    }
-                } catch (e) {
-                    // Ignore errors accessing children
-                }
-            }
-        }
-    });
 
     return (
         <>

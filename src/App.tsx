@@ -2271,11 +2271,26 @@ export function App() {
     
     // Handle forceDarkLevel changes - reset arms position for visibility in dark environments
     useEffect(() => {
-        if (forceDarkLevel) {
-            console.log("[DEBUG] Force dark level enabled - resetting arms position");
-            // Trigger a camera update and arms reset for better visibility
-            window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
-            window.dispatchEvent(new CustomEvent('forceArmsReset'));
+        if (forceDarkLevel !== undefined) { // Run for both true and false changes
+            console.log(`[DEBUG] Force dark level ${forceDarkLevel ? 'enabled' : 'disabled'} - resetting arms position`);
+            
+            // Function to trigger all needed updates
+            const resetCameraAndArms = () => {
+                window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
+                window.dispatchEvent(new CustomEvent('forceArmsReset'));
+                
+                // Also force a camera position sync
+                window.dispatchEvent(new CustomEvent('forceCameraSync', { 
+                    detail: { forceDarkLevel } 
+                }));
+            };
+            
+            // Execute immediately and with multiple delays to ensure it works
+            resetCameraAndArms();
+            setTimeout(resetCameraAndArms, 100);
+            setTimeout(resetCameraAndArms, 300);
+            setTimeout(resetCameraAndArms, 800);
+            setTimeout(resetCameraAndArms, 1500);
         }
     }, [forceDarkLevel]);
     
