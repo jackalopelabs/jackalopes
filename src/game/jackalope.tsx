@@ -15,8 +15,12 @@ import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel c
 const ANIMATION_SMOOTHING = 0.08;
 
 // Direct movement constants
-const BASE_SPEED = 3.0; // Base speed in units per second
-const RUN_MULTIPLIER = 2.0; // How much faster we go when running
+const BASE_SPEED = 10.0; // Massively increased from 5.0 to 10.0 for extremely fast jackalope movement
+const RUN_MULTIPLIER = 3.0; // Increased from 2.2 to 3.0 for even more dramatic sprint speed
+
+// Jump handling adjustments
+const JUMP_MULTIPLIER = 12; // Separate constant for jump power
+const GRAVITY_REDUCTION = 0.5; // Reduce gravity effect significantly for higher/longer jumps
 
 // Props for the Jackalope component
 type JackalopeProps = RigidBodyProps & {
@@ -169,12 +173,12 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         // Jump handling
         const groundCheck = characterController.current.computedGrounded()
         if (isJumping && groundCheck) {
-            velocity.current.y = jumpForce * 5
+            velocity.current.y = jumpForce * JUMP_MULTIPLIER
         }
         
         // Apply gravity if not on ground
         if (!groundCheck) {
-            velocity.current.y -= 9.8 * delta
+            velocity.current.y -= 9.8 * delta * GRAVITY_REDUCTION // Reduced gravity effect for higher/longer jumps
         } else if (velocity.current.y < 0) {
             velocity.current.y = 0 // Stop falling if on ground
         }
