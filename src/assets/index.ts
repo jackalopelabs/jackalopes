@@ -11,6 +11,7 @@
 
 // Character Models
 export const MercModelPath = 'src/assets/characters/merc.glb';
+export const JackalopeModelPath = 'src/assets/characters/jackalope.glb';
 
 // Animations embedded in models
 export const AnimationNames = {
@@ -20,6 +21,12 @@ export const AnimationNames = {
     Run: 'run',
     Jump: 'jump',
     Shoot: 'shoot',
+  },
+  Jackalope: {
+    Idle: 'idle',
+    Walk: 'walk',
+    Run: 'run',
+    Jump: 'jump'
   }
 };
 
