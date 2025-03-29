@@ -2460,7 +2460,7 @@ export function App() {
                                 <Player 
                                     ref={playerRef}
                                     position={[0, 7, 10]}
-                                    walkSpeed={0.01}
+                                    walkSpeed={0.02}
                                     runSpeed={0.025}
                                     jumpForce={jumpForce * 0.7}
                                     visible={playerCharacterInfo.thirdPerson}
@@ -2483,9 +2483,9 @@ export function App() {
                                 <Jackalope
                                     ref={playerRef}
                                     position={[0, 7, 10]} // Increased height to start well above the ground
-                                    walkSpeed={0.8}
-                                    runSpeed={1.5}
-                                    jumpForce={jumpForce * 1.2}
+                                    walkSpeed={0.56}
+                                    runSpeed={1.0}
+                                    jumpForce={jumpForce * 0.8}
                                     visible={playerCharacterInfo.thirdPerson}
                                     thirdPersonView={playerCharacterInfo.thirdPerson}
                                     connectionManager={enableMultiplayer ? connectionManager : undefined}
@@ -2507,7 +2507,7 @@ export function App() {
                                 <Player 
                                     ref={playerRef}
                                     position={[0, 7, 10]}
-                                    walkSpeed={0.01}
+                                    walkSpeed={0.02}
                                     runSpeed={0.025}
                                     jumpForce={jumpForce * 0.7}
                                     visible={thirdPersonView}
@@ -2530,9 +2530,9 @@ export function App() {
                                 <Jackalope
                                     ref={playerRef}
                                     position={[0, 7, 10]} // Increased height to start well above the ground
-                                    walkSpeed={0.8}
-                                    runSpeed={1.5}
-                                    jumpForce={jumpForce * 1.2}
+                                    walkSpeed={0.56}
+                                    runSpeed={1.0}
+                                    jumpForce={jumpForce * 0.8}
                                     visible={thirdPersonView}
                                     thirdPersonView={thirdPersonView}
                                     connectionManager={enableMultiplayer ? connectionManager : undefined}

@@ -15,12 +15,12 @@ import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel c
 const ANIMATION_SMOOTHING = 0.08;
 
 // Direct movement constants
-const BASE_SPEED = 10.0; // Massively increased from 5.0 to 10.0 for extremely fast jackalope movement
-const RUN_MULTIPLIER = 3.0; // Increased from 2.2 to 3.0 for even more dramatic sprint speed
+const BASE_SPEED = 6.8; // Doubled from 3.4 to make jackalope 2x faster
+const RUN_MULTIPLIER = 1.8; // Keep this the same
 
 // Jump handling adjustments
-const JUMP_MULTIPLIER = 12; // Separate constant for jump power
-const GRAVITY_REDUCTION = 0.5; // Reduce gravity effect significantly for higher/longer jumps
+const JUMP_MULTIPLIER = 4; // Reduced from 12 to about 1/3
+const GRAVITY_REDUCTION = 0.7; // Increased from 0.5 to make jumps shorter
 
 // Props for the Jackalope component
 type JackalopeProps = RigidBodyProps & {
