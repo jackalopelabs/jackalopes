@@ -118,7 +118,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         ).normalize()
         
         // Convert to camera-relative direction
-        const cameraDirection = new THREE.Vector3(0, 0, 1).applyQuaternion(camera.quaternion)
+        const cameraDirection = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion)
         cameraDirection.y = 0 // Keep movement horizontal
         cameraDirection.normalize()
         
@@ -131,12 +131,11 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         
         if (inputDir.z !== 0 || inputDir.x !== 0) {
             moveDirection
-                .addScaledVector(cameraDirection, -inputDir.z)
+                .addScaledVector(cameraDirection, inputDir.z)
                 .addScaledVector(cameraSide, inputDir.x)
                 .normalize()
             
-            // Set target rotation to face movement direction
-            targetRotation.current = Math.atan2(moveDirection.x, moveDirection.z)
+            targetRotation.current = Math.atan2(moveDirection.x, moveDirection.z) + Math.PI
         }
         
         // Apply movement if we have input
@@ -225,8 +224,8 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 position.current.y + 0.3, // Height offset for model
                 position.current.z
             )
-            // Update model rotation directly
-            jackalopeModelRef.current.rotation.y = rotation.current + Math.PI + Math.PI/2
+            // Add PI rotation to make model face the correct direction
+            jackalopeModelRef.current.rotation.y = rotation.current + Math.PI
         }
         
         // 2. First-person model
