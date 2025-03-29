@@ -114,8 +114,8 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     // Arms position controls
     const { x, y, z, scaleArms } = useControls('Arms Position', {
         x: { value: 0, min: -1, max: 1, step: 0.01 },
-        y: { value: -0.9, min: -2, max: 1, step: 0.01 },
-        z: { value: -0.6, min: -2, max: 0, step: 0.01 },
+        y: { value: -1, min: -2, max: 1, step: 0.01 },
+        z: { value: -0.05, min: -2, max: 0, step: 0.01 },
         scaleArms: { value: 1.2, min: 0.5, max: 3, step: 0.1 },
     }, {
         collapsed: false,
