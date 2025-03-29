@@ -31,7 +31,7 @@ const MAX_TOTAL_SPHERES = 20 // Further reduced from 10
 // Add this after MAX_TOTAL_SPHERES
 // Performance optimization settings
 const PERFORMANCE_CONFIG = {
-    enableLights: true,           // Set to false to disable all point lights
+    enableLights: false,           // Disabled all point lights for performance
     lightDistance: 14,            // Significantly reduced from 22
     lightIntensity: 6,            // Reduced intensity but still bright enough
     maxScale: 5,                  // Reduced from 10
@@ -40,13 +40,13 @@ const PERFORMANCE_CONFIG = {
     skipFrames: 2,                // Only update particles every N frames
     disablePhysicsDistance: 50,   // Disable physics for spheres farther than this
     cullingDistance: 100,         // Don't render spheres farther than this
-    maxPooledLights: 8,           // Maximum number of high-quality lights
-    emissiveBoost: 1.0,           // Multiplier for emissive intensity (increased in dark mode)
+    maxPooledLights: 0,           // No lights for maximum performance
+    emissiveBoost: 3.0,           // Significantly increased emissive intensity to compensate for no lights
     // Light settings for different quality levels
     lightSettings: {
-        high: { max: 6, distance: 25, intensity: 7 },     // Increased distance, slightly reduced intensity
-        medium: { max: 4, distance: 20, intensity: 5.5 }, // Increased distance with balanced intensity
-        low: { max: 2, distance: 15, intensity: 4 }       // Increased distance for low quality too
+        high: { max: 0, distance: 25, intensity: 7 },     // No lights even in high quality
+        medium: { max: 0, distance: 20, intensity: 5.5 }, // No lights in medium quality
+        low: { max: 0, distance: 15, intensity: 4 }       // No lights in low quality
     }
 }
 
@@ -321,6 +321,14 @@ const PooledLights = () => {
   
   // Update lights on each frame
   useFrame(() => {
+    // If lights are disabled, keep the lights array empty
+    if (!PERFORMANCE_CONFIG.enableLights) {
+      if (lights.length > 0) {
+        setLights([]);
+      }
+      return;
+    }
+    
     const lightPool = LightPool.getInstance();
     const activeFireballs = lightPool.getActiveFireballs();
     
@@ -340,6 +348,11 @@ const PooledLights = () => {
       setLights(newLights);
     }
   });
+  
+  // If lights are disabled, don't render anything
+  if (!PERFORMANCE_CONFIG.enableLights) {
+    return null;
+  }
   
   return (
     <>
@@ -564,10 +577,10 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         const material = new THREE.MeshStandardMaterial({
             color: new THREE.Color(color),
             emissive: new THREE.Color(color),
-            emissiveIntensity: 2.5, // Increased from 1.5 for more glow
+            emissiveIntensity: 5.0, // Significantly increased from 2.5 for more glow without lights
             toneMapped: false,
             transparent: true,
-            opacity: 0.85 // Made the core slightly transparent
+            opacity: 0.9 // Slightly more opaque to increase visibility
         });
         innerMaterialRef.current = material;
         return material;
@@ -577,9 +590,9 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         const material = new THREE.MeshStandardMaterial({
             color: new THREE.Color(color),
             transparent: true,
-            opacity: 0.4, // Reduced from 0.6 for more transparency
+            opacity: 0.5, // Increased from 0.4 for better visibility without lights
             emissive: new THREE.Color(color),
-            emissiveIntensity: 1.2, // Increased from 0.8 for brighter glow
+            emissiveIntensity: 2.5, // Increased from 1.2 for brighter glow
             toneMapped: false
         });
         outerMaterialRef.current = material;
@@ -1202,13 +1215,15 @@ const checkPerformance = () => {
             if (avgFps < 45 && !lowPerformanceDetected) {
                 // Automatically reduce settings
                 console.log('Low performance detected, reducing effects');
-                PERFORMANCE_CONFIG.enableLights = true; // Keep lights but reduce their number
+                PERFORMANCE_CONFIG.enableLights = false; // Keep lights disabled for performance
                 PERFORMANCE_CONFIG.maxScale = 3;
                 PERFORMANCE_CONFIG.useSimplifiedParticles = true;
                 PERFORMANCE_CONFIG.particleCount = 4;
                 PERFORMANCE_CONFIG.skipFrames = 4;
-                // Reduce light count
-                LightPool.getInstance().setMaxLights(PERFORMANCE_CONFIG.lightSettings.low.max);
+                // Set emissive boost for low performance
+                PERFORMANCE_CONFIG.emissiveBoost = 2.0;
+                // Keep max lights at 0
+                LightPool.getInstance().setMaxLights(0);
                 lowPerformanceDetected = true;
             }
         }
@@ -1245,39 +1260,42 @@ window.__setGraphicsQuality = (quality: 'auto' | 'high' | 'medium' | 'low') => {
     // Apply settings based on quality level
     switch (quality) {
         case 'high':
-            PERFORMANCE_CONFIG.enableLights = true;
+            PERFORMANCE_CONFIG.enableLights = false; // Lights disabled for performance
             PERFORMANCE_CONFIG.lightDistance = 44;
             PERFORMANCE_CONFIG.lightIntensity = 12;
             PERFORMANCE_CONFIG.maxScale = 8;
             PERFORMANCE_CONFIG.useSimplifiedParticles = false;
             PERFORMANCE_CONFIG.particleCount = 10;
             PERFORMANCE_CONFIG.skipFrames = 1;
+            PERFORMANCE_CONFIG.emissiveBoost = 4.0; // Higher emissive boost for high quality
             // Set light pool size
-            LightPool.getInstance().setMaxLights(PERFORMANCE_CONFIG.lightSettings.high.max);
+            LightPool.getInstance().setMaxLights(0);
             break;
             
         case 'medium':
-            PERFORMANCE_CONFIG.enableLights = true;
+            PERFORMANCE_CONFIG.enableLights = false; // Lights disabled for performance
             PERFORMANCE_CONFIG.lightDistance = 22;
             PERFORMANCE_CONFIG.lightIntensity = 8;
             PERFORMANCE_CONFIG.maxScale = 5;
             PERFORMANCE_CONFIG.useSimplifiedParticles = true;
             PERFORMANCE_CONFIG.particleCount = 8;
             PERFORMANCE_CONFIG.skipFrames = 2;
+            PERFORMANCE_CONFIG.emissiveBoost = 3.0; // Medium emissive boost
             // Set light pool size
-            LightPool.getInstance().setMaxLights(PERFORMANCE_CONFIG.lightSettings.medium.max);
+            LightPool.getInstance().setMaxLights(0);
             break;
             
         case 'low':
-            PERFORMANCE_CONFIG.enableLights = true; // Keep lights on even in low quality
+            PERFORMANCE_CONFIG.enableLights = false; // Lights disabled for performance
             PERFORMANCE_CONFIG.lightDistance = 18;
             PERFORMANCE_CONFIG.lightIntensity = 5;
             PERFORMANCE_CONFIG.maxScale = 3;
             PERFORMANCE_CONFIG.useSimplifiedParticles = true;
             PERFORMANCE_CONFIG.particleCount = 4;
             PERFORMANCE_CONFIG.skipFrames = 4;
+            PERFORMANCE_CONFIG.emissiveBoost = 2.0; // Lower but still sufficient emissive boost
             // Set light pool size
-            LightPool.getInstance().setMaxLights(PERFORMANCE_CONFIG.lightSettings.low.max);
+            LightPool.getInstance().setMaxLights(0);
             break;
     }
     
@@ -1291,20 +1309,15 @@ export const setSphereDarkMode = (darkMode: boolean) => {
   
   // Also adjust the PERFORMANCE_CONFIG for dark mode
   if (darkMode) {
-    // In dark mode: higher intensity AND longer distance for better visibility
-    PERFORMANCE_CONFIG.lightIntensity = PERFORMANCE_CONFIG.lightIntensity * 1.5; // Slightly less intense
-    PERFORMANCE_CONFIG.lightDistance = PERFORMANCE_CONFIG.lightDistance * 1.3;   // Increased range in dark mode
+    // In dark mode: higher emissive intensity for better visibility
+    PERFORMANCE_CONFIG.lightIntensity = PERFORMANCE_CONFIG.lightIntensity * 1.5; // Keep for potential future use
+    PERFORMANCE_CONFIG.lightDistance = PERFORMANCE_CONFIG.lightDistance * 1.3;   // Keep for potential future use
     
-    // Higher emissive boost to enhance the glow effect
-    PERFORMANCE_CONFIG.emissiveBoost = 2.5;
+    // Much higher emissive boost to enhance the glow effect in dark mode
+    PERFORMANCE_CONFIG.emissiveBoost = 5.0;
     
-    // Adjust max lights in dark mode
-    const settings = PERFORMANCE_CONFIG.lightSettings;
-    LightPool.getInstance().setMaxLights(
-      window.__currentQuality === 'high' ? settings.high.max - 1 : 
-      window.__currentQuality === 'medium' ? settings.medium.max - 1 :
-      settings.low.max
-    );
+    // Keep max lights at 0 for performance
+    LightPool.getInstance().setMaxLights(0);
   } else {
     // Reset to original values based on current quality
     const quality = window.__currentQuality || 'medium';
@@ -1312,26 +1325,23 @@ export const setSphereDarkMode = (darkMode: boolean) => {
       case 'high':
         PERFORMANCE_CONFIG.lightIntensity = 8;
         PERFORMANCE_CONFIG.lightDistance = 18;
+        PERFORMANCE_CONFIG.emissiveBoost = 4.0;
         break;
       case 'medium':
         PERFORMANCE_CONFIG.lightIntensity = 6;
         PERFORMANCE_CONFIG.lightDistance = 14;
+        PERFORMANCE_CONFIG.emissiveBoost = 3.0;
         break;
       case 'low':
         PERFORMANCE_CONFIG.lightIntensity = 4;
         PERFORMANCE_CONFIG.lightDistance = 10;
+        PERFORMANCE_CONFIG.emissiveBoost = 2.0;
         break;
     }
-    PERFORMANCE_CONFIG.emissiveBoost = 1.0;
     
-    // Reset max lights
-    const settings = PERFORMANCE_CONFIG.lightSettings;
-    LightPool.getInstance().setMaxLights(
-      window.__currentQuality === 'high' ? settings.high.max : 
-      window.__currentQuality === 'medium' ? settings.medium.max :
-      settings.low.max
-    );
+    // Keep max lights at 0 for performance
+    LightPool.getInstance().setMaxLights(0);
   }
   
-  console.log(`Sphere dark mode set to: ${darkMode}, light intensity: ${PERFORMANCE_CONFIG.lightIntensity}, distance: ${PERFORMANCE_CONFIG.lightDistance}`);
+  console.log(`Sphere dark mode set to: ${darkMode}, emissive boost: ${PERFORMANCE_CONFIG.emissiveBoost}`);
 };
