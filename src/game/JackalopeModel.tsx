@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
+import { useFrame } from '@react-three/fiber'
 
 // Import assets from centralized asset index
 import { JackalopeModelPath } from '../assets'
@@ -23,6 +24,11 @@ export const JackalopeModel = ({
   const group = useRef<THREE.Group>(null);
   const [modelError, setModelError] = useState<string | null>(null);
   
+  // Add smooth position interpolation
+  const targetPosition = useRef(new THREE.Vector3());
+  const currentPosition = useRef(new THREE.Vector3());
+  const isInitialized = useRef(false);
+  
   // Try loading the model with error handling
   const { scene } = useGLTF(JackalopeModelPath);
   
@@ -44,13 +50,43 @@ export const JackalopeModel = ({
     ? [rotation.x, rotation.y, rotation.z] as [number, number, number] 
     : rotation;
   
+  // TESTING - immediately apply position without any interpolation system
+  useEffect(() => {
+    if (group.current) {
+      const [x, y, z] = finalPosition;
+      // Log position occasionally for debugging
+      if (Math.random() < 0.01) {
+        console.log(`[MODEL] Directly setting position: (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
+      }
+      // Apply position directly
+      group.current.position.set(x, y, z);
+    }
+  }, [finalPosition]);
+  
+  /*
+  // Disable smooth interpolation for testing
+  useFrame((_, delta) => {
+    if (!group.current || !isInitialized.current) return;
+    
+    // Find a better balance between smoothness and responsiveness
+    // Too high (0.95) causes visual jitter, too low (0.15) causes delay
+    const lerpFactor = Math.min(30.0 * delta, 0.35); 
+    
+    // Interpolate current position towards target position
+    currentPosition.current.lerp(targetPosition.current, lerpFactor);
+    
+    // Apply interpolated position to the model
+    group.current.position.copy(currentPosition.current);
+  });
+  */
+  
   // If there was an error loading the model, render a geometric bunny placeholder
   if (modelError || !scene) {
     return (
       <group 
         ref={group} 
         visible={visible} 
-        position={finalPosition}
+        // We'll use useFrame to handle position for smooth movement
         rotation={finalRotation}
         scale={scale}
       >
@@ -135,7 +171,7 @@ export const JackalopeModel = ({
     <group 
       ref={group} 
       visible={visible} 
-      position={finalPosition}
+      // We'll use useFrame to handle position for smooth movement
       rotation={finalRotation}
       scale={scale}
     >

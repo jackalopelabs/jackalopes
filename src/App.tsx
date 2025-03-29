@@ -30,6 +30,10 @@ declare global {
     interface Window {
         __setGraphicsQuality?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
         __shotBroadcast?: ((shot: any) => any) | undefined;
+        jackalopesGame?: {
+            playerType?: 'merc' | 'jackalope';
+            // Add other global game properties as needed
+        };
     }
 }
 
@@ -692,6 +696,23 @@ const ThirdPersonCameraControls = ({
     const rotationRef = useRef({ x: 0, y: 0 });
     const pointerLockActiveRef = useRef(false);
     const lastMouseRef = useRef({ x: 0, y: 0 });
+    const playerType = useRef<'merc' | 'jackalope'>('merc');
+    
+    // Get player character type from the App
+    useEffect(() => {
+        // Try to determine player type based on the global state
+        try {
+            const appPlayerType = window.jackalopesGame?.playerType;
+            if (appPlayerType === 'jackalope') {
+                playerType.current = 'jackalope';
+                console.log("ThirdPersonCamera: Detected jackalope player type");
+            } else {
+                playerType.current = 'merc';
+            }
+        } catch (err) {
+            console.warn("ThirdPersonCamera: Could not determine player type");
+        }
+    }, []);
     
     // Set up initial camera position based on player position
     useEffect(() => {
@@ -796,7 +817,7 @@ const ThirdPersonCameraControls = ({
     }, [enabled]);
     
     // Use frame loop to update the camera smoothly
-    useFrame(() => {
+    useFrame((_, delta) => {
         if (!enabled || !cameraRef.current) return;
         
         try {
@@ -804,8 +825,25 @@ const ThirdPersonCameraControls = ({
             if (player instanceof THREE.Vector3 && !Number.isNaN(player.x) && 
                 !Number.isNaN(player.y) && !Number.isNaN(player.z)) {
                 
-                // Much faster interpolation for target position - increased from 0.1 to 0.4 for snappy response
-                targetRef.current.lerp(player, 0.4);
+                // Use different interpolation speeds for different player types
+                // For jackalope, balance between responsiveness and smoothness
+                const isJackalope = playerType.current === 'jackalope';
+                
+                // Balance between smoothness and responsiveness
+                // Not too direct (causes jitter) but not too smooth (causes lag)
+                // Use deltaTime-based interpolation for consistent smoothing across frame rates
+                const targetSmoothing = isJackalope ? 
+                    Math.min(delta * 20.0, 0.5) : // Good balance for jackalope
+                    Math.min(delta * 4.0, 0.25);  // Normal responsiveness for merc
+                
+                // Log camera state occasionally for debugging
+                if (Math.random() < 0.01) {
+                    console.log(`[CAMERA] Delta: ${delta.toFixed(4)}, Smoothing: ${targetSmoothing.toFixed(2)}`);
+                    console.log(`[CAMERA] Target: (${player.x.toFixed(2)}, ${player.y.toFixed(2)}, ${player.z.toFixed(2)})`);
+                    console.log(`[CAMERA] Current: (${targetRef.current.x.toFixed(2)}, ${targetRef.current.y.toFixed(2)}, ${targetRef.current.z.toFixed(2)})`);
+                }
+                
+                targetRef.current.lerp(player, targetSmoothing);
                 
                 // Calculate camera position based on rotation around target
                 const cameraOffset = new THREE.Vector3(
@@ -814,9 +852,13 @@ const ThirdPersonCameraControls = ({
                     Math.cos(rotationRef.current.y) * distance
                 );
                 
-                // Position camera relative to target with faster response
-                // Use direct copy instead of lerping for snappier camera movement
-                cameraRef.current.position.copy(targetRef.current).add(cameraOffset);
+                // Balance camera smoothness and responsiveness
+                const newCamPos = new THREE.Vector3().copy(targetRef.current).add(cameraOffset);
+                const cameraSmoothing = isJackalope ? 
+                    Math.min(delta * 25.0, 0.6) : // Responsive but still smooth for jackalope
+                    Math.min(delta * 8.0, 0.4);   // Normal responsiveness for merc
+                
+                cameraRef.current.position.lerp(newCamPos, cameraSmoothing);
                 
                 // Look at player
                 cameraRef.current.lookAt(targetRef.current);
@@ -2294,6 +2336,26 @@ export function App() {
         }
     }, [forceDarkLevel]);
     
+    // Add effect to track player type for global access
+    useEffect(() => {
+        // Create global game state object if it doesn't exist
+        if (!window.jackalopesGame) {
+            window.jackalopesGame = {};
+        }
+        
+        // Update player type in global state
+        window.jackalopesGame.playerType = enableMultiplayer 
+            ? playerCharacterInfo.type 
+            : (thirdPersonView ? 'jackalope' : 'merc');
+            
+        console.log(`Set global player type: ${window.jackalopesGame.playerType}`);
+        
+        return () => {
+            // Cleanup
+            delete window.jackalopesGame?.playerType;
+        };
+    }, [enableMultiplayer, playerCharacterInfo.type, thirdPersonView]);
+    
     return (
         <>
             {/* Show model tester if enabled */}
@@ -2388,10 +2450,9 @@ export function App() {
                 <Physics 
                     debug={false} 
                     paused={loading}
-                    timeStep={1/60}
+                    timeStep={1/240} // Increased physics rate to 240Hz for smoother movement
                     interpolate={true}
-                    gravity={[0, -9.81, 0]}
-                >
+                    gravity={[0, -9.81, 0]}>
                     <PlayerControls thirdPersonView={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}>
                         {/* Conditionally render either the Player (merc) or Jackalope */}
                         {enableMultiplayer ? (
