@@ -1433,7 +1433,7 @@ export function App() {
     })
 
     // Update the Game UI controls to include virtual gamepad toggle
-    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType, darkMode, ...restControls } = useControls('Game UI', {
+    const { showTools, showConnectionTest, virtualGamepad, thirdPersonView, characterType, darkMode, forceDarkLevel, ...restControls } = useControls('Game UI', {
         showTools: {
             value: false,
             label: 'Show Multiplayer Tools'
@@ -1458,6 +1458,10 @@ export function App() {
         darkMode: {
             value: false,
             label: 'Dark Mode'
+        },
+        forceDarkLevel: {
+            value: false,
+            label: 'Dark Level Lighting'
         }
     });
     
@@ -2238,6 +2242,43 @@ export function App() {
         }
     }, [characterType, enableMultiplayer]);
     
+    // Update third person view when debug settings change
+    useEffect(() => {
+        if (debugSettings.force_merc_fps && enableMultiplayer) {
+            console.log("[DEBUG] Force merc FPS mode enabled");
+            // Set character to merc (mercenary) type
+            setPlayerCharacterInfo({
+                type: 'merc',
+                thirdPerson: false
+            });
+            
+            // Trigger a camera update event multiple times for reliability
+            const triggerCameraReset = () => {
+                console.log("[DEBUG] Dispatching camera update event...");
+                window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
+            };
+            
+            // Trigger immediately and with delays for reliability
+            triggerCameraReset();
+            setTimeout(triggerCameraReset, 100);
+            setTimeout(triggerCameraReset, 300);
+            setTimeout(triggerCameraReset, 1000);
+            
+            // Also force a reload of FPS arms if needed
+            window.dispatchEvent(new CustomEvent('forceArmsReset'));
+        }
+    }, [debugSettings.force_merc_fps, enableMultiplayer, connectionManager]);
+    
+    // Handle forceDarkLevel changes - reset arms position for visibility in dark environments
+    useEffect(() => {
+        if (forceDarkLevel) {
+            console.log("[DEBUG] Force dark level enabled - resetting arms position");
+            // Trigger a camera update and arms reset for better visibility
+            window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
+            window.dispatchEvent(new CustomEvent('forceArmsReset'));
+        }
+    }, [forceDarkLevel]);
+    
     return (
         <>
             {/* Show model tester if enabled */}
@@ -2283,32 +2324,32 @@ export function App() {
             )}
             
             <Canvas>
-                {fogEnabled && <fog attach="fog" args={[darkMode ? '#111111' : fogColor, fogNear, darkMode ? (fogFar * 0.5) : fogFar]} />}
+                {fogEnabled && <fog attach="fog" args={[forceDarkLevel ? '#050a14' : (darkMode ? '#111111' : fogColor), forceDarkLevel ? fogNear * 0.5 : fogNear, forceDarkLevel ? (fogFar * 0.3) : (darkMode ? (fogFar * 0.5) : fogFar)]} />}
                 <Environment
-                    preset="sunset"
+                    preset={forceDarkLevel ? "night" : "sunset"}
                     background
-                    blur={0.4} // Further reduced blur
+                    blur={forceDarkLevel ? 0.8 : 0.4} // Increased blur for dark level
                     resolution={globalQualityParams.environmentResolution} // Use quality-based resolution
                 />
 
                 {/* Add stars to night sky */}
-                {(starsEnabled || darkMode) && <Stars 
-                    count={darkMode ? Math.min(starsCount * 1.5, 3000) : starsCount} 
-                    size={darkMode ? starsSize * 1.2 : starsSize} 
-                    color={darkMode ? "#c4e1ff" : starsColor} 
+                {(starsEnabled || darkMode || forceDarkLevel) && <Stars 
+                    count={forceDarkLevel ? 4000 : (darkMode ? Math.min(starsCount * 1.5, 3000) : starsCount)} 
+                    size={forceDarkLevel ? starsSize * 1.5 : (darkMode ? starsSize * 1.2 : starsSize)} 
+                    color={forceDarkLevel ? "#8abbff" : (darkMode ? "#c4e1ff" : starsColor)} 
                     twinkle={starsTwinkle}
-                    depth={darkMode ? 120 : 100} // Deeper stars in dark mode
+                    depth={forceDarkLevel ? 150 : (darkMode ? 120 : 100)} // Even deeper stars in force dark level
                 />}
 
                 {/* Add Stats Collector - must be inside Canvas */}
                 <StatsCollector />
 
-                <ambientLight intensity={darkMode ? 0.02 : ambientIntensity} />
+                <ambientLight intensity={forceDarkLevel ? 0.005 : (darkMode ? 0.02 : ambientIntensity)} />
                 <directionalLight
                     castShadow
                     position={[-directionalDistance, directionalHeight, -directionalDistance]}
                     ref={directionalLightRef}
-                    intensity={darkMode ? 0.1 : directionalIntensity}
+                    intensity={forceDarkLevel ? 0.02 : (darkMode ? 0.1 : directionalIntensity)}
                     shadow-mapSize={[globalQualityParams.shadowMapSize, globalQualityParams.shadowMapSize]}
                     shadow-camera-left={-40}
                     shadow-camera-right={40}
@@ -2319,7 +2360,7 @@ export function App() {
                     shadow-bias={-0.001}
                     shadow-normalBias={0.05}
                     shadow-radius={highQualityShadows ? 1 : 2} // Softer shadows in low quality mode
-                    color="#fff" // Pure white for harder shadows
+                    color={forceDarkLevel ? "#5577aa" : "#fff"} // Bluish tint for dark level mode
                 />
 
                 {/* Only show moon if visibility is enabled */}
@@ -2516,28 +2557,28 @@ export function App() {
                     <EffectComposer>
                         {bloomEnabled ? (
                             <Bloom 
-                                intensity={darkMode ? bloomIntensity * 2.0 : bloomIntensity}
-                                luminanceThreshold={darkMode ? 0.03 : bloomLuminanceThreshold}
-                                luminanceSmoothing={darkMode ? 0.7 : 0.9}
+                                intensity={forceDarkLevel ? bloomIntensity * 4.0 : (darkMode ? bloomIntensity * 2.0 : bloomIntensity)}
+                                luminanceThreshold={forceDarkLevel ? 0.01 : (darkMode ? 0.03 : bloomLuminanceThreshold)}
+                                luminanceSmoothing={forceDarkLevel ? 0.5 : (darkMode ? 0.7 : 0.9)}
                                 mipmapBlur={globalQualityParams.bloomQuality !== 'low'}
                             />
                         ) : <></>}
                         <Vignette
-                            offset={vignetteEnabled ? (darkMode ? 0.1 : vignetteOffset) : 0}
-                            darkness={vignetteEnabled ? (darkMode ? 0.95 : vignetteDarkness) : 0}
+                            offset={vignetteEnabled ? (forceDarkLevel ? 0.0 : (darkMode ? 0.1 : vignetteOffset)) : 0}
+                            darkness={vignetteEnabled ? (forceDarkLevel ? 0.98 : (darkMode ? 0.95 : vignetteDarkness)) : 0}
                             eskil={false}
                         />
                         <ChromaticAberration
                             offset={new THREE.Vector2(
-                                chromaticAberrationEnabled ? chromaticAberrationOffset : 0,
-                                chromaticAberrationEnabled ? chromaticAberrationOffset : 0
+                                chromaticAberrationEnabled ? (forceDarkLevel ? chromaticAberrationOffset * 2 : chromaticAberrationOffset) : 0,
+                                chromaticAberrationEnabled ? (forceDarkLevel ? chromaticAberrationOffset * 2 : chromaticAberrationOffset) : 0
                             )}
                             radialModulation={false}
                             modulationOffset={0}
                         />
                         <BrightnessContrast
-                            brightness={brightnessContrastEnabled ? (darkMode ? -0.9 : brightness) : 0}
-                            contrast={brightnessContrastEnabled ? (darkMode ? 0.4 : contrast) : 0} 
+                            brightness={brightnessContrastEnabled ? (forceDarkLevel ? -0.95 : (darkMode ? -0.9 : brightness)) : 0}
+                            contrast={brightnessContrastEnabled ? (forceDarkLevel ? 0.6 : (darkMode ? 0.4 : contrast)) : 0} 
                         />
                         <ToneMapping
                             blendFunction={BlendFunction.NORMAL}
