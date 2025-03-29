@@ -1327,7 +1327,7 @@ export const setSphereDarkMode = (darkMode: boolean) => {
     LightPool.getInstance().setMaxLights(0);
   } else {
     // Reset to original values based on current quality
-    const quality = window.__currentQuality || 'medium';
+    const quality = window.__currentQuality || 'low';
     switch (quality) {
       case 'high':
         PERFORMANCE_CONFIG.lightIntensity = 8;

@@ -1779,7 +1779,7 @@ export function App() {
     // Graphics quality settings
     const performanceSettings = useControls('Performance', {
         graphicsQuality: {
-            value: 'auto' as const,
+            value: 'low' as const, // Changed from 'auto' to 'low'
             label: 'Graphics Quality',
             options: ['auto', 'high', 'medium', 'low'] as const,
             onChange: (value: 'auto' | 'high' | 'medium' | 'low') => {
@@ -1795,7 +1795,7 @@ export function App() {
     });
     
     // Extract graphicsQuality with proper type assertion
-    const graphicsQuality = (performanceSettings as any)?.graphicsQuality || 'auto';
+    const graphicsQuality = (performanceSettings as any)?.graphicsQuality || 'low'; // Changed default fallback from 'auto' to 'low'
     
     // Add global rendering quality parameters controlled by graphics quality
     const [globalQualityParams, setGlobalQualityParams] = useState({
