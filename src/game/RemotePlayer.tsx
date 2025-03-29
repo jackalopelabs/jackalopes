@@ -11,6 +11,7 @@ interface RemotePlayerData {
   position: { x: number, y: number, z: number };
   rotation: number;
   playerType?: 'merc' | 'jackalope';
+  isMoving?: boolean;
 }
 
 // Add a global debug level constant
@@ -128,9 +129,17 @@ const PilotLight = () => {
 };
 
 // Remote Player Component
-export const RemotePlayer = ({ playerId, position, rotation, playerType }: RemotePlayerData) => {
+export const RemotePlayer = ({ playerId, position, rotation, playerType, isMoving }: RemotePlayerData) => {
   const meshRef = useRef<THREE.Mesh>(null);
-
+  const lastPosition = useRef<THREE.Vector3 | null>(null);
+  const [localIsMoving, setLocalIsMoving] = useState(false);
+  const currentAnimation = useRef("idle"); // Default to idle
+  
+  // Add refs for animation debouncing
+  const lastAnimationChangeTime = useRef(0);
+  const pendingAnimationChange = useRef<string | null>(null);
+  const MIN_ANIMATION_CHANGE_INTERVAL = 800; // minimum 800ms between animation changes
+  
   // Log a one-time warning if we get invalid data
   useEffect(() => {
     if (!position) {
@@ -141,13 +150,86 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType }: Remot
     }
   }, [playerId]);
 
+  // Update local isMoving state when the prop changes, with rate limiting
+  useEffect(() => {
+    if (isMoving !== undefined) {
+      const now = Date.now();
+      const timeSinceLastChange = now - lastAnimationChangeTime.current;
+      
+      // Apply rate limiting to prevent animation flicker
+      if (timeSinceLastChange < MIN_ANIMATION_CHANGE_INTERVAL) {
+        // Too soon for another animation change, store it as pending
+        pendingAnimationChange.current = isMoving ? "walk" : "idle";
+        console.log(`Animation change too frequent for ${playerId}, queueing ${pendingAnimationChange.current}`);
+      } else {
+        // Apply animation change immediately
+        setLocalIsMoving(isMoving);
+        currentAnimation.current = isMoving ? "walk" : "idle";
+        lastAnimationChangeTime.current = now;
+        console.log(`Remote player ${playerId} animation set to ${isMoving ? "walk" : "idle"} from props`);
+      }
+    }
+  }, [isMoving, playerId]);
+  
+  // Apply any pending animation changes
   useFrame(() => {
+    // Check if there's a pending animation change and enough time has passed
+    if (pendingAnimationChange.current !== null) {
+      const now = Date.now();
+      const timeSinceLastChange = now - lastAnimationChangeTime.current;
+      
+      if (timeSinceLastChange >= MIN_ANIMATION_CHANGE_INTERVAL) {
+        // Apply the pending animation change
+        const newAnim = pendingAnimationChange.current;
+        setLocalIsMoving(newAnim === "walk");
+        currentAnimation.current = newAnim;
+        lastAnimationChangeTime.current = now;
+        pendingAnimationChange.current = null;
+        console.log(`Applied pending animation change for ${playerId}: ${newAnim}`);
+      }
+    }
+    
     if (!meshRef.current) return;
     
     // Safely update position with error checking
     if (position && typeof position.x === 'number' && 
         typeof position.y === 'number' && 
         typeof position.z === 'number') {
+      
+      // Set initial last position if undefined
+      if (!lastPosition.current) {
+        lastPosition.current = new THREE.Vector3(position.x, position.y, position.z);
+      }
+      
+      // Create current position vector for comparison
+      const currentPos = new THREE.Vector3(position.x, position.y, position.z);
+      
+      // Only check for movement when isMoving is undefined (fallback to local detection)
+      if (lastPosition.current && isMoving === undefined) {
+        const distance = lastPosition.current.distanceTo(currentPos);
+        
+        // If player moved more than a threshold, set state to moving
+        // Using a higher threshold (0.03) to avoid micro-movements
+        if (distance > 0.03) {
+          if (!localIsMoving) {
+            setLocalIsMoving(true);
+            currentAnimation.current = "walk";
+            console.log(`Remote player ${playerId} started moving: ${distance.toFixed(4)}`);
+          }
+        } else {
+          // If player has stopped moving for a while, set state to idle
+          if (localIsMoving) {
+            setLocalIsMoving(false);
+            currentAnimation.current = "idle";
+            console.log(`Remote player ${playerId} stopped moving: ${distance.toFixed(4)}`);
+          }
+        }
+      }
+      
+      // Update last position
+      lastPosition.current.copy(currentPos);
+      
+      // Update mesh position
       meshRef.current.position.set(position.x, position.y, position.z);
     }
     
@@ -163,7 +245,7 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType }: Remot
       <MercModel 
         position={position ? [position.x, position.y, position.z] : [0, 0, 0]} 
         rotation={[0, rotation || 0, 0]}
-        animation="walk"
+        animation={localIsMoving ? "walk" : "idle"}
       />
     );
   }

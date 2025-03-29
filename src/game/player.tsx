@@ -103,8 +103,17 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     const [isWalking, setIsWalking] = useState(false)
     const [isRunning, setIsRunning] = useState(false)
 
+    // For tracking the last animation state change time to prevent flicker
+    const lastAnimationChange = useRef(0)
+    const animationChangeDebounce = 300 // ms
+
     // Animation state for Mixamo model
     const [currentAnimation, setCurrentAnimation] = useState('idle')
+    
+    // Add logging when animation state changes
+    useEffect(() => {
+        console.log(`Animation state changed: walking=${isWalking}, running=${isRunning}, animation=${currentAnimation}`);
+    }, [isWalking, isRunning, currentAnimation])
 
     // Add a reference for the model
     const playerModelRef = useRef<THREE.Group>(null);
@@ -120,6 +129,12 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
 
         // Stop all animations initially
         Object.values(actions).forEach(action => action?.stop())
+        
+        // Initialize with idle animation
+        console.log('Initializing with idle animation');
+        setIsWalking(false);
+        setIsRunning(false);
+        setCurrentAnimation('idle');
 
         return () => {
             world.removeCharacterController(characterController.current)
@@ -176,10 +191,25 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
 
         const speed = walkSpeed * (isSprinting ? runSpeed / walkSpeed : 1)
         
-        // Update movement state for animations
+        // Update movement state for animations with velocity threshold
         const isMoving = moveForward || moveBackward || moveLeft || moveRight
-        setIsWalking(isMoving && !isSprinting)
-        setIsRunning(isMoving && isSprinting)
+        
+        // Add a velocity-based check to make sure we're actually moving
+        // This prevents animation flicker when keys are released
+        const velocity = Math.sqrt(
+            Math.pow(horizontalVelocity.current.x, 2) + 
+            Math.pow(horizontalVelocity.current.z, 2)
+        )
+        
+        // Simplified animation states based directly on input and velocity
+        if (isMoving && velocity > 0.02) {
+            setIsWalking(true && !isSprinting)
+            setIsRunning(true && isSprinting)
+        } else if (velocity < 0.01) {
+            // Reset to idle state when truly stopped
+            setIsWalking(false) 
+            setIsRunning(false)
+        }
 
         const grounded = characterController.current.computedGrounded()
 
@@ -267,6 +297,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         characterRigidBody.setNextKinematicTranslation(newPosition)
     })
 
+    // Call this in useFrame to ensure frequent checks
     useFrame((_, delta) => {
         const characterRigidBody = playerRef.current.rigidBody
         if (!characterRigidBody) {
@@ -279,6 +310,38 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         const { forward, backward, left, right } = getKeyboardControls() as KeyControls
         const isMoving = forward || backward || left || right
         const isSprinting = getKeyboardControls().sprint || gamepadState.buttons.leftStickPress
+
+        // Calculate velocity magnitude for better animation state detection
+        const velocityMagnitude = Math.sqrt(
+            Math.pow(horizontalVelocity.current.x, 2) + 
+            Math.pow(horizontalVelocity.current.z, 2)
+        );
+        
+        // Log velocity occasionally for debugging
+        if (Math.random() < 0.01) {
+            console.log(`Player velocity: ${velocityMagnitude.toFixed(4)}`);
+        }
+        
+        // Clear state when velocity is very low
+        if (velocityMagnitude < 0.01) {
+            if (isWalking || isRunning) {
+                console.log(`Player stopped moving, velocity: ${velocityMagnitude.toFixed(4)}`);
+                setIsWalking(false);
+                setIsRunning(false);
+            }
+        } 
+        // Set walking/running based on input state and velocity
+        else if (velocityMagnitude > 0.02 && isMoving) {
+            if (isSprinting && !isRunning) {
+                console.log(`Player started running, velocity: ${velocityMagnitude.toFixed(4)}`);
+                setIsRunning(true);
+                setIsWalking(false);
+            } else if (!isSprinting && !isWalking) {
+                console.log(`Player started walking, velocity: ${velocityMagnitude.toFixed(4)}`);
+                setIsWalking(true);
+                setIsRunning(false);
+            }
+        }
 
         const translation = characterRigidBody.translation()
         onMove?.(translation as THREE.Vector3)
@@ -375,6 +438,24 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         }
     })
     
+    // Set the current animation based on movement state
+    useEffect(() => {
+        // Update animation based on movement state
+        if (isRunning) {
+            console.log('Setting run animation');
+            setCurrentAnimation('run');
+        } else if (isWalking) {
+            console.log('Setting walk animation');
+            setCurrentAnimation('walk');
+        } else {
+            console.log('Setting idle animation');
+            setCurrentAnimation('idle');
+        }
+        
+        // Log the current animation state for debugging
+        console.log(`Animation state changed: walking=${isWalking}, running=${isRunning}, animation=${currentAnimation}`);
+    }, [isWalking, isRunning]);
+
     // Handle movement animations
     useEffect(() => {
         const walkAction = actions['Rig|Saiga_Walk']
@@ -481,17 +562,6 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             }
         }
     }, [thirdPersonView]);
-
-    // Set the current animation based on movement state
-    useEffect(() => {
-        // We only have walk animation from your fbx, so let's use it for all movement states
-        // and adjust this when you add more animations
-        if (isRunning || isWalking) {
-            setCurrentAnimation('walk') // Use walk animation for both walking and running
-        } else {
-            setCurrentAnimation('walk') // Use walk animation for idle too until we have more animations
-        }
-    }, [isWalking, isRunning, jumping.current])
 
     return (
         <>

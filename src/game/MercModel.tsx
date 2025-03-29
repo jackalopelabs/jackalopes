@@ -34,7 +34,10 @@ export const MercModel = ({
       console.log('Successfully loaded merc model:', scene);
       
       if (animations && animations.length > 0) {
-        console.log('Model has embedded animations:', animations.map(a => a.name).join(', '));
+        console.log('Model has embedded animations:');
+        animations.forEach((anim, i) => {
+          console.log(`  ${i+1}. "${anim.name}" (duration: ${anim.duration.toFixed(2)}s)`);
+        });
       } else {
         console.warn('No animations found in the model');
       }
@@ -47,28 +50,138 @@ export const MercModel = ({
   useEffect(() => {
     if (!mixer || !actions) return;
     
-    // Stop all current animations
-    Object.values(actions).forEach(action => {
-      if (action) action.fadeOut(0.2);
-    });
+    // Log the requested animation
+    console.log(`Animation requested: "${animation}"`);
+    console.log(`Available actions:`, Object.keys(actions));
     
-    // Find the requested animation by name
-    if (animation && actions[animation]) {
-      console.log(`Playing animation: ${animation}`);
-      actions[animation]?.reset().fadeIn(0.2).play();
-      setCurrentAnimation(animation);
-    } else {
-      console.warn(`Animation "${animation}" not found`);
-      
-      // Try to find a default animation
-      const availableAnimations = Object.keys(actions);
-      if (availableAnimations.length > 0) {
-        const defaultAnim = availableAnimations[0];
-        console.log(`Using default animation: ${defaultAnim}`);
-        actions[defaultAnim]?.reset().fadeIn(0.2).play();
-        setCurrentAnimation(defaultAnim);
+    // Don't stop all animations immediately - instead use crossfade
+    // mixer.stopAllAction();
+    
+    // Handle animations directly based on name
+    // Special handling for idle - always use 'idle' animation
+    if (animation === 'idle') {
+      if (actions['idle']) {
+        console.log(`Playing exact idle animation directly`);
+        const idleAction = actions['idle'];
+        
+        // Check if already playing this animation
+        if (currentAnimation !== 'idle') {
+          // If walk is currently playing, fade it out
+          if (actions['walk'] && actions['walk'].isRunning()) {
+            // Longer fade for smoother transition (0.5s)
+            actions['walk'].fadeOut(0.5);
+          }
+          
+          // Start idle with fade-in
+          idleAction.reset().fadeIn(0.5).play();
+          idleAction.timeScale = 1.0;
+          setCurrentAnimation('idle');
+        } else {
+          // Already playing idle, just ensure it's active
+          if (!idleAction.isRunning()) {
+            idleAction.reset().fadeIn(0.3).play();
+            idleAction.timeScale = 1.0;
+          }
+        }
+      } else {
+        console.warn('Idle animation not found');
+      }
+    } 
+    // For walk animation
+    else if (animation === 'walk') {
+      if (actions['walk']) {
+        console.log(`Playing exact walk animation directly`);
+        const walkAction = actions['walk'];
+        
+        // Check if already playing this animation
+        if (currentAnimation !== 'walk') {
+          // If idle is currently playing, fade it out
+          if (actions['idle'] && actions['idle'].isRunning()) {
+            // Longer fade for smoother transition (0.5s)
+            actions['idle'].fadeOut(0.5);
+          }
+          
+          // Start walk with fade-in
+          walkAction.reset().fadeIn(0.5).play();
+          walkAction.timeScale = 1.0;
+          setCurrentAnimation('walk');
+        } else {
+          // Already playing walk, just ensure it's active
+          if (!walkAction.isRunning()) {
+            walkAction.reset().fadeIn(0.3).play();
+            walkAction.timeScale = 1.0;
+          }
+        }
+      } else {
+        console.warn('Walk animation not found');
       }
     }
+    // For run animation - speed up the walk animation
+    else if (animation === 'run') {
+      if (actions['walk']) {
+        console.log(`Using walk animation for running (sped up)`);
+        const runAction = actions['walk'];
+        
+        // Check if already playing walk animation
+        if (currentAnimation !== 'run') {
+          // If idle is playing, fade it out
+          if (actions['idle'] && actions['idle'].isRunning()) {
+            actions['idle'].fadeOut(0.5);
+          }
+          
+          // Start run with fade-in
+          runAction.reset().fadeIn(0.5).play();
+          runAction.timeScale = 1.5; // Speed up for running
+          setCurrentAnimation('run')
+        } else {
+          // Already playing run/walk, just ensure it's at the right speed
+          if (runAction.isRunning() && runAction.timeScale !== 1.5) {
+            runAction.timeScale = 1.5;
+          } else if (!runAction.isRunning()) {
+            runAction.reset().fadeIn(0.3).play();
+            runAction.timeScale = 1.5;
+          }
+        }
+      } else {
+        console.warn('Walk animation not found for running');
+      }
+    }
+    // Fallback to any available animation
+    else {
+      console.warn(`Animation "${animation}" not found, available:`, Object.keys(actions));
+      
+      // Try to use idle if available
+      if (actions['idle']) {
+        console.log(`Falling back to idle animation`);
+        const idleAction = actions['idle'];
+        if (idleAction) {
+          idleAction.reset().fadeIn(0.3).play();
+          setCurrentAnimation('idle');
+        }
+      } 
+      // Otherwise use the first available
+      else if (Object.keys(actions).length > 0) {
+        const defaultAnim = Object.keys(actions)[0];
+        console.log(`Falling back to first animation: ${defaultAnim}`);
+        const defaultAction = actions[defaultAnim];
+        if (defaultAction) {
+          defaultAction.reset().fadeIn(0.3).play();
+          setCurrentAnimation(defaultAnim);
+        }
+      }
+    }
+
+    // Log the actual state of animations after setting
+    setTimeout(() => {
+      // Check which animations are actually active
+      if (mixer && actions) {
+        console.log(`Animation state after change:`, {
+          idle: actions['idle']?.isRunning() || false,
+          walk: actions['walk']?.isRunning() || false,
+          currentAnimation
+        });
+      }
+    }, 100);
   }, [animation, actions, mixer]);
   
   // Convert position and rotation to proper format

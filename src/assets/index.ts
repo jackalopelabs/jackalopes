@@ -10,7 +10,7 @@
  */
 
 // Character Models
-export const MercModelPath = 'src/assets/characters/merc-walk.glb';
+export const MercModelPath = 'src/assets/characters/merc.glb';
 
 // Animations embedded in models
 export const AnimationNames = {
