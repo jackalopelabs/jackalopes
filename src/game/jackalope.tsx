@@ -82,7 +82,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         characterController.current = world.createCharacterController(0.1)
         characterController.current.enableAutostep(0.5, 0.05, true)
         characterController.current.setSlideEnabled(true)
-        characterController.current.enableSnapToGround(0.1)
+        characterController.current.enableSnapToGround(0.5)
         
         // Set initial position from props
         if (props.position && Array.isArray(props.position)) {
@@ -112,9 +112,9 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         
         // Get movement direction from input
         const inputDir = new THREE.Vector3(
-            (moveLeft ? 1 : 0) - (moveRight ? 1 : 0),
+            (moveRight ? 1 : 0) - (moveLeft ? 1 : 0),
             0,
-            (moveBackward ? 1 : 0) - (moveForward ? 1 : 0)
+            (moveForward ? 1 : 0) - (moveBackward ? 1 : 0)
         ).normalize()
         
         // Convert to camera-relative direction
@@ -296,7 +296,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         enabledRotations={[false, false, false]}
                     >
                         <object3D name="jackalope" />
-                        <CapsuleCollider args={[0.5, 0.3]} />
+                        <CapsuleCollider args={[1.0, 0.5]} />
                     </RigidBody>
                 </Component>
             </Entity>

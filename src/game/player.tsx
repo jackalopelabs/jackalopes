@@ -462,8 +462,8 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         const grounded = characterController.current.computedGrounded()
 
         // x and z movement
-        _frontVector.set(0, 0, Number(moveBackward) - Number(moveForward))
-        _sideVector.set(Number(moveLeft) - Number(moveRight), 0, 0)
+        _frontVector.set(0, 0, Number(moveForward) - Number(moveBackward))
+        _sideVector.set(Number(moveRight) - Number(moveLeft), 0, 0)
 
         const cameraWorldDirection = camera.getWorldDirection(_cameraWorldDirection)
         const cameraYaw = Math.atan2(cameraWorldDirection.x, cameraWorldDirection.z)
