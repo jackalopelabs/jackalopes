@@ -165,6 +165,20 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
     useEffect(() => {
         console.log(`[PLAYER] Player type changed to ${playerType}, third person: ${thirdPersonView}`);
         
+        // Update global player type
+        if (!window.jackalopesGame) {
+            window.jackalopesGame = {};
+        }
+        window.jackalopesGame.playerType = playerType;
+        
+        // Dispatch event to notify other components about the player type change
+        window.dispatchEvent(new CustomEvent('playerTypeChanged', { 
+            detail: { 
+                type: playerType,
+                thirdPerson: thirdPersonView 
+            } 
+        }));
+        
         // When switching to merc in first person, make sure arms are repositioned
         if (playerType === 'merc' && !thirdPersonView) {
             if (armsModelReady.current) {
@@ -873,6 +887,95 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         }
     });
 
+    // Create refs for the flashlight and its target
+    const spotlightRef = useRef<THREE.SpotLight>(null);
+    const spotlightTargetRef = useRef<THREE.Object3D>(new THREE.Object3D());
+    
+    // State to toggle flashlight
+    const [flashlightOn, setFlashlightOn] = useState(true);
+    
+    // Make flashlight state accessible globally
+    useEffect(() => {
+        // Make sure jackalopesGame exists
+        if (!window.jackalopesGame) {
+            window.jackalopesGame = {};
+        }
+        
+        // Add flashlight state to window for global access
+        window.jackalopesGame.flashlightOn = flashlightOn;
+    }, [flashlightOn]);
+    
+    // Toggle flashlight with F key
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'f' || e.key === 'F') {
+                setFlashlightOn(prev => !prev);
+                
+                // Dispatch event to update flashlight UI elsewhere
+                window.dispatchEvent(new CustomEvent('flashlightToggled', { 
+                    detail: { isOn: !flashlightOn } 
+                }));
+            }
+        };
+        
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [flashlightOn]);
+    
+    // Update spotlight position to follow camera
+    useFrame(() => {
+        if (spotlightRef.current && spotlightTargetRef.current && !thirdPersonView && playerType === 'merc') {
+            // Connect the spotlight to its target
+            spotlightRef.current.target = spotlightTargetRef.current;
+            
+            // Get camera direction
+            const cameraDirection = new THREE.Vector3(0, 0, -1);
+            const cameraMatrix = new THREE.Matrix4();
+            
+            if (fpsCameraRef.current) {
+                // Get camera world matrix
+                fpsCameraRef.current.matrixWorld.decompose(
+                    _cameraPosition, 
+                    new THREE.Quaternion(), 
+                    new THREE.Vector3()
+                );
+                
+                cameraMatrix.makeRotationFromQuaternion(fpsCameraRef.current.quaternion);
+                cameraDirection.applyMatrix4(cameraMatrix);
+                
+                // Create a global position for the spotlight
+                const spotlightGlobalPos = new THREE.Vector3();
+                if (fpsArmsRef.current) {
+                    const flashlightGroup = fpsArmsRef.current.children.find(
+                        child => child.type === 'Group' && child.position.z > 0
+                    );
+                    if (flashlightGroup) {
+                        flashlightGroup.getWorldPosition(spotlightGlobalPos);
+                    } else {
+                        // Fallback to camera position if flashlight group not found
+                        spotlightGlobalPos.copy(_cameraPosition);
+                    }
+                } else {
+                    spotlightGlobalPos.copy(_cameraPosition);
+                }
+                
+                // Position target far in front of camera
+                spotlightTargetRef.current.position.copy(_cameraPosition);
+                spotlightTargetRef.current.position.addScaledVector(cameraDirection, 20);
+                
+                // Debug - log positions occasionally
+                if (Math.random() < 0.001) {
+                    console.log('Flashlight position:', spotlightGlobalPos);
+                    console.log('Target position:', spotlightTargetRef.current.position);
+                    console.log('Camera direction:', cameraDirection);
+                }
+                
+                // Force update world matrix to ensure proper targeting
+                spotlightTargetRef.current.updateMatrixWorld(true);
+            }
+        }
+    });
+
     return (
         <>
             <Entity isPlayer ref={playerRef}>
@@ -976,6 +1079,41 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                                 scale={scaleArms}
                                 userData={{ type: 'primitive' }} // Add a marker to find this child
                             />
+                            
+                            {/* Flashlight */}
+                            <group position={[0, -0.3, 0.5]}>
+                                {/* Flashlight spot light */}
+                                <spotLight
+                                    ref={spotlightRef}
+                                    color={0xffffcc} // Warm light color
+                                    intensity={flashlightOn ? 25 : 0}
+                                    distance={40}
+                                    angle={0.5}
+                                    penumbra={0.4}
+                                    decay={1.2}
+                                    castShadow
+                                    shadow-mapSize-width={1024}
+                                    shadow-mapSize-height={1024}
+                                    shadow-camera-near={0.5}
+                                    shadow-camera-far={40}
+                                />
+                                
+                                {/* Flashlight target - this is what the spotlight points at */}
+                                <primitive object={spotlightTargetRef.current} position={[0, 0, -15]} />
+                                
+                                {/* Visual indicator of the flashlight - make it brighter */}
+                                {flashlightOn && (
+                                    <mesh position={[0, 0, 0]}>
+                                        <sphereGeometry args={[0.03, 8, 8]} />
+                                        <meshStandardMaterial 
+                                            color="#ffffdd" 
+                                            emissive="#ffffff" 
+                                            emissiveIntensity={3} 
+                                            toneMapped={false}
+                                        />
+                                    </mesh>
+                                )}
+                            </group>
                         </group>
                     )}
                 </PerspectiveCamera>

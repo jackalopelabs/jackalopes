@@ -32,6 +32,7 @@ declare global {
         jackalopesGame?: {
             playerType?: 'merc' | 'jackalope';
             levaPanelState?: 'open' | 'closed';
+            flashlightOn?: boolean; // Add flashlight state
             // Add other global game properties as needed
         };
     }
@@ -2535,6 +2536,66 @@ export function App() {
         };
     }, [enableMultiplayer, playerCharacterInfo.type, thirdPersonView]);
     
+    // Create a new component for the flashlight UI indicator
+    const FlashlightUI = () => {
+        const [isOn, setIsOn] = useState(false);
+        const [visible, setVisible] = useState(false);
+        
+        useEffect(() => {
+            // Initialize with current state if available
+            if (window.jackalopesGame?.flashlightOn !== undefined) {
+                setIsOn(window.jackalopesGame.flashlightOn);
+            }
+            
+            // Check if we're in first person as merc
+            if (window.jackalopesGame?.playerType === 'merc') {
+                setVisible(true);
+            } else {
+                setVisible(false);
+            }
+            
+            // Listen for flashlight toggle events
+            const handleFlashlightToggle = (event: CustomEvent<{isOn: boolean}>) => {
+                setIsOn(event.detail.isOn);
+            };
+            
+            // Listen for player type changes
+            const handlePlayerTypeChange = () => {
+                setVisible(window.jackalopesGame?.playerType === 'merc');
+            };
+            
+            window.addEventListener('flashlightToggled', handleFlashlightToggle as EventListener);
+            window.addEventListener('playerTypeChanged', handlePlayerTypeChange);
+            
+            return () => {
+                window.removeEventListener('flashlightToggled', handleFlashlightToggle as EventListener);
+                window.removeEventListener('playerTypeChanged', handlePlayerTypeChange);
+            };
+        }, []);
+        
+        if (!visible) return null;
+        
+        return (
+            <div style={{
+                position: 'absolute',
+                bottom: '20px',
+                right: '20px',
+                padding: '5px 10px',
+                backgroundColor: isOn ? 'rgba(255, 255, 0, 0.3)' : 'rgba(100, 100, 100, 0.3)',
+                color: isOn ? '#ffff00' : '#aaaaaa',
+                border: `1px solid ${isOn ? '#ffff00' : '#666666'}`,
+                borderRadius: '4px',
+                pointerEvents: 'none',
+                fontSize: '12px',
+                fontWeight: 'bold',
+                userSelect: 'none',
+                zIndex: 1000
+            }}>
+                Flashlight: {isOn ? 'ON' : 'OFF'} [F]
+            </div>
+        );
+    };
+    
     return (
         <>
             {/* Add styles to fix Leva panel positioning and prevent UI disruption */}
@@ -3000,6 +3061,9 @@ export function App() {
                 flat={false}
                 oneLineLabels={false}
             />
+            
+            {/* Add the flashlight UI component */}
+            <FlashlightUI />
         </>
     );
 }
