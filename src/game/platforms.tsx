@@ -191,7 +191,7 @@ export function Platforms() {
     const mapSize = 60; // Size of the inner area
     
     // Define outside floor dimensions - increased for more terrain
-    const outsideFloorSize = 600; // Larger outdoor area (was 400)
+    const outsideFloorSize = 800; // Larger outdoor area (increased from 600)
     const outsideFloorThickness = 1;
     const outsideFloorY = -0.5; // Slightly lower than the interior
     
@@ -277,19 +277,27 @@ export function Platforms() {
         return geometry;
     }, [outsideFloorSize, terrainSegments, terrainMaxHeight, terrainNoiseScale, mapSize]);
     
-    // Create a grid shader material
-    const floorGridMaterial = new THREE.ShaderMaterial({
+    // Create a grid shader material with fade-out effect
+    const floorGridMaterial = useMemo(() => new THREE.ShaderMaterial({
         uniforms: {
             color1: { value: new THREE.Color('#324D32') }, // Darker green
             color2: { value: new THREE.Color('#3E5F3E') }, // Lighter green
             gridSize: { value: 5.0 },
-            gridLineWidth: { value: 0.1 }
+            gridLineWidth: { value: 0.1 },
+            center: { value: new THREE.Vector3(0, 0, 0) }, // Center for distance calculation
+            fadeOutStartRadius: { value: outsideFloorSize * 0.6 }, // Start fading at 60% of the size
+            fadeOutEndRadius: { value: outsideFloorSize * 0.95 }, // Fully faded near the edge (95%)
+            fogColor: { value: new THREE.Color('#030812') } // Color to fade towards (similar to fog)
         },
         vertexShader: `
             varying vec2 vUv;
+            varying vec3 vWorldPosition; // Pass world position to fragment shader
             void main() {
                 vUv = uv;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+                // Calculate world position
+                vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+                vWorldPosition = worldPosition.xyz;
+                gl_Position = projectionMatrix * viewMatrix * worldPosition;
             }
         `,
         fragmentShader: `
@@ -297,10 +305,15 @@ export function Platforms() {
             uniform vec3 color2;
             uniform float gridSize;
             uniform float gridLineWidth;
+            uniform vec3 center;
+            uniform float fadeOutStartRadius;
+            uniform float fadeOutEndRadius;
+            uniform vec3 fogColor;
             varying vec2 vUv;
-            
+            varying vec3 vWorldPosition; // Receive world position
+
             void main() {
-                vec2 scaledUv = vUv * ${outsideFloorSize.toFixed(1)};
+                vec2 scaledUv = vUv * ${outsideFloorSize.toFixed(1)}; // Use updated size
                 vec2 grid = abs(fract(scaledUv / gridSize - 0.5) - 0.5) / fwidth(scaledUv / gridSize);
                 float line = min(grid.x, grid.y);
                 
@@ -312,12 +325,21 @@ export function Platforms() {
                 // Add some noise/variation to the base floor
                 float noise = fract(sin(dot(floor(scaledUv), vec2(12.9898, 78.233))) * 43758.5453);
                 baseColor = mix(baseColor, baseColor * (0.9 + 0.1 * noise), 0.2);
+
+                // Calculate distance from the center in the xz plane
+                float dist = length(vWorldPosition.xz - center.xz);
                 
-                gl_FragColor = vec4(baseColor, 1.0);
+                // Calculate fade factor using smoothstep
+                float fadeFactor = smoothstep(fadeOutStartRadius, fadeOutEndRadius, dist);
+                
+                // Mix base color with fog color based on fade factor
+                vec3 finalColor = mix(baseColor, fogColor, fadeFactor);
+                
+                gl_FragColor = vec4(finalColor, 1.0); // Output final faded color
             }
         `,
         side: THREE.DoubleSide
-    });
+    }), [outsideFloorSize]); // Add outsideFloorSize dependency
     
     return (
         <group>

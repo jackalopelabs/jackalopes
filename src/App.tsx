@@ -251,13 +251,13 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     // Ground color
     const groundColor = new THREE.Color('#575757')
     
-    // Even larger map dimensions for the base ground
-    const mapWidth = 250
-    const mapDepth = 250
+    // Updated map dimensions for the base ground to match platforms.tsx
+    const mapWidth = 800
+    const mapDepth = 800
     
     return (
         <RigidBody type="fixed" position={[0, 0, 0]} colliders={false}>
-            {/* Ground collider - much larger to support the outdoor area */}
+            {/* Ground collider - updated to match the new visual floor size */}
             <CuboidCollider args={[mapWidth/2, 0.1, mapDepth/2]} position={[0, -0.1, 0]} />
             
             {/* Remove wall colliders - we don't need them anymore */}
