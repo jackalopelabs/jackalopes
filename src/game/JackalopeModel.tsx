@@ -53,6 +53,12 @@ export const JackalopeModel = ({
     }
   }, [scene]);
   
+  // Track the current animation for pivot adjustment
+  useEffect(() => {
+    // Log animation changes for debugging
+    console.log(`Animation changed to: ${animation}`);
+  }, [animation]);
+  
   // Convert position and rotation to proper format
   const finalPosition = position instanceof THREE.Vector3 
     ? [position.x, position.y, position.z] as [number, number, number]
@@ -187,7 +193,7 @@ export const JackalopeModel = ({
       scale={scale}
     >
       {/* Center the model's pivot point by placing it in an offset group */}
-      <group position={[0, -0.33, 0.2]}>
+      <group position={[0, -0.33, animation === 'run' ? 0.0 : 0.2]}>
         <primitive object={scene} />
       </group>
     </group>

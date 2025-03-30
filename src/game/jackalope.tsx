@@ -228,6 +228,16 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 position.current.y - 0.65, // Reduce height offset to lower the model
                 position.current.z
             )
+            
+            // BUGFIX: Apply animation-specific offset to maintain consistent pivot
+            // When running/sprinting, adjust the Z position to counter the pivot shift
+            if (animation === 'run') {
+                // Apply a negative Z offset to counteract the forward-shifting pivot during sprinting
+                // This makes the model rotate around its visual center consistently regardless of animation
+                const sprintOffset = -0.3; // This value may need adjustment based on testing
+                jackalopeModelRef.current.position.z += sprintOffset;
+            }
+            
             // Add PI rotation to make model face the correct direction
             jackalopeModelRef.current.rotation.y = rotation.current + Math.PI
         }
