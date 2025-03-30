@@ -1,6 +1,5 @@
 import { Canvas } from './common/components/canvas'
 import { Crosshair } from './common/components/crosshair'
-import { Instructions } from './common/components/instructions'
 import { HealthBar } from './common/components/health-bar'
 import { useLoadingAssets } from './common/hooks/use-loading-assets'
 import { Environment, MeshReflectorMaterial, PerspectiveCamera, OrbitControls } from '@react-three/drei'
@@ -2762,8 +2761,7 @@ export function App() {
                     </div>
                 )}
 
-                <Instructions>Please use WASD to move and mouse to look around</Instructions>
-                {/* Pass the shared connection manager to ConnectionTest */}
+                {/* Remove instructions and keep the connection test */}
                 {showConnectionTest && (
                     <ConnectionTest sharedConnectionManager={connectionManager} />
                 )}
