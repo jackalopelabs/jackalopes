@@ -49,6 +49,24 @@ export const Environment = {
   // Add environment assets here
   Trees: {
     SimpleTree: 'src/assets/environment/simple-tree.glb', // For future use with actual 3D models
+    // Lowpoly tree models
+    LowpolyTrees: [
+      'src/assets/environment/lowpoly_nature/CommonTree_1.gltf',
+      'src/assets/environment/lowpoly_nature/CommonTree_2.gltf',
+      'src/assets/environment/lowpoly_nature/CommonTree_3.gltf',
+      'src/assets/environment/lowpoly_nature/CommonTree_4.gltf',
+      'src/assets/environment/lowpoly_nature/CommonTree_5.gltf',
+      'src/assets/environment/lowpoly_nature/PineTree_1.gltf',
+      'src/assets/environment/lowpoly_nature/PineTree_2.gltf',
+      'src/assets/environment/lowpoly_nature/PineTree_3.gltf',
+      'src/assets/environment/lowpoly_nature/PineTree_4.gltf',
+      'src/assets/environment/lowpoly_nature/PineTree_5.gltf',
+      'src/assets/environment/lowpoly_nature/Willow_1.gltf',
+      'src/assets/environment/lowpoly_nature/Willow_2.gltf',
+      'src/assets/environment/lowpoly_nature/Willow_3.gltf',
+      'src/assets/environment/lowpoly_nature/Willow_4.gltf',
+      'src/assets/environment/lowpoly_nature/Willow_5.gltf'
+    ]
   }
 };
 

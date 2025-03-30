@@ -2,6 +2,7 @@ import { RigidBody } from '@react-three/rapier'
 import * as THREE from 'three'
 import { useTexture } from '@react-three/drei'
 import { SimpleTree } from './SimpleTree'
+import { TreeLoader } from './TreeLoader'
 import { useRef } from 'react'
 
 type BoxDimensions = [width: number, height: number, depth: number]
@@ -263,15 +264,9 @@ export function Platforms() {
                     </mesh>
                     
                     {/* Add a tree on top of each block */}
-                    <SimpleTree 
+                    <TreeLoader 
                         position={[0, size[1] / 2, 0]}
-                        scale={0.25}
-                        trunkHeight={5}
-                        trunkRadius={0.6}
-                        leavesRadius={2.5}
-                        // Randomize tree colors slightly for variety
-                        trunkColor={`hsl(25, ${45 + Math.random() * 20}%, ${20 + Math.random() * 10}%)`}
-                        leavesColor={`hsl(${100 + Math.random() * 40}, 60%, ${30 + Math.random() * 15}%)`}
+                        scale={0.3}
                     />
                 </RigidBody>
             ))}
@@ -347,15 +342,10 @@ export function Platforms() {
                 [-100, 0, -100], [100, 0, -100], [-100, 0, 100], [100, 0, 100], // Corners
                 [-70, 0, -40], [70, 0, -40], [-70, 0, 40], [70, 0, 40] // Random positions
             ].map((position, idx) => (
-                <SimpleTree 
+                <TreeLoader
                     key={`outside-tree-${idx}`}
                     position={position as [number, number, number]}
-                    scale={0.5 + Math.random() * 0.3} // Larger and varied outside trees
-                    trunkHeight={6}
-                    trunkRadius={0.8}
-                    leavesRadius={3.5}
-                    trunkColor={`hsl(25, ${40 + Math.random() * 20}%, ${20 + Math.random() * 15}%)`}
-                    leavesColor={`hsl(${90 + Math.random() * 50}, 65%, ${25 + Math.random() * 20}%)`}
+                    scale={0.6}
                 />
             ))}
         </group>
