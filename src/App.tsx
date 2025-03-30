@@ -1677,6 +1677,16 @@ export function App() {
             document.dispatchEvent(mouseDownEvent);
             console.log("Sent shoot mousedown event");
             
+            // Also trigger sound directly
+            if (window.__playMercShot) {
+                console.log("Directly triggering weapon sound");
+                window.__playMercShot();
+            } else {
+                console.log("Global weapon sound function not available");
+                // Also dispatch a shotFired event as a fallback
+                window.dispatchEvent(new CustomEvent('shotFired'));
+            }
+            
             // Release after a short delay
             setTimeout(() => {
                 const mouseUpEvent = new MouseEvent('mouseup', {

@@ -3,6 +3,17 @@ import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { Sounds } from '../assets';
 
+// Add a global volume control for weapon sounds
+// This can be adjusted from anywhere in the app
+export const WeaponSoundSettings = {
+  volume: 0.1, // Default volume (quieter than before)
+  setVolume: (value: number) => {
+    // Ensure volume is between 0 and 1
+    WeaponSoundSettings.volume = Math.min(1, Math.max(0, value));
+    console.log(`Weapon sound volume set to: ${WeaponSoundSettings.volume}`);
+  }
+};
+
 /**
  * WeaponSoundEffects component handles weapon-related sound effects
  */
@@ -10,155 +21,157 @@ export const WeaponSoundEffects = () => {
   // Get camera to attach audio listener
   const { camera } = useThree();
   
-  // References for audio objects
-  const listenerRef = useRef<THREE.AudioListener | null>(null);
-  const shotSoundRef = useRef<THREE.Audio | null>(null);
-  
   // Track if audio is loaded
   const [shotAudioLoaded, setShotAudioLoaded] = useState(false);
   
+  // Web Audio API context and buffer
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const shotBufferRef = useRef<AudioBuffer | null>(null);
+  
   // Set up audio system on component mount
   useEffect(() => {
-    console.log('Setting up weapon sound effects system');
+    console.log('Setting up weapon sound effects system with Web Audio API');
     console.log('Merc shot sound file path:', Sounds.Weapons.MercShot);
     
-    // Create audio listener if not already present on camera
-    let listener: THREE.AudioListener;
+    // Fallback using HTML5 Audio for browsers with Web Audio API issues
+    const createAudioElementFallback = () => {
+      console.log('Creating HTML5 Audio fallback');
+      
+      // Create a pool of HTML5 Audio elements for rapid firing
+      const audioPool: HTMLAudioElement[] = [];
+      const POOL_SIZE = 8;
+      
+      for (let i = 0; i < POOL_SIZE; i++) {
+        const audio = new Audio(Sounds.Weapons.MercShot);
+        audio.volume = WeaponSoundSettings.volume; // Use global volume setting
+        audio.preload = 'auto';
+        audioPool.push(audio);
+      }
+      
+      // Load the first audio to check if it works
+      audioPool[0].addEventListener('canplaythrough', () => {
+        console.log('HTML5 Audio fallback loaded successfully');
+        setShotAudioLoaded(true);
+        
+        // Test play
+        setTimeout(() => {
+          console.log('Testing HTML5 Audio fallback...');
+          const testAudio = new Audio(Sounds.Weapons.MercShot);
+          testAudio.volume = WeaponSoundSettings.volume * 0.5; // Half of current volume for test
+          testAudio.play();
+        }, 1000);
+      });
+      
+      audioPool[0].addEventListener('error', (e) => {
+        console.error('HTML5 Audio fallback loading error:', e);
+      });
+      
+      // Define the playback function
+      window.__playMercShot = () => {
+        console.log('Playing shot with HTML5 Audio fallback');
+        // Find a non-playing audio element
+        let audio = audioPool.find(a => a.paused);
+        
+        // If all are playing, create a new one
+        if (!audio) {
+          audio = new Audio(Sounds.Weapons.MercShot);
+          audio.volume = WeaponSoundSettings.volume; // Use global volume setting
+        }
+        
+        // Play the sound
+        audio.currentTime = 0;
+        audio.play().catch(e => console.error('Error playing HTML5 Audio:', e));
+      };
+    };
     
-    // Check for existing global audio listeners to prevent duplicates
-    const existingListener = camera.children.find(child => child instanceof THREE.AudioListener);
-    
-    if (existingListener) {
-      console.log('Using existing audio listener for weapon sounds');
-      listener = existingListener as THREE.AudioListener;
-    } else {
-      console.log('Creating new audio listener for weapon sounds');
-      listener = new THREE.AudioListener();
-      camera.add(listener);
-      // Mark this listener as the main audio listener for the app
-      camera.userData.mainAudioListener = listener;
+    // Create Audio Context
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) {
+      console.error('Web Audio API not supported in this browser');
+      // Create audio fallback using HTML5 Audio
+      createAudioElementFallback();
+      return;
     }
     
-    listenerRef.current = listener;
+    const audioContext = new AudioContext();
+    audioContextRef.current = audioContext;
     
-    // Create audio loader
-    const audioLoader = new THREE.AudioLoader();
-    
-    // Create standard audio for shot sound (non-positional)
-    const shotSound = new THREE.Audio(listener);
-    shotSoundRef.current = shotSound;
-    console.log('Created shot sound object');
-    
-    // Try to verify file exists before loading
+    // Load the sound file
     fetch(Sounds.Weapons.MercShot)
       .then(response => {
         console.log('Shot sound file fetch response:', response.status, response.statusText);
         if (!response.ok) {
-          console.warn(`Shot sound file may not exist at path: ${Sounds.Weapons.MercShot}`);
-        } else {
-          console.log('Shot sound file exists, proceeding with loading');
+          throw new Error(`Failed to fetch sound: ${response.status} ${response.statusText}`);
         }
+        return response.arrayBuffer();
       })
-      .catch(error => {
-        console.error('Error checking shot sound file:', error);
-      });
-    
-    // Load shot sound
-    console.log('Loading merc shot sound from:', Sounds.Weapons.MercShot);
-    audioLoader.load(Sounds.Weapons.MercShot, 
-      (buffer) => {
-        console.log('Merc shot sound buffer loaded successfully, size:', buffer.duration);
-        shotSound.setBuffer(buffer);
-        shotSound.setVolume(0.5); // Set a reasonable volume
+      .then(arrayBuffer => {
+        console.log('Decoding audio data, size:', arrayBuffer.byteLength);
+        return audioContext.decodeAudioData(arrayBuffer);
+      })
+      .then(audioBuffer => {
+        console.log('Audio data decoded successfully, duration:', audioBuffer.duration);
+        shotBufferRef.current = audioBuffer;
         setShotAudioLoaded(true);
-        console.log('Merc shot sound configured successfully');
         
-        // Test play the sound once when loaded to ensure it works
+        // Test play once
         setTimeout(() => {
           console.log('Testing shot sound...');
-          if (shotSound.buffer) {
-            if (shotSound.isPlaying) {
-              shotSound.stop();
-            }
-            shotSound.play();
-            console.log('Shot sound test played');
-          } else {
-            console.warn('Shot sound buffer not available for test play');
-          }
+          playShotSound(WeaponSoundSettings.volume * 0.5); // Half of current volume for test
         }, 1000);
-      }, 
-      (progress) => {
-        console.log('Merc shot sound loading progress:', Math.round(progress.loaded / progress.total * 100) + '%');
-      },
-      (error) => {
-        console.error('Error loading merc shot sound:', error);
-        // Try alternative loading approach
-        console.log('Trying alternative loading method for merc shot sound');
-        tryAlternativeAudioLoading(
-          Sounds.Weapons.MercShot,
-          (buffer) => {
-            shotSound.setBuffer(buffer);
-            shotSound.setVolume(0.5);
-            setShotAudioLoaded(true);
-            console.log('Merc shot sound loaded with alternative method');
-          },
-          (altError) => {
-            console.error('Alternative merc shot sound loading also failed:', altError);
-          }
-        );
+      })
+      .catch(error => {
+        console.error('Error loading shot sound:', error);
+        // Try fallback method
+        createAudioElementFallback();
+      });
+    
+    // Function to play the shot sound using Web Audio API
+    const playShotSound = (volume = WeaponSoundSettings.volume) => { // Use global volume setting
+      if (!audioContextRef.current || !shotBufferRef.current) {
+        console.warn('Audio context or buffer not ready');
+        return;
       }
-    );
-    
-    // Alternative loading approach for browsers that might struggle with OGG files
-    const tryAlternativeAudioLoading = (url: string, onSuccess: (buffer: AudioBuffer) => void, onError: (error: any) => void) => {
-      console.log(`Trying alternative loading for ${url}`);
       
-      fetch(url)
-        .then(response => {
-          if (!response.ok) {
-            throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
-          }
-          return response.arrayBuffer();
-        })
-        .then(arrayBuffer => {
-          // Create AudioContext and decode the buffer
-          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-          return audioContext.decodeAudioData(arrayBuffer);
-        })
-        .then(audioBuffer => {
-          onSuccess(audioBuffer);
-        })
-        .catch(error => {
-          console.error(`Alternative loading failed for ${url}:`, error);
-          onError(error);
-        });
-    };
-    
-    // Handle shot events
-    const playShot = () => {
-      console.log('playShot function called', { loaded: shotAudioLoaded, shotSound: !!shotSoundRef.current });
-      if (shotSoundRef.current && shotAudioLoaded) {
-        if (shotSoundRef.current.isPlaying) {
-          // If already playing, stop and reset to play again immediately
-          console.log('Shot sound already playing, stopping first');
-          shotSoundRef.current.stop();
+      try {
+        // Resume context if it's suspended (browser autoplay policy)
+        if (audioContextRef.current.state === 'suspended') {
+          audioContextRef.current.resume();
         }
-        shotSoundRef.current.play();
-        console.log('Playing shot sound effect');
-      } else {
-        console.warn('Shot sound not loaded yet or not available', { 
-          soundRef: !!shotSoundRef.current, 
-          audioLoaded: shotAudioLoaded 
-        });
+        
+        // Create a new source for each play (required for Web Audio API)
+        const source = audioContextRef.current.createBufferSource();
+        source.buffer = shotBufferRef.current;
+        
+        // Create a gain node to control volume
+        const gainNode = audioContextRef.current.createGain();
+        gainNode.gain.value = volume;
+        
+        // Connect the nodes: source -> gain -> destination
+        source.connect(gainNode);
+        gainNode.connect(audioContextRef.current.destination);
+        
+        // Start playing
+        source.start(0);
+        console.log(`Shot sound played with Web Audio API (volume: ${volume})`);
+        
+        // Clean up when done
+        source.onended = () => {
+          source.disconnect();
+          gainNode.disconnect();
+          console.log('Shot sound playback completed');
+        };
+      } catch (e) {
+        console.error('Error playing shot sound with Web Audio API:', e);
       }
     };
     
     // Listen for mouse down events (when the player shoots)
     const handleShot = (event: MouseEvent) => {
-      // Only trigger on left mouse button and if pointer is locked (player is actively controlling)
-      if (event.button === 0 && document.pointerLockElement) {
-        console.log('Mouse down event detected, playing shot sound');
-        playShot();
+      // Less restrictive check to ensure the sound plays in more scenarios
+      if (event.button === 0) {
+        console.log(`Mouse ${event.type} event detected, playing shot sound`);
+        playShotSound();
       }
     };
     
@@ -169,34 +182,49 @@ export const WeaponSoundEffects = () => {
       window.dispatchEvent(testShotEvent);
     };
     
+    // Create a named function for the shotFired event to allow proper cleanup
+    const handleShotFired = () => {
+      console.log('shotFired event received');
+      playShotSound();
+    };
+    
     // Test shot after 2 seconds
     setTimeout(testShot, 2000);
     
-    // Listen to both window mousedown and our custom shotFired event
+    // Listen on both window and document to catch all possible events
+    // Add multiple event types to catch all ways of firing
+    window.addEventListener('mousedown', handleShot);
+    document.addEventListener('mousedown', handleShot);
     window.addEventListener('pointerdown', handleShot);
-    window.addEventListener('shotFired', () => {
-      console.log('shotFired event received');
-      playShot();
-    });
+    document.addEventListener('pointerdown', handleShot);
+    window.addEventListener('shotFired', handleShotFired);
     
-    // Set up a global reference so other parts of the code can trigger the shot sound
+    // Universal method to play the shot sound
     window.__playMercShot = () => {
-      console.log('__playMercShot global function called');
-      playShot();
+      console.log('Global __playMercShot called directly');
+      playShotSound();
+    };
+    
+    // Add a method to adjust volume at runtime
+    window.__setWeaponVolume = (volume: number) => {
+      WeaponSoundSettings.setVolume(volume);
+      console.log(`Weapon volume set to ${WeaponSoundSettings.volume}`);
     };
     
     // Cleanup on unmount
     return () => {
-      if (shotSoundRef.current) {
-        shotSoundRef.current.stop();
-      }
+      // Remove all event listeners
+      window.removeEventListener('mousedown', handleShot);
+      document.removeEventListener('mousedown', handleShot);
       window.removeEventListener('pointerdown', handleShot);
-      window.removeEventListener('shotFired', playShot);
+      document.removeEventListener('pointerdown', handleShot);
+      window.removeEventListener('shotFired', handleShotFired);
       window.__playMercShot = undefined;
+      window.__setWeaponVolume = undefined;
       
-      // Only remove the listener if we created it
-      if (listener && !camera.userData.persistentListener) {
-        camera.remove(listener);
+      // Close audio context
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close();
       }
     };
   }, [camera]);
@@ -205,9 +233,10 @@ export const WeaponSoundEffects = () => {
   return null;
 };
 
-// Add TypeScript declaration for window.__playMercShot
+// Add TypeScript declaration for window.__playMercShot and __setWeaponVolume
 declare global {
   interface Window {
     __playMercShot?: () => void;
+    __setWeaponVolume?: (volume: number) => void;
   }
 } 

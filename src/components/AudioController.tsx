@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useControls, folder } from 'leva';
+import { useControls } from 'leva';
+import { WeaponSoundSettings } from './WeaponSoundEffects';
 
 /**
  * AudioController component allows for controlling and debugging audio settings
@@ -9,7 +10,7 @@ import { useControls, folder } from 'leva';
 export const AudioController = () => {
   const [audioInitialized, setAudioInitialized] = useState(false);
   
-  // Set up Leva controls for audio settings
+  // Set up standard audio settings controls
   const { 
     masterVolume,
     footstepsEnabled,
@@ -31,22 +32,36 @@ export const AudioController = () => {
       value: true,
       label: 'Spatial Audio'
     },
-    footsteps: folder({
-      walkingVolume: {
-        value: 0.3, 
-        min: 0, 
-        max: 1,
-        step: 0.05,
-        label: 'Walking Volume'
-      },
-      runningVolume: {
-        value: 0.4, 
-        min: 0, 
-        max: 1,
-        step: 0.05,
-        label: 'Running Volume'
+    walkingVolume: {
+      value: 0.3, 
+      min: 0, 
+      max: 1,
+      step: 0.05,
+      label: 'Walking Volume'
+    },
+    runningVolume: {
+      value: 0.4, 
+      min: 0, 
+      max: 1,
+      step: 0.05,
+      label: 'Running Volume'
+    }
+  });
+  
+  // Add weapon volume control separately to avoid TypeScript issues
+  useControls('Weapon Sounds', {
+    weaponVolume: {
+      value: WeaponSoundSettings.volume,
+      min: 0,
+      max: 1,
+      step: 0.05,
+      label: 'Weapon Volume',
+      onChange: (value) => {
+        if (window.__setWeaponVolume) {
+          window.__setWeaponVolume(value);
+        }
       }
-    }, { collapsed: false })
+    }
   });
   
   // When settings change, broadcast them as custom events
