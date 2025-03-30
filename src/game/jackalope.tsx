@@ -19,8 +19,8 @@ const BASE_SPEED = 6.8; // Doubled from 3.4 to make jackalope 2x faster
 const RUN_MULTIPLIER = 1.8; // Keep this the same
 
 // Jump handling adjustments
-const JUMP_MULTIPLIER = 4; // Reduced from 12 to about 1/3
-const GRAVITY_REDUCTION = 0.7; // Increased from 0.5 to make jumps shorter
+const JUMP_MULTIPLIER = 14.2; // Increased from 4 to make jumps higher
+const GRAVITY_REDUCTION = 1; // Increased from 0.5 to make jumps shorter
 
 // Props for the Jackalope component
 type JackalopeProps = RigidBodyProps & {
