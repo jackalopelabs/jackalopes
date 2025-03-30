@@ -5,13 +5,21 @@ import { useTexture } from '@react-three/drei'
 type BoxDimensions = [width: number, height: number, depth: number]
 
 const boxes = [
-    { position: [5, 0, -5] as const, size: [4, 4, 4] as BoxDimensions },
-    { position: [-5, 0, -5] as const, size: [4, 4, 4] as BoxDimensions },
-    { position: [15, 0, 5] as const, size: [4, 4, 4] as BoxDimensions },
-    { position: [-15, 0, 5] as const, size: [4, 4, 4] as BoxDimensions },
-    { position: [0, 0, 15] as const, size: [4, 4, 4] as BoxDimensions },
-    { position: [10, 0, -15] as const, size: [4, 4, 4] as BoxDimensions },
-    { position: [-10, 0, -15] as const, size: [4, 4, 4] as BoxDimensions }
+    { position: [10, 0, -10] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [-10, 0, -10] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [30, 0, 10] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [-30, 0, 10] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [0, 0, 30] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [20, 0, -30] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [-20, 0, -30] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [40, 0, 40] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [-40, 0, 40] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [40, 0, -40] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [-40, 0, -40] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [15, 0, -35] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [-15, 0, 35] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [25, 0, 25] as const, size: [4, 4, 4] as BoxDimensions },
+    { position: [-25, 0, -25] as const, size: [4, 4, 4] as BoxDimensions }
 ]
 
 export function Platforms() {

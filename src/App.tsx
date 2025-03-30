@@ -236,19 +236,24 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     // Wall color
     const wallColor = new THREE.Color('#686868')
     
+    // Quadrupled map dimensions (50 → 100)
+    const mapWidth = 100
+    const mapDepth = 100
+    const wallHeight = 4
+    
     return (
         <RigidBody type="fixed" position={[0, 0, 0]} colliders={false}>
-            {/* Ground collider */}
-            <CuboidCollider args={[25, 0.1, 25]} position={[0, -0.1, 0]} />
+            {/* Ground collider - 4x larger */}
+            <CuboidCollider args={[mapWidth/2, 0.1, mapDepth/2]} position={[0, -0.1, 0]} />
             
-            {/* Wall colliders */}
-            <CuboidCollider position={[25, 2, 0]} args={[1, 2, 25]} />
-            <CuboidCollider position={[-25, 2, 0]} args={[1, 2, 25]} />
-            <CuboidCollider position={[0, 2, 25]} args={[25, 2, 1]} />
-            <CuboidCollider position={[0, 2, -25]} args={[25, 2, 1]} />
+            {/* Wall colliders - positioned at 4x distance */}
+            <CuboidCollider position={[mapWidth/2, wallHeight/2, 0]} args={[1, wallHeight/2, mapDepth/2]} />
+            <CuboidCollider position={[-mapWidth/2, wallHeight/2, 0]} args={[1, wallHeight/2, mapDepth/2]} />
+            <CuboidCollider position={[0, wallHeight/2, mapDepth/2]} args={[mapWidth/2, wallHeight/2, 1]} />
+            <CuboidCollider position={[0, wallHeight/2, -mapDepth/2]} args={[mapWidth/2, wallHeight/2, 1]} />
             
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-                <planeGeometry args={[50, 50]} />
+                <planeGeometry args={[mapWidth, mapDepth]} />
                 <MeshReflectorMaterial
                     color={groundColor}
                     mirror={0}
@@ -260,21 +265,21 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
                 />
             </mesh>
             
-            {/* Border walls */}
-            <mesh position={[25, 2, 0]} castShadow receiveShadow>
-                <boxGeometry args={[2, 4, 50]} />
+            {/* Border walls - 4x larger and positioned accordingly */}
+            <mesh position={[mapWidth/2, wallHeight/2, 0]} castShadow receiveShadow>
+                <boxGeometry args={[2, wallHeight, mapDepth]} />
                 <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
             </mesh>
-            <mesh position={[-25, 2, 0]} castShadow receiveShadow>
-                <boxGeometry args={[2, 4, 50]} />
+            <mesh position={[-mapWidth/2, wallHeight/2, 0]} castShadow receiveShadow>
+                <boxGeometry args={[2, wallHeight, mapDepth]} />
                 <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
             </mesh>
-            <mesh position={[0, 2, 25]} castShadow receiveShadow>
-                <boxGeometry args={[50, 4, 2]} />
+            <mesh position={[0, wallHeight/2, mapDepth/2]} castShadow receiveShadow>
+                <boxGeometry args={[mapWidth, wallHeight, 2]} />
                 <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
             </mesh>
-            <mesh position={[0, 2, -25]} castShadow receiveShadow>
-                <boxGeometry args={[50, 4, 2]} />
+            <mesh position={[0, wallHeight/2, -mapDepth/2]} castShadow receiveShadow>
+                <boxGeometry args={[mapWidth, wallHeight, 2]} />
                 <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
             </mesh>
         </RigidBody>
@@ -1445,14 +1450,14 @@ export function App() {
         fog: folder({
             fogEnabled: true,
             fogColor: '#dbdbdb',
-            fogNear: { value: 13, min: 0, max: 50, step: 1 },
-            fogFar: { value: 95, min: 0, max: 100, step: 1 }
+            fogNear: { value: 26, min: 0, max: 100, step: 1 },
+            fogFar: { value: 190, min: 0, max: 200, step: 1 }
         }, { collapsed: true }),
         lighting: folder({
             ambientIntensity: { value: 0, min: 0, max: 2, step: 0.1 },
             directionalIntensity: { value: 3.0, min: 0, max: 5, step: 0.1 },
-            directionalHeight: { value: 40, min: 5, max: 60, step: 1 },
-            directionalDistance: { value: 40, min: 5, max: 70, step: 1 },
+            directionalHeight: { value: 80, min: 5, max: 120, step: 1 },
+            directionalDistance: { value: 80, min: 5, max: 140, step: 1 },
             moonOrbit: { value: false, label: 'Moon Orbits Level' },
             moonOrbitSpeed: { value: 0.005, min: 0.001, max: 0.1, step: 0.001, label: 'Orbit Speed' },
             moonVisible: { value: false, label: 'Show Moon Mesh' },
@@ -1905,7 +1910,7 @@ export function App() {
                         effectsEnabled: true,
                         environmentResolution: 128,
                         maxParticles: 10000,
-                        cullingDistance: 150
+                        cullingDistance: 300
                     });
                     // Also update Leva controls if needed
                     if (setControls) {
@@ -1924,7 +1929,7 @@ export function App() {
                         effectsEnabled: true,
                         environmentResolution: 64,
                         maxParticles: 5000,
-                        cullingDistance: 100
+                        cullingDistance: 200
                     });
                     // Also update Leva controls if needed
                     if (setControls) {
@@ -1943,7 +1948,7 @@ export function App() {
                         effectsEnabled: false,
                         environmentResolution: 32,
                         maxParticles: 2000,
-                        cullingDistance: 75
+                        cullingDistance: 150
                     });
                     // Also update Leva controls if needed
                     if (setControls) {
@@ -2735,12 +2740,12 @@ export function App() {
                     ref={directionalLightRef}
                     intensity={forceDarkLevel ? 0.02 : (darkMode ? 0.1 : directionalIntensity)}
                     shadow-mapSize={[globalQualityParams.shadowMapSize, globalQualityParams.shadowMapSize]}
-                    shadow-camera-left={-40}
-                    shadow-camera-right={40}
-                    shadow-camera-top={40}
-                    shadow-camera-bottom={-40}
+                    shadow-camera-left={-80}
+                    shadow-camera-right={80}
+                    shadow-camera-top={80}
+                    shadow-camera-bottom={-80}
                     shadow-camera-near={1}
-                    shadow-camera-far={200}
+                    shadow-camera-far={400}
                     shadow-bias={-0.001}
                     shadow-normalBias={0.05}
                     shadow-radius={highQualityShadows ? 1 : 2} // Softer shadows in low quality mode
@@ -2899,7 +2904,7 @@ export function App() {
                     position={[0, 10, 10]} 
                     rotation={[0, 0, 0]}
                     near={0.1}
-                    far={1000}
+                    far={2000}
                 />
 
                 {/* Add third-person camera when needed */}
@@ -2909,7 +2914,7 @@ export function App() {
                         makeDefault
                         position={[0, cameraHeight, cameraDistance]} 
                         near={0.1}
-                        far={1000}
+                        far={2000}
                         fov={75}
                     />
                 )}
