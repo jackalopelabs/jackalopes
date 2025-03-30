@@ -20,8 +20,8 @@ export const Mountain: React.FC<MountainProps> = ({
   height = 30,
   width = 20,
   depth = 20,
-  color = '#5D4037',
-  roughness = 0.8,
+  color = '#4E342E',
+  roughness = 0.9,
   seed = Math.random() * 1000
 }) => {
   // Create a deterministic random function based on seed
@@ -171,11 +171,11 @@ export const MountainRange: React.FC<MountainRangeProps> = ({
         posZ += dirZ * outwardBias;
       }
       
-      // Generate different mountain colors based on index
+      // Generate different mountain colors based on index - use darker shades
       const colorBase = {
-        r: 93 + random(0.8) * 20,
-        g: 64 + random(0.9) * 15, 
-        b: 55 + random(1.0) * 10
+        r: 78 + random(0.8) * 15, // Lowered base red
+        g: 54 + random(0.9) * 10, // Lowered base green
+        b: 45 + random(1.0) * 8  // Lowered base blue
       };
       
       result.push(
@@ -186,8 +186,8 @@ export const MountainRange: React.FC<MountainRangeProps> = ({
           height={height}
           width={20 + random(0.6) * 10}
           depth={20 + random(0.7) * 10}
-          color={`rgb(${colorBase.r}, ${colorBase.g}, ${colorBase.b})`}
-          roughness={0.7 + random(1.1) * 0.2}
+          color={`rgb(${Math.floor(colorBase.r)}, ${Math.floor(colorBase.g)}, ${Math.floor(colorBase.b)})`} // Use Math.floor for integer RGB values
+          roughness={0.8 + random(1.1) * 0.15} // Slightly increase base roughness here too
           seed={seed}
         />
       );
