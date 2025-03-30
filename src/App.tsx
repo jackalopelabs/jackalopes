@@ -2925,7 +2925,7 @@ export function App() {
                 </div>
             )}
 
-            <Instructions>Please use WASD to move and mouse to look around</Instructions>
+            {/* Remove the redundant Instructions component */}
             {/* Pass the shared connection manager to ConnectionTest */}
             {showConnectionTest && (
                 <ConnectionTest sharedConnectionManager={connectionManager} />
@@ -2970,7 +2970,7 @@ export function App() {
             {enableMultiplayer && (
                 <div style={{
                     position: 'fixed',
-                    bottom: '10px',
+                    top: isMobile ? '40px' : '10px', // Move down if mobile indicator is showing
                     left: '10px',
                     background: 'rgba(0,0,0,0.7)',
                     color: 'white',
