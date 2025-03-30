@@ -191,14 +191,14 @@ export function Platforms() {
     const mapSize = 60; // Size of the inner area
     
     // Define outside floor dimensions - increased for more terrain
-    const outsideFloorSize = 400; // Larger outdoor area (was 250)
+    const outsideFloorSize = 600; // Larger outdoor area (was 400)
     const outsideFloorThickness = 1;
     const outsideFloorY = -0.5; // Slightly lower than the interior
     
     // Parameters for low poly terrain
-    const terrainSegments = 50; // Number of segments in the terrain grid
-    const terrainMaxHeight = 6; // Maximum height of terrain features
-    const terrainNoiseScale = 0.02; // Scale of the noise function
+    const terrainSegments = 70; // Number of segments in the terrain grid (increased from 50)
+    const terrainMaxHeight = 12; // Maximum height of terrain features (increased from 6)
+    const terrainNoiseScale = 0.015; // Scale of the noise function (adjusted for larger area)
     
     // Create a low poly terrain with hills and valleys
     const terrainGeometry = useMemo(() => {
@@ -227,15 +227,49 @@ export function Platforms() {
             
             // Create several layers of noise for more interesting terrain
             let height = 0;
-            height += Math.sin(nx) * Math.cos(nz) * 0.5;
-            height += Math.sin(nx * 2.1) * Math.cos(nz * 1.7) * 0.25;
-            height += Math.sin(nx * 4.2) * Math.cos(nz * 3.1) * 0.125;
+            
+            // Primary noise layer (large features)
+            height += Math.sin(nx) * Math.cos(nz) * 0.6;
+            
+            // Secondary noise layer (medium features)
+            height += Math.sin(nx * 2.1) * Math.cos(nz * 1.7) * 0.3;
+            
+            // Tertiary noise layer (small details)
+            height += Math.sin(nx * 4.2) * Math.cos(nz * 3.1) * 0.15;
+            
+            // Quaternary noise layer (micro details)
+            height += Math.sin(nx * 8.3) * Math.cos(nz * 7.9) * 0.07;
+            
+            // Create ridge-like features along certain axes
+            const ridgeX = Math.sin(nx * 0.8) * 0.2;
+            const ridgeZ = Math.cos(nz * 0.8) * 0.2;
+            height += Math.max(ridgeX, ridgeZ);
             
             // Apply a distance-based falloff to make terrain more pronounced further from center
-            const falloff = Math.min(1.0, (distFromCenter - mapSize) / 80);
+            // Make this more dramatic with a steeper curve
+            const falloffStart = mapSize;
+            const falloffEnd = 300;
+            let falloff = 0;
             
-            // Apply height to the vertex
-            positions[i + 1] = height * terrainMaxHeight * falloff;
+            if (distFromCenter > falloffStart) {
+                // Create a more interesting falloff curve
+                // First rapidly increase, then level off in the mid-distance, then increase again
+                const normalizedDist = (distFromCenter - falloffStart) / (falloffEnd - falloffStart);
+                falloff = Math.pow(normalizedDist, 0.7) * (1.0 + 0.2 * Math.sin(normalizedDist * Math.PI * 2));
+                
+                // Add occasional plateau areas
+                if (Math.abs(Math.sin(nx * 0.5) * Math.cos(nz * 0.5)) < 0.2) {
+                    height *= 0.3; // Flatten these areas
+                }
+                
+                // Add occasional steep areas
+                if (Math.abs(Math.sin(nx * 0.3) * Math.cos(nz * 0.4)) > 0.8) {
+                    height *= 1.5; // Make these areas steeper
+                }
+            }
+            
+            // Apply height to the vertex with improved falloff
+            positions[i + 1] = height * terrainMaxHeight * Math.min(1.0, falloff);
         }
         
         // Update normals
@@ -394,6 +428,50 @@ export function Platforms() {
                 { position: [-45, -0.5, 45], scale: 1.8, height: 5 },
                 { position: [-45, -0.5, -45], scale: 1.8, height: 5 },
                 { position: [45, -0.5, 45], scale: 1.8, height: 5 },
+                
+                // Additional hills for expanded terrain
+                { position: [120, -0.5, -120], scale: 4.0, height: 15 },
+                { position: [-120, -0.5, 120], scale: 4.0, height: 15 },
+                { position: [-120, -0.5, -120], scale: 4.0, height: 15 },
+                { position: [120, -0.5, 120], scale: 4.0, height: 15 },
+                
+                // Mountain-like features further out
+                { position: [200, -0.5, 0], scale: 5.0, height: 20 },
+                { position: [-200, -0.5, 0], scale: 5.0, height: 20 },
+                { position: [0, -0.5, 200], scale: 5.0, height: 20 },
+                { position: [0, -0.5, -200], scale: 5.0, height: 20 },
+                
+                // Random mid-sized hills
+                { position: [150, -0.5, -80], scale: 3.2, height: 12 },
+                { position: [-150, -0.5, 80], scale: 3.2, height: 12 },
+                { position: [-80, -0.5, -150], scale: 3.2, height: 12 },
+                { position: [80, -0.5, 150], scale: 3.2, height: 12 },
+                { position: [170, -0.5, 170], scale: 3.5, height: 14 },
+                { position: [-170, -0.5, -170], scale: 3.5, height: 14 },
+                { position: [-170, -0.5, 170], scale: 3.5, height: 14 },
+                { position: [170, -0.5, -170], scale: 3.5, height: 14 },
+                
+                // Valley features
+                { position: [60, -0.5, -110], scale: 2.2, height: 7 },
+                { position: [-60, -0.5, 110], scale: 2.2, height: 7 },
+                { position: [-110, -0.5, -60], scale: 2.2, height: 7 },
+                { position: [110, -0.5, 60], scale: 2.2, height: 7 },
+                
+                // Small hill clusters
+                { position: [30, -0.5, -130], scale: 1.5, height: 4 },
+                { position: [-30, -0.5, 130], scale: 1.5, height: 4 },
+                { position: [-130, -0.5, -30], scale: 1.5, height: 4 },
+                { position: [130, -0.5, 30], scale: 1.5, height: 4 },
+                { position: [50, -0.5, -150], scale: 1.7, height: 5 },
+                { position: [-50, -0.5, 150], scale: 1.7, height: 5 },
+                { position: [-150, -0.5, -50], scale: 1.7, height: 5 },
+                { position: [150, -0.5, 50], scale: 1.7, height: 5 },
+                
+                // Distant large features
+                { position: [250, -0.5, 150], scale: 6.0, height: 25 },
+                { position: [-250, -0.5, -150], scale: 6.0, height: 25 },
+                { position: [150, -0.5, -250], scale: 6.0, height: 25 },
+                { position: [-150, -0.5, 250], scale: 6.0, height: 25 },
             ].map((feature, idx) => (
                 <RigidBody
                     key={`terrain-feature-${idx}`}
@@ -404,7 +482,7 @@ export function Platforms() {
                     <mesh castShadow receiveShadow>
                         <coneGeometry args={[feature.scale * 10, feature.height, 8]} />
                         <meshStandardMaterial
-                            color="#3A5F3A"
+                            color={idx % 3 === 0 ? "#3A5F3A" : idx % 3 === 1 ? "#34543A" : "#2D4A33"}
                             roughness={0.8}
                             side={THREE.DoubleSide}
                         />
@@ -430,6 +508,25 @@ export function Platforms() {
                 [-180, 0, -180], [180, 0, -180], [-180, 0, 180], [180, 0, 180],
                 [-140, 0, -60], [140, 0, -60], [-140, 0, 60], [140, 0, 60],
                 [-60, 0, -140], [60, 0, -140], [-60, 0, 140], [60, 0, 140],
+                
+                // Extended terrain trees (200-300 range)
+                [-220, 0, -90], [220, 0, -90], [-220, 0, 90], [220, 0, 90],
+                [-90, 0, -220], [90, 0, -220], [-90, 0, 220], [90, 0, 220],
+                [-250, 0, -120], [250, 0, -120], [-250, 0, 120], [250, 0, 120],
+                [-120, 0, -250], [120, 0, -250], [-120, 0, 250], [120, 0, 250],
+                [-280, 0, -60], [280, 0, -60], [-280, 0, 60], [280, 0, 60],
+                [-60, 0, -280], [60, 0, -280], [-60, 0, 280], [60, 0, 280],
+                [-210, 0, -210], [210, 0, -210], [-210, 0, 210], [210, 0, 210],
+                [-180, 0, -70], [180, 0, -70], [-180, 0, 70], [180, 0, 70],
+                [-70, 0, -180], [70, 0, -180], [-70, 0, 180], [70, 0, 180],
+                
+                // Randomly spaced trees within 300 unit radius
+                [225, 0, 75], [-225, 0, -75], [75, 0, -225], [-75, 0, 225],
+                [240, 0, 140], [-240, 0, -140], [140, 0, -240], [-140, 0, 240],
+                [190, 0, -30], [-190, 0, 30], [30, 0, 190], [-30, 0, -190],
+                [170, 0, -110], [-170, 0, 110], [110, 0, 170], [-110, 0, -170],
+                [270, 0, 30], [-270, 0, -30], [30, 0, -270], [-30, 0, 270],
+                [200, 0, 200], [-200, 0, -200], [200, 0, -200], [-200, 0, 200],
             ].map((position, idx) => (
                 <TreeLoader
                     key={`outside-tree-${idx}`}
@@ -458,6 +555,23 @@ export function Platforms() {
                 [-90, 0, -170], [90, 0, -170], [-90, 0, 170], [90, 0, 170],
                 [-80, 0, -40], [80, 0, -40], [-80, 0, 40], [80, 0, 40],
                 [-40, 0, -80], [40, 0, -80], [-40, 0, 80], [40, 0, 80],
+                
+                // Rocks for further expanded terrain
+                [-215, 0, -55], [215, 0, -55], [-215, 0, 55], [215, 0, 55],
+                [-55, 0, -215], [55, 0, -215], [-55, 0, 215], [55, 0, 215],
+                [-235, 0, -125], [235, 0, -125], [-235, 0, 125], [235, 0, 125],
+                [-125, 0, -235], [125, 0, -235], [-125, 0, 235], [125, 0, 235],
+                [-190, 0, -190], [190, 0, -190], [-190, 0, 190], [190, 0, 190],
+                [-265, 0, -75], [265, 0, -75], [-265, 0, 75], [265, 0, 75],
+                [-75, 0, -265], [75, 0, -265], [-75, 0, 265], [75, 0, 265],
+                
+                // Rock formations near hills
+                [195, 0, 10], [-195, 0, -10], [10, 0, -195], [-10, 0, 195],
+                [115, 0, -115], [-115, 0, 115], [155, 0, 155], [-155, 0, -155],
+                [230, 0, 80], [-230, 0, -80], [80, 0, -230], [-80, 0, 230],
+                [185, 0, -115], [-185, 0, 115], [115, 0, 185], [-115, 0, -185],
+                [255, 0, 35], [-255, 0, -35], [35, 0, -255], [-35, 0, 255],
+                [205, 0, 205], [-205, 0, -205], [205, 0, -205], [-205, 0, 205],
             ].map((position, idx) => (
                 <TreeLoader
                     key={`rock-${idx}`}
@@ -488,6 +602,29 @@ export function Platforms() {
                 [-140, 0, -140], [140, 0, -140], [-140, 0, 140], [140, 0, 140],
                 [-85, 0, -35], [85, 0, -35], [-85, 0, 35], [85, 0, 35],
                 [-35, 0, -85], [35, 0, -85], [-35, 0, 85], [35, 0, 85],
+                
+                // Further plants and bushes for the expanded terrain
+                [-185, 0, -65], [185, 0, -65], [-185, 0, 65], [185, 0, 65],
+                [-65, 0, -185], [65, 0, -185], [-65, 0, 185], [65, 0, 185],
+                [-210, 0, -100], [210, 0, -100], [-210, 0, 100], [210, 0, 100],
+                [-100, 0, -210], [100, 0, -210], [-100, 0, 210], [100, 0, 210],
+                [-175, 0, -175], [175, 0, -175], [-175, 0, 175], [175, 0, 175],
+                [-245, 0, -45], [245, 0, -45], [-245, 0, 45], [245, 0, 45],
+                [-45, 0, -245], [45, 0, -245], [-45, 0, 245], [45, 0, 245],
+                
+                // Plants near the extended hills
+                [205, 0, 15], [-205, 0, -15], [15, 0, -205], [-15, 0, 205],
+                [125, 0, -125], [-125, 0, 125], [165, 0, 165], [-165, 0, -165],
+                [240, 0, 90], [-240, 0, -90], [90, 0, -240], [-90, 0, 240],
+                [195, 0, -125], [-195, 0, 125], [125, 0, 195], [-125, 0, -195],
+                [260, 0, 40], [-260, 0, -40], [40, 0, -260], [-40, 0, 260],
+                
+                // Distant plants
+                [225, 0, 225], [-225, 0, -225], [225, 0, -225], [-225, 0, 225],
+                [275, 0, 135], [-275, 0, -135], [135, 0, -275], [-135, 0, 275],
+                [290, 0, -50], [-290, 0, 50], [50, 0, 290], [-50, 0, -290],
+                [230, 0, -170], [-230, 0, 170], [170, 0, 230], [-170, 0, -230],
+                [255, 0, 255], [-255, 0, -255], [255, 0, -255], [-255, 0, 255],
             ].map((position, idx) => (
                 <TreeLoader
                     key={`plant-${idx}`}
