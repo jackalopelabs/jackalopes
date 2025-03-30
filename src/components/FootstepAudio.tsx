@@ -265,30 +265,34 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
         });
       }
       
-      // Handle walking sound
+      // Handle walking sound - FIX: directly check the isWalking prop
       if (walkingSoundRef.current && walkingAudioLoaded) {
-        // Only play walking sound if we're walking but not running
-        if (isWalking && !isRunning && !walkingSoundRef.current.isPlaying) {
-          console.log('Starting walking sound - walking:', isWalking, 'running:', isRunning);
-          walkingSoundRef.current.play();
+        // Play walking sound as soon as isWalking is true and we're not running
+        if (isWalking && !isRunning) {
+          if (!walkingSoundRef.current.isPlaying) {
+            console.log('Starting walking sound - walking state detected');
+            walkingSoundRef.current.play();
+          }
         } 
         // Stop walking sound if we're not walking or if we're running
         else if ((!isWalking || isRunning) && walkingSoundRef.current.isPlaying) {
-          console.log('Stopping walking sound - walking:', isWalking, 'running:', isRunning);
+          console.log('Stopping walking sound - no longer walking or now running');
           walkingSoundRef.current.stop();
         }
       }
       
-      // Handle running sound
+      // Handle running sound - same direct check approach
       if (runningSoundRef.current && runningAudioLoaded) {
-        // Only play running sound if we're running
-        if (isRunning && !runningSoundRef.current.isPlaying) {
-          console.log('Starting running sound - walking:', isWalking, 'running:', isRunning);
-          runningSoundRef.current.play();
+        // Play running sound as soon as isRunning is true
+        if (isRunning) {
+          if (!runningSoundRef.current.isPlaying) {
+            console.log('Starting running sound - running state detected');
+            runningSoundRef.current.play();
+          }
         } 
         // Stop running sound if we're not running
         else if (!isRunning && runningSoundRef.current.isPlaying) {
-          console.log('Stopping running sound - walking:', isWalking, 'running:', isRunning);
+          console.log('Stopping running sound - no longer running');
           runningSoundRef.current.stop();
         }
       }

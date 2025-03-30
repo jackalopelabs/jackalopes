@@ -487,14 +487,20 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             Math.pow(horizontalVelocity.current.z, 2)
         )
         
-        // Simplified animation states based directly on input and velocity
-        if (isMoving && velocity > 0.02) {
-            setIsWalking(true && !isSprinting)
-            setIsRunning(true && isSprinting)
+        // FIX: Immediately update walking state based on input intent
+        // This ensures the walking sound starts as soon as movement keys are pressed
+        if (isMoving) {
+            if (isSprinting) {
+                setIsRunning(true);
+                setIsWalking(false);
+            } else {
+                setIsWalking(true);
+                setIsRunning(false);
+            }
         } else if (velocity < 0.01) {
             // Reset to idle state when truly stopped
-            setIsWalking(false) 
-            setIsRunning(false)
+            setIsWalking(false); 
+            setIsRunning(false);
         }
 
         const grounded = characterController.current.computedGrounded()
@@ -609,16 +615,17 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             console.log(`Player velocity: ${velocityMagnitude.toFixed(4)}`);
         }
         
-        // Clear state when velocity is very low
-        if (velocityMagnitude < 0.01) {
+        // FIX: Secondary velocity check for animation state updates
+        // This ensures that if keys are still pressed but velocity drops, we maintain correct state
+        if (velocityMagnitude < 0.01 && !isMoving) {
             if (isWalking || isRunning) {
                 console.log(`Player stopped moving, velocity: ${velocityMagnitude.toFixed(4)}`);
                 setIsWalking(false);
                 setIsRunning(false);
             }
         } 
-        // Set walking/running based on input state and velocity
-        else if (velocityMagnitude > 0.02 && isMoving) {
+        // Enhanced check for movement states with press feedback
+        else if (isMoving) {
             if (isSprinting && !isRunning) {
                 console.log(`Player started running, velocity: ${velocityMagnitude.toFixed(4)}`);
                 setIsRunning(true);
