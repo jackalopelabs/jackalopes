@@ -251,24 +251,16 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
     // Ground color
     const groundColor = new THREE.Color('#575757')
     
-    // Wall color
-    const wallColor = new THREE.Color('#686868')
-    
-    // Quadrupled map dimensions (50 → 100)
-    const mapWidth = 100
-    const mapDepth = 100
-    const wallHeight = 4
+    // Even larger map dimensions for the base ground
+    const mapWidth = 250
+    const mapDepth = 250
     
     return (
         <RigidBody type="fixed" position={[0, 0, 0]} colliders={false}>
-            {/* Ground collider - 4x larger */}
+            {/* Ground collider - much larger to support the outdoor area */}
             <CuboidCollider args={[mapWidth/2, 0.1, mapDepth/2]} position={[0, -0.1, 0]} />
             
-            {/* Wall colliders - positioned at 4x distance */}
-            <CuboidCollider position={[mapWidth/2, wallHeight/2, 0]} args={[1, wallHeight/2, mapDepth/2]} />
-            <CuboidCollider position={[-mapWidth/2, wallHeight/2, 0]} args={[1, wallHeight/2, mapDepth/2]} />
-            <CuboidCollider position={[0, wallHeight/2, mapDepth/2]} args={[mapWidth/2, wallHeight/2, 1]} />
-            <CuboidCollider position={[0, wallHeight/2, -mapDepth/2]} args={[mapWidth/2, wallHeight/2, 1]} />
+            {/* Remove wall colliders - we don't need them anymore */}
             
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
                 <planeGeometry args={[mapWidth, mapDepth]} />
@@ -283,23 +275,7 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
                 />
             </mesh>
             
-            {/* Border walls - 4x larger and positioned accordingly */}
-            <mesh position={[mapWidth/2, wallHeight/2, 0]} castShadow receiveShadow>
-                <boxGeometry args={[2, wallHeight, mapDepth]} />
-                <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
-            </mesh>
-            <mesh position={[-mapWidth/2, wallHeight/2, 0]} castShadow receiveShadow>
-                <boxGeometry args={[2, wallHeight, mapDepth]} />
-                <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
-            </mesh>
-            <mesh position={[0, wallHeight/2, mapDepth/2]} castShadow receiveShadow>
-                <boxGeometry args={[mapWidth, wallHeight, 2]} />
-                <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
-            </mesh>
-            <mesh position={[0, wallHeight/2, -mapDepth/2]} castShadow receiveShadow>
-                <boxGeometry args={[mapWidth, wallHeight, 2]} />
-                <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
-            </mesh>
+            {/* Remove border walls - they're replaced by our new walls with doorways */}
         </RigidBody>
     )
 }
