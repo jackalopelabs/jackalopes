@@ -531,7 +531,7 @@ export function Platforms() {
                 <TreeLoader
                     key={`outside-tree-${idx}`}
                     position={position as [number, number, number]}
-                    scale={0.6 + Math.sin(idx * 0.1) * 0.2} // Varied scales
+                    scale={(0.6 + Math.sin(idx * 0.1) * 0.2) * 10} // Varied scales multiplied by 10
                     treeType="tree" // Use only trees for these positions
                 />
             ))}
@@ -576,7 +576,7 @@ export function Platforms() {
                 <TreeLoader
                     key={`rock-${idx}`}
                     position={position as [number, number, number]}
-                    scale={0.7 + Math.cos(idx * 0.2) * 0.3} // Varied scales
+                    scale={(0.7 + Math.cos(idx * 0.2) * 0.3) * 10} // Varied scales multiplied by 10
                     treeType="rock" // Use only rocks for these positions
                 />
             ))}
@@ -629,7 +629,7 @@ export function Platforms() {
                 <TreeLoader
                     key={`plant-${idx}`}
                     position={position as [number, number, number]}
-                    scale={0.5 + Math.sin(idx * 0.3) * 0.2} // Varied scales
+                    scale={(0.5 + Math.sin(idx * 0.3) * 0.2) * 10} // Varied scales multiplied by 10
                     treeType={idx % 3 === 0 ? "plant" : idx % 3 === 1 ? "bush" : "rock"} // Mix of plant types
                 />
             ))}
