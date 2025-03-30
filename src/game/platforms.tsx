@@ -15,12 +15,12 @@ const boxes = [
 ]
 
 export function Platforms() {
-    const texture = useTexture('/final-texture.png')
-    texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+    // Replace texture with solid color
+    // const texture = useTexture('/final-texture.png')
+    // texture.wrapS = texture.wrapT = THREE.RepeatWrapping
     
-    const platformTexture = texture.clone()
-    platformTexture.wrapS = platformTexture.wrapT = THREE.RepeatWrapping
-    platformTexture.repeat.set(1, 1) // Scale texture to match each face of the 4x4x4 boxes
+    // Platform color
+    const platformColor = new THREE.Color('#757575')
 
     return (
         <group>
@@ -36,7 +36,7 @@ export function Platforms() {
                     <mesh castShadow receiveShadow>
                         <boxGeometry args={size} />
                         <meshStandardMaterial 
-                            map={platformTexture}
+                            color={platformColor}
                             side={THREE.DoubleSide}
                             roughness={0.8}
                             metalness={0.1}

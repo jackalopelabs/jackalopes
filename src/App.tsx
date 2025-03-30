@@ -226,24 +226,16 @@ const Stars = ({ count = 1000, depth = 100, size = 0.2, color = "#ffffff", twink
 };
 
 const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
-    const texture = useTexture('/final-texture.png')
-    texture.wrapS = texture.wrapT = THREE.RepeatWrapping
+    // Remove texture loading and replace with solid colors
+    // const texture = useTexture('/final-texture.png')
+    // texture.wrapS = texture.wrapT = THREE.RepeatWrapping
     
-    // Ground texture (50x50)
-    const groundTexture = texture.clone()
-    groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping
-    groundTexture.repeat.set(12, 12) // 12 repeats to match ground size
+    // Ground color
+    const groundColor = new THREE.Color('#575757')
     
-    // Side walls texture (2x4)
-    const sideWallTexture = texture.clone()
-    sideWallTexture.wrapS = sideWallTexture.wrapT = THREE.RepeatWrapping
-    sideWallTexture.repeat.set(12, 1) // 12 repeats horizontally to match wall length
+    // Wall color
+    const wallColor = new THREE.Color('#686868')
     
-    // Front/back walls texture (50x4)
-    const frontWallTexture = texture.clone()
-    frontWallTexture.wrapS = frontWallTexture.wrapT = THREE.RepeatWrapping
-    frontWallTexture.repeat.set(12, 1) // 12 repeats horizontally to match wall width
-
     return (
         <RigidBody type="fixed" position={[0, 0, 0]} colliders={false}>
             {/* Ground collider */}
@@ -258,7 +250,7 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
                 <planeGeometry args={[50, 50]} />
                 <MeshReflectorMaterial
-                    map={groundTexture}
+                    color={groundColor}
                     mirror={0}
                     roughness={1}
                     depthScale={0}
@@ -271,19 +263,19 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
             {/* Border walls */}
             <mesh position={[25, 2, 0]} castShadow receiveShadow>
                 <boxGeometry args={[2, 4, 50]} />
-                <meshStandardMaterial map={sideWallTexture} side={THREE.DoubleSide} />
+                <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
             </mesh>
             <mesh position={[-25, 2, 0]} castShadow receiveShadow>
                 <boxGeometry args={[2, 4, 50]} />
-                <meshStandardMaterial map={sideWallTexture} side={THREE.DoubleSide} />
+                <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
             </mesh>
             <mesh position={[0, 2, 25]} castShadow receiveShadow>
                 <boxGeometry args={[50, 4, 2]} />
-                <meshStandardMaterial map={frontWallTexture} side={THREE.DoubleSide} />
+                <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
             </mesh>
             <mesh position={[0, 2, -25]} castShadow receiveShadow>
                 <boxGeometry args={[50, 4, 2]} />
-                <meshStandardMaterial map={frontWallTexture} side={THREE.DoubleSide} />
+                <meshStandardMaterial color={wallColor} side={THREE.DoubleSide} />
             </mesh>
         </RigidBody>
     )
