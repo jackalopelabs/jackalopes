@@ -3,7 +3,7 @@ import * as THREE from 'three'
 import { useTexture } from '@react-three/drei'
 import { SimpleTree } from './SimpleTree'
 import { TreeLoader } from './TreeLoader'
-import { useRef } from 'react'
+import { useRef, useMemo } from 'react'
 import { MountainRange } from './Mountain'
 
 type BoxDimensions = [width: number, height: number, depth: number]
@@ -190,13 +190,58 @@ export function Platforms() {
     // Define map dimensions
     const mapSize = 60; // Size of the inner area
     
-    // Define outside floor dimensions
-    const outsideFloorSize = 250; // Large outdoor area
+    // Define outside floor dimensions - increased for more terrain
+    const outsideFloorSize = 400; // Larger outdoor area (was 250)
     const outsideFloorThickness = 1;
     const outsideFloorY = -0.5; // Slightly lower than the interior
     
-    // Create grid pattern for outside floor
-    const gridMaterial = useRef<THREE.ShaderMaterial>(null);
+    // Parameters for low poly terrain
+    const terrainSegments = 50; // Number of segments in the terrain grid
+    const terrainMaxHeight = 6; // Maximum height of terrain features
+    const terrainNoiseScale = 0.02; // Scale of the noise function
+    
+    // Create a low poly terrain with hills and valleys
+    const terrainGeometry = useMemo(() => {
+        const geometry = new THREE.PlaneGeometry(
+            outsideFloorSize, 
+            outsideFloorSize, 
+            terrainSegments, 
+            terrainSegments
+        );
+        
+        // Add some hills and valleys with a simple noise function
+        const positions = geometry.attributes.position.array;
+        for (let i = 0; i < positions.length; i += 3) {
+            const x = positions[i];
+            const z = positions[i + 2];
+            
+            // Skip vertices near the center (keep playable area flat)
+            const distFromCenter = Math.sqrt(x * x + z * z);
+            if (distFromCenter < mapSize) {
+                continue;
+            }
+            
+            // Apply height based on simplex-like noise (using sine functions for simplicity)
+            const nx = x * terrainNoiseScale;
+            const nz = z * terrainNoiseScale;
+            
+            // Create several layers of noise for more interesting terrain
+            let height = 0;
+            height += Math.sin(nx) * Math.cos(nz) * 0.5;
+            height += Math.sin(nx * 2.1) * Math.cos(nz * 1.7) * 0.25;
+            height += Math.sin(nx * 4.2) * Math.cos(nz * 3.1) * 0.125;
+            
+            // Apply a distance-based falloff to make terrain more pronounced further from center
+            const falloff = Math.min(1.0, (distFromCenter - mapSize) / 80);
+            
+            // Apply height to the vertex
+            positions[i + 1] = height * terrainMaxHeight * falloff;
+        }
+        
+        // Update normals
+        geometry.computeVertexNormals();
+        return geometry;
+    }, [outsideFloorSize, terrainSegments, terrainMaxHeight, terrainNoiseScale, mapSize]);
     
     // Create a grid shader material
     const floorGridMaterial = new THREE.ShaderMaterial({
@@ -273,16 +318,15 @@ export function Platforms() {
                 </RigidBody>
             ))}
             
-            {/* Outside floor with grid material */}
+            {/* Low poly terrain outside - replace the flat floor */}
             <RigidBody
                 type="fixed"
                 position={[0, outsideFloorY, 0]}
-                colliders="cuboid"
+                colliders="hull"  // Use hull for better performance with terrain
                 friction={0.2}
                 restitution={0}
             >
-                <mesh receiveShadow rotation={[Math.PI/2, 0, 0]}>
-                    <planeGeometry args={[outsideFloorSize, outsideFloorSize, 1, 1]} />
+                <mesh geometry={terrainGeometry} receiveShadow rotation={[-Math.PI/2, 0, 0]}>
                     <primitive object={floorGridMaterial} attach="material" />
                 </mesh>
             </RigidBody>
@@ -335,55 +379,121 @@ export function Platforms() {
                 </RigidBody>
             ))}
             
-            {/* Add some outside trees in each direction but positioned away from paths */}
+            {/* Terrain features - rock formations and hills */}
             {[
+                // North feature
+                { position: [0, -0.5, -90], scale: 3.0, height: 10 },
+                // East feature
+                { position: [90, -0.5, 0], scale: 2.5, height: 8 },
+                // South feature
+                { position: [0, -0.5, 90], scale: 3.0, height: 10 },
+                // West feature
+                { position: [-90, -0.5, 0], scale: 2.5, height: 8 },
+                // Random smaller hills
+                { position: [45, -0.5, -45], scale: 1.8, height: 5 },
+                { position: [-45, -0.5, 45], scale: 1.8, height: 5 },
+                { position: [-45, -0.5, -45], scale: 1.8, height: 5 },
+                { position: [45, -0.5, 45], scale: 1.8, height: 5 },
+            ].map((feature, idx) => (
+                <RigidBody
+                    key={`terrain-feature-${idx}`}
+                    type="fixed"
+                    position={feature.position as [number, number, number]}
+                    colliders="hull"
+                >
+                    <mesh castShadow receiveShadow>
+                        <coneGeometry args={[feature.scale * 10, feature.height, 8]} />
+                        <meshStandardMaterial
+                            color="#3A5F3A"
+                            roughness={0.8}
+                            side={THREE.DoubleSide}
+                        />
+                    </mesh>
+                </RigidBody>
+            ))}
+            
+            {/* Add more outside trees, widely distributed across the terrain */}
+            {[
+                // Original tree positions
                 [-25, 0, -70], [25, 0, -70], // North area
                 [-25, 0, 70], [25, 0, 70], // South area
                 [70, 0, -25], [70, 0, 25], // East area
                 [-70, 0, -25], [-70, 0, 25], // West area
                 [-100, 0, -100], [100, 0, -100], [-100, 0, 100], [100, 0, 100], // Corners
-                [-70, 0, -40], [70, 0, -40], [-70, 0, 40], [70, 0, 40] // Random positions
+                [-70, 0, -40], [70, 0, -40], [-70, 0, 40], [70, 0, 40], // Random positions
+                
+                // Additional trees further out in the terrain
+                [-120, 0, -80], [120, 0, -80], [-120, 0, 80], [120, 0, 80],
+                [-80, 0, -120], [80, 0, -120], [-80, 0, 120], [80, 0, 120],
+                [-150, 0, -50], [150, 0, -50], [-150, 0, 50], [150, 0, 50],
+                [-50, 0, -150], [50, 0, -150], [-50, 0, 150], [50, 0, 150],
+                [-180, 0, -180], [180, 0, -180], [-180, 0, 180], [180, 0, 180],
+                [-140, 0, -60], [140, 0, -60], [-140, 0, 60], [140, 0, 60],
+                [-60, 0, -140], [60, 0, -140], [-60, 0, 140], [60, 0, 140],
             ].map((position, idx) => (
                 <TreeLoader
                     key={`outside-tree-${idx}`}
                     position={position as [number, number, number]}
-                    scale={0.6}
+                    scale={0.6 + Math.sin(idx * 0.1) * 0.2} // Varied scales
                     treeType="tree" // Use only trees for these positions
                 />
             ))}
             
-            {/* Add some rocks around the landscape */}
+            {/* Add more rocks throughout the terrain */}
             {[
+                // Original rock positions
                 [-35, 0, -60], [35, 0, -60], // North area
                 [-35, 0, 60], [35, 0, 60], // South area
                 [60, 0, -35], [60, 0, 35], // East area
                 [-60, 0, -35], [-60, 0, 35], // West area
                 [-90, 0, -90], [90, 0, -90], [-90, 0, 90], [90, 0, 90], // Corners
-                [-50, 0, -30], [50, 0, -30], [-50, 0, 30], [50, 0, 30] // Random positions
+                [-50, 0, -30], [50, 0, -30], [-50, 0, 30], [50, 0, 30], // Random positions
+                
+                // Additional rocks scattered through the extended terrain
+                [-110, 0, -45], [110, 0, -45], [-110, 0, 45], [110, 0, 45],
+                [-45, 0, -110], [45, 0, -110], [-45, 0, 110], [45, 0, 110],
+                [-130, 0, -65], [130, 0, -65], [-130, 0, 65], [130, 0, 65],
+                [-65, 0, -130], [65, 0, -130], [-65, 0, 130], [65, 0, 130],
+                [-170, 0, -90], [170, 0, -90], [-170, 0, 90], [170, 0, 90],
+                [-90, 0, -170], [90, 0, -170], [-90, 0, 170], [90, 0, 170],
+                [-80, 0, -40], [80, 0, -40], [-80, 0, 40], [80, 0, 40],
+                [-40, 0, -80], [40, 0, -80], [-40, 0, 80], [40, 0, 80],
             ].map((position, idx) => (
                 <TreeLoader
                     key={`rock-${idx}`}
                     position={position as [number, number, number]}
-                    scale={0.7}
+                    scale={0.7 + Math.cos(idx * 0.2) * 0.3} // Varied scales
                     treeType="rock" // Use only rocks for these positions
                 />
             ))}
             
-            {/* Add some plants and bushes for ground cover */}
+            {/* Add plants and bushes - original plus more for extended terrain */}
             {[
+                // Original plant positions
                 [-45, 0, -65], [45, 0, -65], [-15, 0, -55], [15, 0, -55], // North area
                 [-45, 0, 65], [45, 0, 65], [-15, 0, 55], [15, 0, 55], // South area
                 [65, 0, -45], [65, 0, 45], [55, 0, -15], [55, 0, 15], // East area
                 [-65, 0, -45], [-65, 0, 45], [-55, 0, -15], [-55, 0, 15], // West area
                 [-80, 0, -80], [80, 0, -80], [-80, 0, 80], [80, 0, 80], // Near corners
                 [-40, 0, -20], [40, 0, -20], [-40, 0, 20], [40, 0, 20], // Random positions
-                [-30, 0, -50], [30, 0, -50], [-30, 0, 50], [30, 0, 50] // More random positions
+                [-30, 0, -50], [30, 0, -50], [-30, 0, 50], [30, 0, 50], // More random positions
+                
+                // Additional plant positions for extended terrain
+                [-95, 0, -75], [95, 0, -75], [-95, 0, 75], [95, 0, 75],
+                [-75, 0, -95], [75, 0, -95], [-75, 0, 95], [75, 0, 95],
+                [-120, 0, -55], [120, 0, -55], [-120, 0, 55], [120, 0, 55],
+                [-55, 0, -120], [55, 0, -120], [-55, 0, 120], [55, 0, 120],
+                [-160, 0, -75], [160, 0, -75], [-160, 0, 75], [160, 0, 75],
+                [-75, 0, -160], [75, 0, -160], [-75, 0, 160], [75, 0, 160],
+                [-140, 0, -140], [140, 0, -140], [-140, 0, 140], [140, 0, 140],
+                [-85, 0, -35], [85, 0, -35], [-85, 0, 35], [85, 0, 35],
+                [-35, 0, -85], [35, 0, -85], [-35, 0, 85], [35, 0, 85],
             ].map((position, idx) => (
                 <TreeLoader
                     key={`plant-${idx}`}
                     position={position as [number, number, number]}
-                    scale={0.5}
-                    treeType={idx % 2 === 0 ? "plant" : "bush"} // Alternate between plants and bushes
+                    scale={0.5 + Math.sin(idx * 0.3) * 0.2} // Varied scales
+                    treeType={idx % 3 === 0 ? "plant" : idx % 3 === 1 ? "bush" : "rock"} // Mix of plant types
                 />
             ))}
 
