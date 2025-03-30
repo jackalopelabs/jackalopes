@@ -1,6 +1,7 @@
 import { Canvas } from './common/components/canvas'
 import { Crosshair } from './common/components/crosshair'
 import { Instructions } from './common/components/instructions'
+import { HealthBar } from './common/components/health-bar'
 import { useLoadingAssets } from './common/hooks/use-loading-assets'
 import { Environment, MeshReflectorMaterial, PerspectiveCamera, OrbitControls } from '@react-three/drei'
 import { EffectComposer, Vignette, ChromaticAberration, BrightnessContrast, ToneMapping, Bloom } from '@react-three/postprocessing'
@@ -9,7 +10,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
 import { useControls, folder } from 'leva'
 import { useTexture } from '@react-three/drei'
-import { useRef, useEffect, useState, useMemo } from 'react'
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import * as THREE from 'three'
 import { Player, PlayerControls } from './game/player'
 import { Jackalope } from './game/jackalope'
@@ -1112,7 +1113,20 @@ export function App() {
     
     // Add this inside the App component
     const playerPosition = useRef<THREE.Vector3>(new THREE.Vector3(0, 7, 10));
+
+    // Add player health state
+    const [playerHealth, setPlayerHealth] = useState(100);
+    const maxHealth = 100;
     
+    // Damage and heal functions
+    const takeDamage = (amount: number) => {
+        setPlayerHealth(prev => Math.max(0, prev - amount));
+    };
+    
+    const heal = (amount: number) => {
+        setPlayerHealth(prev => Math.min(maxHealth, prev + amount));
+    };
+
     // Create a helper component to handle useFrame inside Canvas
     const PlayerPositionTracker = ({ playerRef, playerPosition }: { 
         playerRef: React.RefObject<any>,
@@ -2367,461 +2381,520 @@ export function App() {
         };
     }, [enableMultiplayer, playerCharacterInfo.type, thirdPersonView]);
     
+    // Add health regeneration over time (optional)
+    useEffect(() => {
+        // If health is less than 100, slowly regenerate
+        if (playerHealth < 100) {
+            const regenerationInterval = setInterval(() => {
+                heal(1); // Regenerate 1 health point per second
+            }, 1000);
+            
+            return () => clearInterval(regenerationInterval);
+        }
+    }, [playerHealth, heal]);
+
+    // Add a function to handle health changes
+    const handleHealthChange = (health: number) => {
+        setPlayerHealth(health);
+    };
+
+    // Add this in the existing useEffect for keyboard events
+    
+    // For demonstration purposes, add a key to damage the player (for testing)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Press 'h' to heal 10 health
+            if (e.key === 'h' && playerRef.current) {
+                playerRef.current.healPlayer?.(10);
+            }
+            
+            // Press 'j' to damage 10 health
+            if (e.key === 'j' && playerRef.current) {
+                playerRef.current.damagePlayer?.(10);
+            }
+        };
+        
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+
     return (
         <>
-            {/* Show model tester if enabled */}
-            {showModelTester && <ModelTester />}
-            
-            <div style={{
-                position: 'absolute',
-                top: '20px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                color: 'rgba(255, 255, 255, 0.75)',
-                fontSize: '13px',
-                fontFamily: 'monospace',
-                userSelect: 'none',
-                zIndex: 1000
-            }}>
-                <div style={{
-                    background: 'rgba(255, 255, 255, 0.15)',
-                    padding: '8px 12px',
-                    borderRadius: '4px',
-                    letterSpacing: '0.5px',
-                    whiteSpace: 'nowrap'
-                }}>
-                    WASD to move | SPACE to jump | SHIFT to run
-                    {thirdPersonView ? ' | Mouse to rotate camera | ESC to release mouse' : ''}
-                </div>
-            </div>
-            
-            {/* Only show ammo display for merc character */}
-            {playerCharacterInfo.type === 'merc' && (
-                <div id="ammo-display" style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '10px',
-                    color: 'rgba(255, 255, 255, 0.75)',
-                    fontSize: '14px',
-                    fontFamily: 'monospace',
-                    userSelect: 'none',
-                    zIndex: 1000
-                }}>
-                    AMMO: 50/50
+            {loading && (
+                <div className="loading">
+                    <div className="spinner"></div>
+                    <div className="loading-text">Loading...</div>
                 </div>
             )}
             
-            <Canvas>
-                {fogEnabled && <fog attach="fog" args={[forceDarkLevel ? '#050a14' : (darkMode ? '#111111' : fogColor), forceDarkLevel ? fogNear * 0.5 : fogNear, forceDarkLevel ? (fogFar * 0.3) : (darkMode ? (fogFar * 0.5) : fogFar)]} />}
-                <Environment
-                    preset={forceDarkLevel ? "night" : "sunset"}
-                    background
-                    blur={forceDarkLevel ? 0.8 : 0.4} // Increased blur for dark level
-                    resolution={globalQualityParams.environmentResolution} // Use quality-based resolution
-                />
+            {/* Add HealthBar component here */}
+            <HealthBar health={playerHealth} maxHealth={maxHealth} />
+            
+            <div className={`${isMobile ? 'mobile-layout' : 'desktop-layout'}`}>
+                <Canvas>
+                    {fogEnabled && <fog attach="fog" args={[forceDarkLevel ? '#050a14' : (darkMode ? '#111111' : fogColor), forceDarkLevel ? fogNear * 0.5 : fogNear, forceDarkLevel ? (fogFar * 0.3) : (darkMode ? (fogFar * 0.5) : fogFar)]} />}
+                    <Environment
+                        preset={forceDarkLevel ? "night" : "sunset"}
+                        background
+                        blur={forceDarkLevel ? 0.8 : 0.4} // Increased blur for dark level
+                        resolution={globalQualityParams.environmentResolution} // Use quality-based resolution
+                    />
 
-                {/* Add stars to night sky */}
-                {(starsEnabled || darkMode || forceDarkLevel) && <Stars 
-                    count={forceDarkLevel ? 4000 : (darkMode ? Math.min(starsCount * 1.5, 3000) : starsCount)} 
-                    size={forceDarkLevel ? starsSize * 1.5 : (darkMode ? starsSize * 1.2 : starsSize)} 
-                    color={forceDarkLevel ? "#8abbff" : (darkMode ? "#c4e1ff" : starsColor)} 
-                    twinkle={starsTwinkle}
-                    depth={forceDarkLevel ? 150 : (darkMode ? 120 : 100)} // Even deeper stars in force dark level
-                />}
+                    {/* Add stars to night sky */}
+                    {(starsEnabled || darkMode || forceDarkLevel) && <Stars 
+                        count={forceDarkLevel ? 4000 : (darkMode ? Math.min(starsCount * 1.5, 3000) : starsCount)} 
+                        size={forceDarkLevel ? starsSize * 1.5 : (darkMode ? starsSize * 1.2 : starsSize)} 
+                        color={forceDarkLevel ? "#8abbff" : (darkMode ? "#c4e1ff" : starsColor)} 
+                        twinkle={starsTwinkle}
+                        depth={forceDarkLevel ? 150 : (darkMode ? 120 : 100)} // Even deeper stars in force dark level
+                    />}
 
-                {/* Add Stats Collector - must be inside Canvas */}
-                <StatsCollector />
+                    {/* Add Stats Collector - must be inside Canvas */}
+                    <StatsCollector />
 
-                <ambientLight intensity={forceDarkLevel ? 0.005 : (darkMode ? 0.02 : ambientIntensity)} />
-                <directionalLight
-                    castShadow
-                    position={[-directionalDistance, directionalHeight, -directionalDistance]}
-                    ref={directionalLightRef}
-                    intensity={forceDarkLevel ? 0.02 : (darkMode ? 0.1 : directionalIntensity)}
-                    shadow-mapSize={[globalQualityParams.shadowMapSize, globalQualityParams.shadowMapSize]}
-                    shadow-camera-left={-40}
-                    shadow-camera-right={40}
-                    shadow-camera-top={40}
-                    shadow-camera-bottom={-40}
-                    shadow-camera-near={1}
-                    shadow-camera-far={200}
-                    shadow-bias={-0.001}
-                    shadow-normalBias={0.05}
-                    shadow-radius={highQualityShadows ? 1 : 2} // Softer shadows in low quality mode
-                    color={forceDarkLevel ? "#5577aa" : "#fff"} // Bluish tint for dark level mode
-                />
+                    <ambientLight intensity={forceDarkLevel ? 0.005 : (darkMode ? 0.02 : ambientIntensity)} />
+                    <directionalLight
+                        castShadow
+                        position={[-directionalDistance, directionalHeight, -directionalDistance]}
+                        ref={directionalLightRef}
+                        intensity={forceDarkLevel ? 0.02 : (darkMode ? 0.1 : directionalIntensity)}
+                        shadow-mapSize={[globalQualityParams.shadowMapSize, globalQualityParams.shadowMapSize]}
+                        shadow-camera-left={-40}
+                        shadow-camera-right={40}
+                        shadow-camera-top={40}
+                        shadow-camera-bottom={-40}
+                        shadow-camera-near={1}
+                        shadow-camera-far={200}
+                        shadow-bias={-0.001}
+                        shadow-normalBias={0.05}
+                        shadow-radius={highQualityShadows ? 1 : 2} // Softer shadows in low quality mode
+                        color={forceDarkLevel ? "#5577aa" : "#fff"} // Bluish tint for dark level mode
+                    />
 
-                {/* Only show moon if visibility is enabled */}
-                {moonVisible && moonOrbit && <Moon 
-                    orbitRadius={Math.max(directionalDistance, 50)} 
-                    height={directionalHeight + 10} 
-                    orbitSpeed={moonOrbitSpeed} 
-                />}
+                    {/* Only show moon if visibility is enabled */}
+                    {moonVisible && moonOrbit && <Moon 
+                        orbitRadius={Math.max(directionalDistance, 50)} 
+                        height={directionalHeight + 10} 
+                        orbitSpeed={moonOrbitSpeed} 
+                    />}
 
-                <Physics 
-                    debug={false} 
-                    paused={loading}
-                    timeStep={1/240} // Increased physics rate to 240Hz for smoother movement
-                    interpolate={true}
-                    gravity={[0, -9.81, 0]}>
-                    <PlayerControls thirdPersonView={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}>
-                        {/* Conditionally render either the Player (merc) or Jackalope */}
-                        {enableMultiplayer ? (
-                            playerCharacterInfo.type === 'merc' ? (
-                                <Player 
-                                    ref={playerRef}
-                                    position={[0, 7, 10]}
-                                    walkSpeed={0.02}
-                                    runSpeed={0.025}
-                                    jumpForce={jumpForce * 0.7}
-                                    visible={playerCharacterInfo.thirdPerson}
-                                    thirdPersonView={playerCharacterInfo.thirdPerson}
-                                    playerType={playerCharacterInfo.type}
-                                    connectionManager={enableMultiplayer ? connectionManager : undefined}
-                                    onMove={(position) => {
-                                        if (directionalLightRef.current && !playerCharacterInfo.thirdPerson) {
-                                            // Only update light directly in first-person mode
-                                            // In third-person, StableLightUpdater handles it
-                                            const light = directionalLightRef.current;
-                                            light.position.x = position.x + directionalDistance;
-                                            light.position.z = position.z + directionalDistance;
-                                            light.target.position.copy(position);
-                                            light.target.updateMatrixWorld();
-                                        }
-                                    }}
-                                />
+                    <Physics 
+                        debug={false} 
+                        paused={loading}
+                        timeStep={1/240} // Increased physics rate to 240Hz for smoother movement
+                        interpolate={true}
+                        gravity={[0, -9.81, 0]}>
+                        <PlayerControls thirdPersonView={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}>
+                            {/* Conditionally render either the Player (merc) or Jackalope */}
+                            {enableMultiplayer ? (
+                                playerCharacterInfo.type === 'merc' ? (
+                                    <Player 
+                                        ref={playerRef}
+                                        position={[0, 7, 10]}
+                                        walkSpeed={0.02}
+                                        runSpeed={0.025}
+                                        jumpForce={jumpForce * 0.7}
+                                        visible={playerCharacterInfo.thirdPerson}
+                                        thirdPersonView={playerCharacterInfo.thirdPerson}
+                                        playerType={playerCharacterInfo.type}
+                                        connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                        health={playerHealth}
+                                        maxHealth={maxHealth}
+                                        onHealthChange={handleHealthChange}
+                                        onMove={(position) => {
+                                            if (directionalLightRef.current && !playerCharacterInfo.thirdPerson) {
+                                                // Only update light directly in first-person mode
+                                                // In third-person, StableLightUpdater handles it
+                                                const light = directionalLightRef.current;
+                                                light.position.x = position.x + directionalDistance;
+                                                light.position.z = position.z + directionalDistance;
+                                                light.target.position.copy(position);
+                                                light.target.updateMatrixWorld();
+                                            }
+                                        }}
+                                    />
+                                ) : (
+                                    <Jackalope
+                                        ref={playerRef}
+                                        position={[0, 7, 10]} // Increased height to start well above the ground
+                                        walkSpeed={0.56}
+                                        runSpeed={1.0}
+                                        jumpForce={jumpForce * 0.8}
+                                        visible={playerCharacterInfo.thirdPerson}
+                                        thirdPersonView={playerCharacterInfo.thirdPerson}
+                                        connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                        health={playerHealth}
+                                        maxHealth={maxHealth}
+                                        onHealthChange={handleHealthChange}
+                                        onMove={(position) => {
+                                            if (directionalLightRef.current && !playerCharacterInfo.thirdPerson) {
+                                                // Only update light directly in first-person mode
+                                                // In third-person, StableLightUpdater handles it
+                                                const light = directionalLightRef.current;
+                                                light.position.x = position.x + directionalDistance;
+                                                light.position.z = position.z + directionalDistance;
+                                                light.target.position.copy(position);
+                                                light.target.updateMatrixWorld();
+                                            }
+                                        }}
+                                    />
+                                )
                             ) : (
-                                <Jackalope
-                                    ref={playerRef}
-                                    position={[0, 7, 10]} // Increased height to start well above the ground
-                                    walkSpeed={0.56}
-                                    runSpeed={1.0}
-                                    jumpForce={jumpForce * 0.8}
-                                    visible={playerCharacterInfo.thirdPerson}
-                                    thirdPersonView={playerCharacterInfo.thirdPerson}
-                                    connectionManager={enableMultiplayer ? connectionManager : undefined}
-                                    onMove={(position) => {
-                                        if (directionalLightRef.current && !playerCharacterInfo.thirdPerson) {
-                                            // Only update light directly in first-person mode
-                                            // In third-person, StableLightUpdater handles it
-                                            const light = directionalLightRef.current;
-                                            light.position.x = position.x + directionalDistance;
-                                            light.position.z = position.z + directionalDistance;
-                                            light.target.position.copy(position);
-                                            light.target.updateMatrixWorld();
+                                characterType === 'merc' ? (
+                                    <Player 
+                                        ref={playerRef}
+                                        position={[0, 7, 10]}
+                                        walkSpeed={0.02}
+                                        runSpeed={0.025}
+                                        jumpForce={jumpForce * 0.7}
+                                        visible={thirdPersonView}
+                                        thirdPersonView={thirdPersonView}
+                                        playerType={characterType}
+                                        connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                        health={playerHealth}
+                                        maxHealth={maxHealth}
+                                        onHealthChange={handleHealthChange}
+                                        onMove={(position) => {
+                                            if (directionalLightRef.current && !thirdPersonView) {
+                                                // Only update light directly in first-person mode
+                                                // In third-person, StableLightUpdater handles it
+                                                const light = directionalLightRef.current;
+                                                light.position.x = position.x + directionalDistance;
+                                                light.position.z = position.z + directionalDistance;
+                                                light.target.position.copy(position);
+                                                light.target.updateMatrixWorld();
+                                            }
+                                        }}
+                                    />
+                                ) : (
+                                    <Jackalope
+                                        ref={playerRef}
+                                        position={[0, 7, 10]} // Increased height to start well above the ground
+                                        walkSpeed={0.56}
+                                        runSpeed={1.0}
+                                        jumpForce={jumpForce * 0.8}
+                                        visible={thirdPersonView}
+                                        thirdPersonView={thirdPersonView}
+                                        connectionManager={enableMultiplayer ? connectionManager : undefined}
+                                        health={playerHealth}
+                                        maxHealth={maxHealth}
+                                        onHealthChange={handleHealthChange}
+                                        onMove={(position) => {
+                                            if (directionalLightRef.current && !thirdPersonView) {
+                                                // Only update light directly in first-person mode
+                                                // In third-person, StableLightUpdater handles it
+                                                const light = directionalLightRef.current;
+                                                light.position.x = position.x + directionalDistance;
+                                                light.position.z = position.z + directionalDistance;
+                                                light.target.position.copy(position);
+                                                light.target.updateMatrixWorld();
+                                            }
+                                        }}
+                                    />
+                                )
+                            )}
+                        </PlayerControls>
+                        <Platforms />
+                        <Ball />
+
+                        <Scene playerRef={playerRef} />
+                        
+                        {/* Show SphereTool only for merc character - jackalobes don't shoot */}
+                        {(enableMultiplayer ? playerCharacterInfo.type === 'merc' : characterType === 'merc') && (
+                            <SphereTool 
+                                onShoot={enableMultiplayer ? 
+                                    (origin, direction) => {
+                                        console.log('App: onShoot called with', { origin, direction });
+                                        try {
+                                            connectionManager.sendShootEvent(origin, direction);
+                                            console.log('App: successfully sent shoot event');
+                                        } catch (error) {
+                                            console.error('App: error sending shoot event:', error);
                                         }
-                                    }}
-                                />
-                            )
-                        ) : (
-                            characterType === 'merc' ? (
-                                <Player 
-                                    ref={playerRef}
-                                    position={[0, 7, 10]}
-                                    walkSpeed={0.02}
-                                    runSpeed={0.025}
-                                    jumpForce={jumpForce * 0.7}
-                                    visible={thirdPersonView}
-                                    thirdPersonView={thirdPersonView}
-                                    playerType={characterType}
-                                    connectionManager={enableMultiplayer ? connectionManager : undefined}
-                                    onMove={(position) => {
-                                        if (directionalLightRef.current && !thirdPersonView) {
-                                            // Only update light directly in first-person mode
-                                            // In third-person, StableLightUpdater handles it
-                                            const light = directionalLightRef.current;
-                                            light.position.x = position.x + directionalDistance;
-                                            light.position.z = position.z + directionalDistance;
-                                            light.target.position.copy(position);
-                                            light.target.updateMatrixWorld();
-                                        }
-                                    }}
-                                />
-                            ) : (
-                                <Jackalope
-                                    ref={playerRef}
-                                    position={[0, 7, 10]} // Increased height to start well above the ground
-                                    walkSpeed={0.56}
-                                    runSpeed={1.0}
-                                    jumpForce={jumpForce * 0.8}
-                                    visible={thirdPersonView}
-                                    thirdPersonView={thirdPersonView}
-                                    connectionManager={enableMultiplayer ? connectionManager : undefined}
-                                    onMove={(position) => {
-                                        if (directionalLightRef.current && !thirdPersonView) {
-                                            // Only update light directly in first-person mode
-                                            // In third-person, StableLightUpdater handles it
-                                            const light = directionalLightRef.current;
-                                            light.position.x = position.x + directionalDistance;
-                                            light.position.z = position.z + directionalDistance;
-                                            light.target.position.copy(position);
-                                            light.target.updateMatrixWorld();
-                                        }
-                                    }}
-                                />
-                            )
+                                    } 
+                                    : undefined
+                                }
+                                remoteShots={remoteShots}
+                                thirdPersonView={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}
+                                playerPosition={enableMultiplayer ? 
+                                    (playerCharacterInfo.thirdPerson ? playerPosition.current : null) : 
+                                    (thirdPersonView ? playerPosition.current : null)}
+                            />
                         )}
-                    </PlayerControls>
-                    <Platforms />
-                    <Ball />
 
-                    <Scene playerRef={playerRef} />
-                    
-                    {/* Show SphereTool only for merc character - jackalobes don't shoot */}
-                    {(enableMultiplayer ? playerCharacterInfo.type === 'merc' : characterType === 'merc') && (
-                        <SphereTool 
-                            onShoot={enableMultiplayer ? 
-                                (origin, direction) => {
-                                    console.log('App: onShoot called with', { origin, direction });
-                                    try {
-                                        connectionManager.sendShootEvent(origin, direction);
-                                        console.log('App: successfully sent shoot event');
-                                    } catch (error) {
-                                        console.error('App: error sending shoot event:', error);
-                                    }
-                                } 
-                                : undefined
-                            }
-                            remoteShots={remoteShots}
-                            thirdPersonView={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}
-                            playerPosition={enableMultiplayer ? 
-                                (playerCharacterInfo.thirdPerson ? playerPosition.current : null) : 
-                                (thirdPersonView ? playerPosition.current : null)}
-                        />
-                    )}
+                        {/* Use enableMultiplayer instead of showMultiplayerTools for the actual multiplayer functionality */}
+                        {enableMultiplayer && playerRefReady && (
+                            <MultiplayerManager 
+                                localPlayerRef={playerRef} 
+                                connectionManager={connectionManager}
+                            />
+                        )}
+                    </Physics>
 
-                    {/* Use enableMultiplayer instead of showMultiplayerTools for the actual multiplayer functionality */}
-                    {enableMultiplayer && playerRefReady && (
-                        <MultiplayerManager 
-                            localPlayerRef={playerRef} 
-                            connectionManager={connectionManager}
-                        />
-                    )}
-                </Physics>
-
-                <PerspectiveCamera 
-                    makeDefault={!thirdPersonView} 
-                    position={[0, 10, 10]} 
-                    rotation={[0, 0, 0]}
-                    near={0.1}
-                    far={1000}
-                />
-
-                {/* Add third-person camera when needed */}
-                {(enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView) && (
-                    <PerspectiveCamera
-                        ref={thirdPersonCameraRef}
-                        makeDefault
-                        position={[0, cameraHeight, cameraDistance]} 
+                    <PerspectiveCamera 
+                        makeDefault={!thirdPersonView} 
+                        position={[0, 10, 10]} 
+                        rotation={[0, 0, 0]}
                         near={0.1}
                         far={1000}
-                        fov={75}
                     />
-                )}
 
-                {/* Add simplified ThirdPersonCameraControls */}
-                {(enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView) && playerPosition.current && (
-                    <ThirdPersonCameraControls 
-                        player={playerPosition.current}
-                        cameraRef={thirdPersonCameraRef}
-                        enabled={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}
-                        distance={cameraDistance}
-                        height={cameraHeight}
-                        invertY={invertYAxis}
-                    />
-                )}
+                    {/* Add third-person camera when needed */}
+                    {(enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView) && (
+                        <PerspectiveCamera
+                            ref={thirdPersonCameraRef}
+                            makeDefault
+                            position={[0, cameraHeight, cameraDistance]} 
+                            near={0.1}
+                            far={1000}
+                            fov={75}
+                        />
+                    )}
 
-                {/* Simplified - just add StableLightUpdater once */}
-                <StableLightUpdater />
+                    {/* Add simplified ThirdPersonCameraControls */}
+                    {(enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView) && playerPosition.current && (
+                        <ThirdPersonCameraControls 
+                            player={playerPosition.current}
+                            cameraRef={thirdPersonCameraRef}
+                            enabled={enableMultiplayer ? playerCharacterInfo.thirdPerson : thirdPersonView}
+                            distance={cameraDistance}
+                            height={cameraHeight}
+                            invertY={invertYAxis}
+                        />
+                    )}
 
-                {/* Add position tracker component */}
-                <PlayerPositionTracker playerRef={playerRef} playerPosition={playerPosition} />
+                    {/* Simplified - just add StableLightUpdater once */}
+                    <StableLightUpdater />
 
-                {/* Add MoonOrbit component if orbiting is enabled */}
-                {moonOrbit && <MoonOrbit />}
+                    {/* Add position tracker component */}
+                    <PlayerPositionTracker playerRef={playerRef} playerPosition={playerPosition} />
 
-                {enablePostProcessing && globalQualityParams.effectsEnabled && (
-                    <EffectComposer>
-                        {bloomEnabled ? (
-                            <Bloom 
-                                intensity={forceDarkLevel ? bloomIntensity * 4.0 : (darkMode ? bloomIntensity * 2.0 : bloomIntensity)}
-                                luminanceThreshold={forceDarkLevel ? 0.01 : (darkMode ? 0.03 : bloomLuminanceThreshold)}
-                                luminanceSmoothing={forceDarkLevel ? 0.5 : (darkMode ? 0.7 : 0.9)}
-                                mipmapBlur={globalQualityParams.bloomQuality !== 'low'}
+                    {/* Add MoonOrbit component if orbiting is enabled */}
+                    {moonOrbit && <MoonOrbit />}
+
+                    {enablePostProcessing && globalQualityParams.effectsEnabled && (
+                        <EffectComposer>
+                            {bloomEnabled ? (
+                                <Bloom 
+                                    intensity={forceDarkLevel ? bloomIntensity * 4.0 : (darkMode ? bloomIntensity * 2.0 : bloomIntensity)}
+                                    luminanceThreshold={forceDarkLevel ? 0.01 : (darkMode ? 0.03 : bloomLuminanceThreshold)}
+                                    luminanceSmoothing={forceDarkLevel ? 0.5 : (darkMode ? 0.7 : 0.9)}
+                                    mipmapBlur={globalQualityParams.bloomQuality !== 'low'}
+                                />
+                            ) : <></>}
+                            <Vignette
+                                offset={vignetteEnabled ? (forceDarkLevel ? 0.0 : (darkMode ? 0.1 : vignetteOffset)) : 0}
+                                darkness={vignetteEnabled ? (forceDarkLevel ? 0.98 : (darkMode ? 0.95 : vignetteDarkness)) : 0}
+                                eskil={false}
                             />
-                        ) : <></>}
-                        <Vignette
-                            offset={vignetteEnabled ? (forceDarkLevel ? 0.0 : (darkMode ? 0.1 : vignetteOffset)) : 0}
-                            darkness={vignetteEnabled ? (forceDarkLevel ? 0.98 : (darkMode ? 0.95 : vignetteDarkness)) : 0}
-                            eskil={false}
-                        />
-                        <ChromaticAberration
-                            offset={new THREE.Vector2(
-                                chromaticAberrationEnabled ? (forceDarkLevel ? chromaticAberrationOffset * 2 : chromaticAberrationOffset) : 0,
-                                chromaticAberrationEnabled ? (forceDarkLevel ? chromaticAberrationOffset * 2 : chromaticAberrationOffset) : 0
-                            )}
-                            radialModulation={false}
-                            modulationOffset={0}
-                        />
-                        <BrightnessContrast
-                            brightness={brightnessContrastEnabled ? (forceDarkLevel ? -0.95 : (darkMode ? -0.9 : brightness)) : 0}
-                            contrast={brightnessContrastEnabled ? (forceDarkLevel ? 0.6 : (darkMode ? 0.4 : contrast)) : 0} 
-                        />
-                        <ToneMapping
-                            blendFunction={BlendFunction.NORMAL}
-                            mode={toneMapping}
-                        />
-                    </EffectComposer>
+                            <ChromaticAberration
+                                offset={new THREE.Vector2(
+                                    chromaticAberrationEnabled ? (forceDarkLevel ? chromaticAberrationOffset * 2 : chromaticAberrationOffset) : 0,
+                                    chromaticAberrationEnabled ? (forceDarkLevel ? chromaticAberrationOffset * 2 : chromaticAberrationOffset) : 0
+                                )}
+                                radialModulation={false}
+                                modulationOffset={0}
+                            />
+                            <BrightnessContrast
+                                brightness={brightnessContrastEnabled ? (forceDarkLevel ? -0.95 : (darkMode ? -0.9 : brightness)) : 0}
+                                contrast={brightnessContrastEnabled ? (forceDarkLevel ? 0.6 : (darkMode ? 0.4 : contrast)) : 0} 
+                            />
+                            <ToneMapping
+                                blendFunction={BlendFunction.NORMAL}
+                                mode={toneMapping}
+                            />
+                        </EffectComposer>
+                    )}
+                </Canvas>
+
+                {/* Only show crosshair in first-person view */}
+                {(enableMultiplayer ? !playerCharacterInfo.thirdPerson : !thirdPersonView) && <Crosshair />}
+                
+                {/* Stats Display - must be outside Canvas */}
+                <StatsDisplay />
+                
+                {/* Add NetworkStats component - only affects UI visibility */}
+                {showMultiplayerTools && enableMultiplayer && (
+                    <NetworkStats connectionManager={connectionManager} visible={true} />
                 )}
-            </Canvas>
 
-            {/* Only show crosshair in first-person view */}
-            {(enableMultiplayer ? !playerCharacterInfo.thirdPerson : !thirdPersonView) && <Crosshair />}
-            
-            {/* Stats Display - must be outside Canvas */}
-            <StatsDisplay />
-            
-            {/* Add NetworkStats component - only affects UI visibility */}
-            {showMultiplayerTools && enableMultiplayer && (
-                <NetworkStats connectionManager={connectionManager} visible={true} />
-            )}
+                {showMultiplayerTools && showDebug && connectionManager && (
+                    <MultiplayerDebugPanel 
+                        connectionManager={connectionManager}
+                        visible={showMultiplayerTools}
+                        isOfflineMode={connectionManager?.isOfflineMode?.() || false}
+                        setPlayerCharacterInfo={setPlayerCharacterInfo}
+                    />
+                )}
 
-            {showMultiplayerTools && showDebug && connectionManager && (
-                <MultiplayerDebugPanel 
-                    connectionManager={connectionManager}
-                    visible={showMultiplayerTools}
-                    isOfflineMode={connectionManager?.isOfflineMode?.() || false}
-                    setPlayerCharacterInfo={setPlayerCharacterInfo}
+                {showMultiplayerTools && showDebug && connectionManager && 
+                  // Check if snapshots exist on connectionManager before using them
+                  'snapshots' in connectionManager && 'getSnapshotAtTime' in connectionManager && (
+                    <SnapshotDebugOverlay 
+                        snapshots={(connectionManager as any).snapshots} 
+                        getSnapshotAtTime={(connectionManager as any).getSnapshotAtTime}
+                    />
+                )}
+
+                {/* Offline Mode Notification - tied to enableMultiplayer for functionality, showMultiplayerTools for visibility */}
+                {enableMultiplayer && showMultiplayerTools && showOfflineNotification && (
+                    <div style={{
+                        position: 'fixed',
+                        top: '50px',
+                        left: '50%',
+                        transform: 'translateX(-50%)',
+                        backgroundColor: '#f44336',
+                        color: 'white',
+                        padding: '10px 15px',
+                        borderRadius: '4px',
+                        zIndex: 2000,
+                        fontSize: '14px',
+                        textAlign: 'center',
+                        boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
+                        maxWidth: '80%'
+                    }}>
+                        <p style={{ margin: '0', fontWeight: 'bold' }}>
+                            Server connection failed. Running in offline mode.
+                        </p>
+                        <p style={{ margin: '5px 0 0', fontSize: '12px' }}>
+                            Cross-browser shots are enabled using localStorage
+                        </p>
+                    </div>
+                )}
+
+                <Instructions>Please use WASD to move and mouse to look around</Instructions>
+                {/* Pass the shared connection manager to ConnectionTest */}
+                {showConnectionTest && (
+                    <ConnectionTest sharedConnectionManager={connectionManager} />
+                )}
+                
+                {/* Add debugging panel for multiplayer testing - only affects UI visibility */}
+                {showMultiplayerTools && enableMultiplayer && (
+                    <MultiplayerDebugPanel 
+                        connectionManager={connectionManager} 
+                        visible={true} 
+                        isOfflineMode={isOfflineMode}
+                        setPlayerCharacterInfo={setPlayerCharacterInfo}
+                    />
+                )}
+
+                {/* Add Virtual Gamepad */}
+                <VirtualGamepad
+                    visible={showVirtualGamepad}
+                    onMove={handleVirtualMove}
+                    onJump={handleVirtualJump}
+                    onShoot={handleVirtualShoot}
                 />
-            )}
+                
+                {/* Mobile detected indicator */}
+                {isMobile && (
+                    <div style={{
+                        position: 'fixed',
+                        top: '10px',
+                        left: '10px',
+                        background: 'rgba(0,0,0,0.5)',
+                        color: 'white',
+                        padding: '5px 8px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        zIndex: 1000
+                    }}>
+                        Mobile device detected
+                    </div>
+                )}
 
-            {showMultiplayerTools && showDebug && connectionManager && 
-              // Check if snapshots exist on connectionManager before using them
-              'snapshots' in connectionManager && 'getSnapshotAtTime' in connectionManager && (
-                <SnapshotDebugOverlay 
-                    snapshots={(connectionManager as any).snapshots} 
-                    getSnapshotAtTime={(connectionManager as any).getSnapshotAtTime}
-                />
-            )}
+                {/* Test Button for Health Bar */}
+                {showDebug && (
+                    <div style={{
+                        position: 'fixed',
+                        bottom: '80px',
+                        left: '20px',
+                        zIndex: 1000
+                    }}>
+                        <button
+                            onClick={() => takeDamage(10)}
+                            style={{
+                                padding: '8px 12px',
+                                backgroundColor: '#ff4444',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                marginRight: '10px',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            Take 10 Damage
+                        </button>
+                        <button
+                            onClick={() => heal(20)}
+                            style={{
+                                padding: '8px 12px',
+                                backgroundColor: '#44ff44',
+                                color: 'white',
+                                border: 'none',
+                                borderRadius: '4px',
+                                cursor: 'pointer',
+                                fontWeight: 'bold'
+                            }}
+                        >
+                            Heal 20 HP
+                        </button>
+                    </div>
+                )}
 
-            {/* Offline Mode Notification - tied to enableMultiplayer for functionality, showMultiplayerTools for visibility */}
-            {enableMultiplayer && showMultiplayerTools && showOfflineNotification && (
+                {/* Debug indicator for player character assignment */}
+                {enableMultiplayer && (
+                    <div style={{
+                        position: 'fixed',
+                        bottom: '10px',
+                        left: '10px',
+                        background: 'rgba(0,0,0,0.7)',
+                        color: 'white',
+                        padding: '8px 12px',
+                        borderRadius: '4px',
+                        fontSize: '12px',
+                        zIndex: 1000,
+                        fontFamily: 'monospace'
+                    }}>
+                        Player Type: <strong>{playerCharacterInfo.type}</strong><br />
+                        View: <strong>{playerCharacterInfo.thirdPerson ? '3rd Person' : '1st Person'}</strong><br />
+                        Player ID: <strong>{connectionManager.getPlayerId?.() || 'None'}</strong><br />
+                        Connection: <strong>{connectionManager.isOfflineMode() ? 'Offline' : 'Online'}</strong><br />
+                        Multiplayer: <strong>{enableMultiplayer ? 'Enabled' : 'Disabled'}</strong>
+                    </div>
+                )}
+                
+                {/* Model tester button */}
                 <div style={{
-                    position: 'fixed',
-                    top: '50px',
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    backgroundColor: '#f44336',
-                    color: 'white',
-                    padding: '10px 15px',
-                    borderRadius: '4px',
-                    zIndex: 2000,
-                    fontSize: '14px',
-                    textAlign: 'center',
-                    boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
-                    maxWidth: '80%'
-                }}>
-                    <p style={{ margin: '0', fontWeight: 'bold' }}>
-                        Server connection failed. Running in offline mode.
-                    </p>
-                    <p style={{ margin: '5px 0 0', fontSize: '12px' }}>
-                        Cross-browser shots are enabled using localStorage
-                    </p>
-                </div>
-            )}
-
-            <Instructions>Please use WASD to move and mouse to look around</Instructions>
-            {/* Pass the shared connection manager to ConnectionTest */}
-            {showConnectionTest && (
-                <ConnectionTest sharedConnectionManager={connectionManager} />
-            )}
-            
-            {/* Add debugging panel for multiplayer testing - only affects UI visibility */}
-            {showMultiplayerTools && enableMultiplayer && (
-                <MultiplayerDebugPanel 
-                    connectionManager={connectionManager} 
-                    visible={true} 
-                    isOfflineMode={isOfflineMode}
-                    setPlayerCharacterInfo={setPlayerCharacterInfo}
-                />
-            )}
-
-            {/* Add Virtual Gamepad */}
-            <VirtualGamepad
-                visible={showVirtualGamepad}
-                onMove={handleVirtualMove}
-                onJump={handleVirtualJump}
-                onShoot={handleVirtualShoot}
-            />
-            
-            {/* Mobile detected indicator */}
-            {isMobile && (
-                <div style={{
-                    position: 'fixed',
-                    top: '10px',
-                    left: '10px',
-                    background: 'rgba(0,0,0,0.5)',
-                    color: 'white',
-                    padding: '5px 8px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
+                    position: 'absolute',
+                    bottom: '10px',
+                    right: '10px',
                     zIndex: 1000
                 }}>
-                    Mobile device detected
+                    <button 
+                        onClick={() => setShowModelTester(!showModelTester)}
+                        style={{
+                            padding: '8px 12px',
+                            backgroundColor: showModelTester ? '#f44336' : '#4CAF50',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                        }}
+                    >
+                        {showModelTester ? 'Close Model Tester' : 'Test Model Animations'}
+                    </button>
                 </div>
-            )}
 
-            {/* Debug indicator for player character assignment */}
-            {enableMultiplayer && (
-                <div style={{
-                    position: 'fixed',
-                    bottom: '10px',
-                    left: '10px',
-                    background: 'rgba(0,0,0,0.7)',
-                    color: 'white',
-                    padding: '8px 12px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    zIndex: 1000,
-                    fontFamily: 'monospace'
-                }}>
-                    Player Type: <strong>{playerCharacterInfo.type}</strong><br />
-                    View: <strong>{playerCharacterInfo.thirdPerson ? '3rd Person' : '1st Person'}</strong><br />
-                    Player ID: <strong>{connectionManager.getPlayerId?.() || 'None'}</strong><br />
-                    Connection: <strong>{connectionManager.isOfflineMode() ? 'Offline' : 'Online'}</strong><br />
-                    Multiplayer: <strong>{enableMultiplayer ? 'Enabled' : 'Disabled'}</strong>
-                </div>
-            )}
-            
-            {/* Model tester button */}
-            <div style={{
-                position: 'absolute',
-                bottom: '10px',
-                right: '10px',
-                zIndex: 1000
-            }}>
-                <button 
-                    onClick={() => setShowModelTester(!showModelTester)}
-                    style={{
-                        padding: '8px 12px',
-                        backgroundColor: showModelTester ? '#f44336' : '#4CAF50',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontWeight: 'bold'
-                    }}
-                >
-                    {showModelTester ? 'Close Model Tester' : 'Test Model Animations'}
-                </button>
+                {/* Model tester for debugging */}
+                {showModelTester && (
+                    <div style={{ position: 'fixed', inset: 0, zIndex: 1000 }}>
+                        <ModelTester />
+                    </div>
+                )}
             </div>
-
-            {/* Model tester for debugging */}
-            {showModelTester && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 1000 }}>
-                    <ModelTester />
-                </div>
-            )}
         </>
     );
 }

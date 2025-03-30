@@ -31,6 +31,9 @@ type JackalopeProps = RigidBodyProps & {
     connectionManager?: ConnectionManager
     visible?: boolean
     thirdPersonView?: boolean
+    health?: number
+    maxHealth?: number
+    onHealthChange?: (health: number) => void
 }
 
 // Keyboard controls type
@@ -50,13 +53,45 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
     jumpForce = 0.8, 
     connectionManager, 
     visible = false, 
-    thirdPersonView = false, 
+    thirdPersonView = false,
+    health = 100,
+    maxHealth = 100,
+    onHealthChange,
     ...props 
 }, ref) => {
     // Core references
     const jackalopeRef = useRef<EntityType>(null!)
     const jackalopeModelRef = useRef<THREE.Group>(null)
     const fpModelRef = useRef<THREE.Group>(null)
+    
+    // Add health state for Jackalope
+    const [jackalopeHealth, setJackalopeHealth] = useState(health)
+
+    // Set up effect to notify parent of health changes
+    useEffect(() => {
+        if (onHealthChange && jackalopeHealth !== health) {
+            onHealthChange(jackalopeHealth)
+        }
+    }, [jackalopeHealth, onHealthChange, health])
+
+    // Function to damage Jackalope
+    const damageJackalope = (amount: number) => {
+        setJackalopeHealth(prev => Math.max(0, prev - amount))
+    }
+
+    // Function to heal Jackalope
+    const healJackalope = (amount: number) => {
+        setJackalopeHealth(prev => Math.min(maxHealth, prev + amount))
+    }
+
+    // Add damage and heal methods to Jackalope ref
+    useImperativeHandle(ref, () => ({
+        ...jackalopeRef.current,
+        damagePlayer: damageJackalope, // Use same method name as Player for consistency
+        healPlayer: healJackalope, // Use same method name as Player for consistency
+        getHealth: () => jackalopeHealth,
+        setHealth: (value: number) => setJackalopeHealth(Math.min(maxHealth, Math.max(0, value)))
+    }), [jackalopeRef.current, jackalopeHealth, maxHealth])
     
     // Physics
     const rapier = useRapier()
@@ -272,19 +307,6 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             console.log(`[JACKALOPE] Pos: (${position.current.x.toFixed(2)}, ${position.current.y.toFixed(2)}, ${position.current.z.toFixed(2)}) | Vel: (${velocity.current.x.toFixed(2)}, ${velocity.current.y.toFixed(2)}, ${velocity.current.z.toFixed(2)}) | Anim: ${animation}`)
         }
     })
-    
-    // Expose methods to parent through ref
-    useImperativeHandle(ref, () => ({
-        ...jackalopeRef.current,
-        getPosition: () => {
-            return position.current.clone()
-        },
-        getRotation: () => {
-            return new THREE.Quaternion().setFromEuler(
-                new THREE.Euler(0, rotation.current, 0)
-            )
-        }
-    }))
     
     return (
         <>

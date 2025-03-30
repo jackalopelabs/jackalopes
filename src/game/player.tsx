@@ -60,12 +60,44 @@ export type PlayerProps = RigidBodyProps & {
     visible?: boolean // Add visibility option for third-person view
     thirdPersonView?: boolean // Flag for third-person camera mode
     playerType?: 'merc' | 'jackalope' // Add player type to determine which model to use
+    health?: number // Add health prop
+    maxHealth?: number // Add max health prop
+    onHealthChange?: (health: number) => void // Add health change callback
 }
 
-export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, connectionManager, visible = false, thirdPersonView = false, playerType = 'merc', ...props }, ref) => {
+export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed = 0.1, runSpeed = 0.15, jumpForce = 0.5, connectionManager, visible = false, thirdPersonView = false, playerType = 'merc', health = 100, maxHealth = 100, onHealthChange, ...props }, ref) => {
     const playerRef = useRef<EntityType>(null!)
     const gltf = useGLTF(FpsArmsModelPath)
     const { actions } = useAnimations(gltf.animations, gltf.scene)
+    
+    // Add health state 
+    const [playerHealth, setPlayerHealth] = useState(health)
+
+    // Set up effect to notify parent of health changes
+    useEffect(() => {
+        if (onHealthChange && playerHealth !== health) {
+            onHealthChange(playerHealth)
+        }
+    }, [playerHealth, onHealthChange, health])
+
+    // Function to damage player
+    const damagePlayer = (amount: number) => {
+        setPlayerHealth(prev => Math.max(0, prev - amount))
+    }
+
+    // Function to heal player
+    const healPlayer = (amount: number) => {
+        setPlayerHealth(prev => Math.min(maxHealth, prev + amount))
+    }
+
+    // Add damage and heal methods to player ref
+    useImperativeHandle(ref, () => ({
+        ...playerRef.current,
+        damagePlayer,
+        healPlayer,
+        getHealth: () => playerHealth,
+        setHealth: (value: number) => setPlayerHealth(Math.min(maxHealth, Math.max(0, value)))
+    }), [playerRef.current, playerHealth, maxHealth])
     
     // Add a flag to track when arms model is ready to use
     const armsModelReady = useRef(false);
