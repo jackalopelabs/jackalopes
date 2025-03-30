@@ -118,7 +118,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         z: { value: -0.05, min: -2, max: 0, step: 0.01 },
         scaleArms: { value: 1.2, min: 0.5, max: 3, step: 0.1 },
     }, {
-        collapsed: false,
+        collapsed: true,
         order: 1
     })
 
