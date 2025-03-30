@@ -267,6 +267,7 @@ export function Platforms() {
                     <TreeLoader 
                         position={[0, size[1] / 2, 0]}
                         scale={1.5}
+                        treeType="tree"  // Only use actual trees on blocks
                     />
                 </RigidBody>
             ))}
@@ -346,6 +347,42 @@ export function Platforms() {
                     key={`outside-tree-${idx}`}
                     position={position as [number, number, number]}
                     scale={0.6}
+                    treeType="tree" // Use only trees for these positions
+                />
+            ))}
+            
+            {/* Add some rocks around the landscape */}
+            {[
+                [-35, 0, -60], [35, 0, -60], // North area
+                [-35, 0, 60], [35, 0, 60], // South area
+                [60, 0, -35], [60, 0, 35], // East area
+                [-60, 0, -35], [-60, 0, 35], // West area
+                [-90, 0, -90], [90, 0, -90], [-90, 0, 90], [90, 0, 90], // Corners
+                [-50, 0, -30], [50, 0, -30], [-50, 0, 30], [50, 0, 30] // Random positions
+            ].map((position, idx) => (
+                <TreeLoader
+                    key={`rock-${idx}`}
+                    position={position as [number, number, number]}
+                    scale={0.7}
+                    treeType="rock" // Use only rocks for these positions
+                />
+            ))}
+            
+            {/* Add some plants and bushes for ground cover */}
+            {[
+                [-45, 0, -65], [45, 0, -65], [-15, 0, -55], [15, 0, -55], // North area
+                [-45, 0, 65], [45, 0, 65], [-15, 0, 55], [15, 0, 55], // South area
+                [65, 0, -45], [65, 0, 45], [55, 0, -15], [55, 0, 15], // East area
+                [-65, 0, -45], [-65, 0, 45], [-55, 0, -15], [-55, 0, 15], // West area
+                [-80, 0, -80], [80, 0, -80], [-80, 0, 80], [80, 0, 80], // Near corners
+                [-40, 0, -20], [40, 0, -20], [-40, 0, 20], [40, 0, 20], // Random positions
+                [-30, 0, -50], [30, 0, -50], [-30, 0, 50], [30, 0, 50] // More random positions
+            ].map((position, idx) => (
+                <TreeLoader
+                    key={`plant-${idx}`}
+                    position={position as [number, number, number]}
+                    scale={0.5}
+                    treeType={idx % 2 === 0 ? "plant" : "bush"} // Alternate between plants and bushes
                 />
             ))}
         </group>
