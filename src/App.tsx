@@ -24,6 +24,7 @@ import { VirtualGamepad } from './components/VirtualGamepad'
 import { RemotePlayer } from './game/RemotePlayer'
 import { AudioController } from './components/AudioController' // Import the AudioController component
 import { WeaponSoundEffects } from './components/WeaponSoundEffects' // Import the WeaponSoundEffects component
+import { HealthBar } from './components/HealthBar' // Import the HealthBar component
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -1138,6 +1139,9 @@ export function App() {
     
     // Add this inside the App component
     const playerPosition = useRef<THREE.Vector3>(new THREE.Vector3(0, 7, 10));
+    
+    // Add health state
+    const [playerHealth, setPlayerHealth] = useState(100);
     
     // Create a helper component to handle useFrame inside Canvas
     const PlayerPositionTracker = ({ playerRef, playerPosition }: { 
@@ -2627,6 +2631,24 @@ export function App() {
         );
     };
     
+    // Add effect to handle health test (pressing 'H' key reduces health)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === 'h' || e.key === 'H') {
+                // Reduce health by 10 on H press
+                setPlayerHealth(prev => Math.max(0, prev - 10));
+            }
+            
+            // Press 'R' to reset health
+            if (e.key === 'r' || e.key === 'R') {
+                setPlayerHealth(100);
+            }
+        };
+        
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, []);
+    
     return (
         <>
             {/* Add styles to fix Leva panel positioning and prevent UI disruption */}
@@ -3103,6 +3125,34 @@ export function App() {
             
             {/* Add the flashlight UI component */}
             <FlashlightUI />
+
+            {/* Add HealthBar component */}
+            <HealthBar 
+                health={playerHealth} 
+                maxHealth={100} 
+                showText={true} 
+                width="200px"
+                height="25px"
+            />
+
+            {/* Add health controls hint if debug is enabled */}
+            {showDebug && (
+                <div style={{
+                    position: 'absolute',
+                    bottom: '10px',
+                    left: '30px',
+                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                    color: 'white',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '11px',
+                    fontFamily: 'monospace',
+                    userSelect: 'none',
+                    zIndex: 1000
+                }}>
+                    Press [H] to decrease health • [R] to reset
+                </div>
+            )}
         </>
     );
 }
