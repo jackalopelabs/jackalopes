@@ -53,8 +53,9 @@ export const Environment = {
 export const Sounds = {
   // Footstep sounds
   Footsteps: {
-    MercWalking: 'src/assets/audio/merc-walking.ogg',
-    MercRunning: 'src/assets/audio/merc-running.ogg',
+    // Use paths that will work with Vite's asset handling
+    MercWalking: '/src/assets/audio/merc-walking.ogg',
+    MercRunning: '/src/assets/audio/merc-running.ogg',
   }
 };
 

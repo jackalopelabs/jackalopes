@@ -22,7 +22,7 @@ import { ConnectionManager } from './network/ConnectionManager'
 import { ConnectionTest } from './components/ConnectionTest'
 import { VirtualGamepad } from './components/VirtualGamepad'
 import { RemotePlayer } from './game/RemotePlayer'
-// import { KeyDisplay } from './common/components/key-display' // Commenting out unused import
+import { AudioController } from './components/AudioController' // Import the AudioController component
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -3016,6 +3016,9 @@ export function App() {
                     setPlayerCharacterInfo={setPlayerCharacterInfo}
                 />
             )}
+
+            {/* Add Audio Controller */}
+            <AudioController />
 
             {/* Add Virtual Gamepad */}
             <VirtualGamepad

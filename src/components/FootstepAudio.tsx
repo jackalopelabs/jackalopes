@@ -9,6 +9,14 @@ interface FootstepAudioProps {
   isRunning: boolean;
 }
 
+interface AudioSettings {
+  masterVolume: number;
+  footstepsEnabled: boolean;
+  walkingVolume: number;
+  runningVolume: number;
+  spatialAudioEnabled: boolean;
+}
+
 /**
  * FootstepAudio component creates spatial audio for player footsteps
  * It attaches to the player and plays different sounds for walking and running
@@ -30,18 +38,57 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
   const [walkingAudioLoaded, setWalkingAudioLoaded] = useState(false);
   const [runningAudioLoaded, setRunningAudioLoaded] = useState(false);
   
+  // Track audio settings
+  const [audioSettings, setAudioSettings] = useState<AudioSettings>({
+    masterVolume: 1.0,
+    footstepsEnabled: true,
+    walkingVolume: 0.3,
+    runningVolume: 0.4,
+    spatialAudioEnabled: true
+  });
+  
+  // Listen for audio settings changes
+  useEffect(() => {
+    const handleAudioSettingsChanged = (event: CustomEvent<AudioSettings>) => {
+      setAudioSettings(event.detail);
+      
+      // Apply volume settings immediately
+      if (walkingSoundRef.current) {
+        walkingSoundRef.current.setVolume(event.detail.walkingVolume * event.detail.masterVolume);
+      }
+      
+      if (runningSoundRef.current) {
+        runningSoundRef.current.setVolume(event.detail.runningVolume * event.detail.masterVolume);
+      }
+    };
+    
+    // Register event listener
+    window.addEventListener('audioSettingsChanged', handleAudioSettingsChanged as EventListener);
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('audioSettingsChanged', handleAudioSettingsChanged as EventListener);
+    };
+  }, []);
+  
   // Set up audio system on component mount
   useEffect(() => {
     if (!audioGroupRef.current) return;
+    
+    console.log('Setting up footstep audio system');
+    console.log('Walking audio file path:', Sounds.Footsteps.MercWalking);
+    console.log('Running audio file path:', Sounds.Footsteps.MercRunning);
     
     // Create audio listener if not already present on camera
     let listener: THREE.AudioListener;
     if (!camera.children.some(child => child instanceof THREE.AudioListener)) {
       listener = new THREE.AudioListener();
       camera.add(listener);
+      console.log('Created new audio listener');
     } else {
       // Use existing listener if present
       listener = camera.children.find(child => child instanceof THREE.AudioListener) as THREE.AudioListener;
+      console.log('Using existing audio listener');
     }
     
     listenerRef.current = listener;
@@ -54,43 +101,116 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
     const walkingSound = new THREE.PositionalAudio(listener);
     audioGroupRef.current.add(walkingSound);
     walkingSoundRef.current = walkingSound;
+    console.log('Created walking sound object');
     
     // Create positional audio for running and add to audio group
     const runningSound = new THREE.PositionalAudio(listener);
     audioGroupRef.current.add(runningSound);
     runningSoundRef.current = runningSound;
+    console.log('Created running sound object');
+    
+    // Try alternative loading approach for browsers that might struggle with OGG files
+    const tryAlternativeAudioLoading = (url: string, onSuccess: (buffer: AudioBuffer) => void, onError: (error: any) => void) => {
+      console.log(`Trying alternative loading for ${url}`);
+      
+      fetch(url)
+        .then(response => {
+          if (!response.ok) {
+            throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+          }
+          return response.arrayBuffer();
+        })
+        .then(arrayBuffer => {
+          // Create AudioContext and decode the buffer
+          const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+          return audioContext.decodeAudioData(arrayBuffer);
+        })
+        .then(audioBuffer => {
+          onSuccess(audioBuffer);
+        })
+        .catch(error => {
+          console.error(`Alternative loading failed for ${url}:`, error);
+          onError(error);
+        });
+    };
     
     // Load walking sound
-    audioLoader.load(Sounds.Footsteps.MercWalking, (buffer) => {
-      walkingSound.setBuffer(buffer);
-      walkingSound.setRefDistance(2); // Reduce reference distance for better spatialization
-      walkingSound.setRolloffFactor(2); // Increase rolloff for more dramatic distance effect
-      walkingSound.setMaxDistance(30); // Maximum distance at which the sound can be heard
-      walkingSound.setLoop(true);
-      walkingSound.setVolume(0.3); // Lower volume for better mix
-      setWalkingAudioLoaded(true);
-      console.log('Walking sound loaded successfully');
-    }, 
-    undefined, // Progress callback
-    (error) => {
-      console.error('Error loading walking sound:', error);
-    });
+    console.log('Loading walking sound from:', Sounds.Footsteps.MercWalking);
+    audioLoader.load(Sounds.Footsteps.MercWalking, 
+      (buffer) => {
+        console.log('Walking sound buffer loaded successfully, size:', buffer.duration);
+        walkingSound.setBuffer(buffer);
+        walkingSound.setRefDistance(2); // Reduce reference distance for better spatialization
+        walkingSound.setRolloffFactor(2); // Increase rolloff for more dramatic distance effect
+        walkingSound.setMaxDistance(30); // Maximum distance at which the sound can be heard
+        walkingSound.setLoop(true);
+        walkingSound.setVolume(audioSettings.walkingVolume * audioSettings.masterVolume);
+        setWalkingAudioLoaded(true);
+        console.log('Walking sound configured successfully');
+      }, 
+      (progress) => {
+        console.log('Walking sound loading progress:', Math.round(progress.loaded / progress.total * 100) + '%');
+      },
+      (error) => {
+        console.error('Error loading walking sound:', error);
+        console.log('Trying alternative loading method for walking sound');
+        tryAlternativeAudioLoading(
+          Sounds.Footsteps.MercWalking,
+          (buffer) => {
+            walkingSound.setBuffer(buffer);
+            walkingSound.setRefDistance(2);
+            walkingSound.setRolloffFactor(2);
+            walkingSound.setMaxDistance(30);
+            walkingSound.setLoop(true);
+            walkingSound.setVolume(audioSettings.walkingVolume * audioSettings.masterVolume);
+            setWalkingAudioLoaded(true);
+            console.log('Walking sound loaded with alternative method');
+          },
+          (altError) => {
+            console.error('Alternative walking sound loading also failed:', altError);
+          }
+        );
+      }
+    );
     
     // Load running sound
-    audioLoader.load(Sounds.Footsteps.MercRunning, (buffer) => {
-      runningSound.setBuffer(buffer);
-      runningSound.setRefDistance(3); // Reduce reference distance for better spatialization
-      runningSound.setRolloffFactor(2); // Increase rolloff for more dramatic distance effect
-      runningSound.setMaxDistance(40); // Maximum distance at which the sound can be heard
-      runningSound.setLoop(true);
-      runningSound.setVolume(0.4); // Lower volume for better mix
-      setRunningAudioLoaded(true);
-      console.log('Running sound loaded successfully');
-    },
-    undefined,
-    (error) => {
-      console.error('Error loading running sound:', error);
-    });
+    console.log('Loading running sound from:', Sounds.Footsteps.MercRunning);
+    audioLoader.load(Sounds.Footsteps.MercRunning, 
+      (buffer) => {
+        console.log('Running sound buffer loaded successfully, size:', buffer.duration);
+        runningSound.setBuffer(buffer);
+        runningSound.setRefDistance(3); // Reduce reference distance for better spatialization
+        runningSound.setRolloffFactor(2); // Increase rolloff for more dramatic distance effect
+        runningSound.setMaxDistance(40); // Maximum distance at which the sound can be heard
+        runningSound.setLoop(true);
+        runningSound.setVolume(audioSettings.runningVolume * audioSettings.masterVolume);
+        setRunningAudioLoaded(true);
+        console.log('Running sound configured successfully');
+      },
+      (progress) => {
+        console.log('Running sound loading progress:', Math.round(progress.loaded / progress.total * 100) + '%');
+      },
+      (error) => {
+        console.error('Error loading running sound:', error);
+        console.log('Trying alternative loading method for running sound');
+        tryAlternativeAudioLoading(
+          Sounds.Footsteps.MercRunning,
+          (buffer) => {
+            runningSound.setBuffer(buffer);
+            runningSound.setRefDistance(3);
+            runningSound.setRolloffFactor(2);
+            runningSound.setMaxDistance(40);
+            runningSound.setLoop(true);
+            runningSound.setVolume(audioSettings.runningVolume * audioSettings.masterVolume);
+            setRunningAudioLoaded(true);
+            console.log('Running sound loaded with alternative method');
+          },
+          (altError) => {
+            console.error('Alternative running sound loading also failed:', altError);
+          }
+        );
+      }
+    );
     
     // Cleanup on unmount
     return () => {
@@ -107,11 +227,19 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
         camera.remove(listener);
       }
     };
-  }, [camera, audioGroupRef.current]);
+  }, [camera, audioGroupRef.current, audioSettings.masterVolume, audioSettings.walkingVolume, audioSettings.runningVolume]);
   
   // Update audio position and play/stop as needed
   useFrame(() => {
     if (!playerRef.current || !playerRef.current.rigidBody || !audioGroupRef.current) return;
+    
+    // Skip processing if footsteps are disabled
+    if (!audioSettings.footstepsEnabled) {
+      // Make sure all sounds are stopped
+      if (walkingSoundRef.current?.isPlaying) walkingSoundRef.current.stop();
+      if (runningSoundRef.current?.isPlaying) runningSoundRef.current.stop();
+      return;
+    }
     
     // Get player position
     const position = playerRef.current.rigidBody.translation();
@@ -122,27 +250,34 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
       audioGroupRef.current.position.set(position.x, position.y, position.z);
       
       // Debug position occasionally
-      if (Math.random() < 0.005) {
+      if (Math.random() < 0.001) {
         console.log('Footstep audio position:', position);
+        console.log('Player state:', { isWalking, isRunning });
       }
       
-      // Play/stop walking sound based on player state
-      if (walkingSoundRef.current) {
-        if (isWalking && walkingAudioLoaded && !walkingSoundRef.current.isPlaying) {
+      // Handle walking sound
+      if (walkingSoundRef.current && walkingAudioLoaded) {
+        // Only play walking sound if we're walking but not running
+        if (isWalking && !isRunning && !walkingSoundRef.current.isPlaying) {
           walkingSoundRef.current.play();
           console.log('Started playing walking sound');
-        } else if (!isWalking && walkingSoundRef.current.isPlaying) {
+        } 
+        // Stop walking sound if we're not walking or if we're running
+        else if ((!isWalking || isRunning) && walkingSoundRef.current.isPlaying) {
           walkingSoundRef.current.stop();
           console.log('Stopped playing walking sound');
         }
       }
       
-      // Play/stop running sound based on player state
-      if (runningSoundRef.current) {
-        if (isRunning && runningAudioLoaded && !runningSoundRef.current.isPlaying) {
+      // Handle running sound
+      if (runningSoundRef.current && runningAudioLoaded) {
+        // Only play running sound if we're running
+        if (isRunning && !runningSoundRef.current.isPlaying) {
           runningSoundRef.current.play();
           console.log('Started playing running sound');
-        } else if (!isRunning && runningSoundRef.current.isPlaying) {
+        } 
+        // Stop running sound if we're not running
+        else if (!isRunning && runningSoundRef.current.isPlaying) {
           runningSoundRef.current.stop();
           console.log('Stopped playing running sound');
         }
