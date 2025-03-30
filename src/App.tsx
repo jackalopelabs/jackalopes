@@ -1527,7 +1527,7 @@ export function App() {
             label: 'Dark Mode'
         },
         forceDarkLevel: {
-            value: false,
+            value: true, // Changed from false to true to enable Dark Level by default
             label: 'Dark Level Lighting'
         }
     }, { collapsed: true });
@@ -2494,11 +2494,30 @@ export function App() {
         // Make sure camera is updated on initial load
         setTimeout(() => forceCameraReconnection('initial_setup'), 1500);
         
+        // Force additional camera resets if Dark Level is enabled
+        if (forceDarkLevel) {
+            // Multiple attempts with increasing delays for better reliability
+            for (let i = 1; i <= 5; i++) {
+                setTimeout(() => {
+                    console.log(`[DEBUG] Initial Dark Level camera reconnection attempt ${i}`);
+                    window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
+                    window.dispatchEvent(new CustomEvent('forceArmsReset'));
+                    window.dispatchEvent(new CustomEvent('forceCameraSync', { 
+                        detail: { 
+                            forceDarkLevel: true,
+                            timestamp: Date.now(),
+                            operation: 'initial_dark_level'
+                        } 
+                    }));
+                }, 2000 + (i * 500)); // Start after initial setup with increasing delays
+            }
+        }
+        
         return () => {
             observer.disconnect();
             document.removeEventListener('click', handleLevaBtnClick, true);
         };
-    }, []);
+    }, [forceDarkLevel]);
     
     // Add a special effect to ensure camera is properly connected when character type changes
     useEffect(() => {
