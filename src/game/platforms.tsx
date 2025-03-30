@@ -25,7 +25,7 @@ const boxes = [
     { position: [-25, 0, -25] as const, size: [4, 4, 4] as BoxDimensions }
 ]
 
-// Wall segments that create the boundary with openings
+// Create walls
 const createWallSegments = () => {
     const wallHeight = 8;
     const wallThickness = 2;
@@ -180,52 +180,6 @@ const createWallSegments = () => {
     return segments;
 };
 
-// Create paths leading from each doorway
-const createOutsidePaths = () => {
-    const paths = [];
-    const mapSize = 60;
-    const doorWidth = 10;
-    const pathWidth = doorWidth;
-    const pathLength = 30;
-    const pathHeight = 0.5;
-    const pathY = -0.25; // Slightly higher than the outdoor floor
-    const pathColor = '#736F6E'; // Stone path color
-    
-    // North path
-    paths.push({
-        position: [0, pathY, -mapSize/2 - pathLength/2] as const,
-        size: [pathWidth, pathHeight, pathLength] as BoxDimensions,
-        color: pathColor,
-        rotation: [0, 0, 0] as [number, number, number]
-    });
-    
-    // South path
-    paths.push({
-        position: [0, pathY, mapSize/2 + pathLength/2] as const,
-        size: [pathWidth, pathHeight, pathLength] as BoxDimensions,
-        color: pathColor,
-        rotation: [0, 0, 0] as [number, number, number]
-    });
-    
-    // East path
-    paths.push({
-        position: [mapSize/2 + pathLength/2, pathY, 0] as const,
-        size: [pathLength, pathHeight, pathWidth] as BoxDimensions,
-        color: pathColor,
-        rotation: [0, 0, 0] as [number, number, number]
-    });
-    
-    // West path
-    paths.push({
-        position: [-mapSize/2 - pathLength/2, pathY, 0] as const,
-        size: [pathLength, pathHeight, pathWidth] as BoxDimensions,
-        color: pathColor,
-        rotation: [0, 0, 0] as [number, number, number]
-    });
-    
-    return paths;
-};
-
 export function Platforms() {
     // Platform colors
     const platformColor = new THREE.Color('#757575');
@@ -358,29 +312,6 @@ export function Platforms() {
                 </RigidBody>
             ))}
             
-            {/* Paths leading from doorways */}
-            {createOutsidePaths().map((path, index) => (
-                <RigidBody
-                    key={`path-${index}`}
-                    type="fixed"
-                    position={path.position}
-                    colliders="cuboid"
-                    friction={0.1}
-                    restitution={0}
-                    rotation={path.rotation}
-                >
-                    <mesh castShadow receiveShadow>
-                        <boxGeometry args={path.size} />
-                        <meshStandardMaterial
-                            color={path.color}
-                            side={THREE.DoubleSide}
-                            roughness={0.8}
-                            metalness={0.1}
-                        />
-                    </mesh>
-                </RigidBody>
-            ))}
-            
             {/* Path decorations - lanterns and stone formations */}
             {[
                 [-5, 0, -mapSize/2 - 10], [5, 0, -mapSize/2 - 10], // North path
@@ -398,8 +329,10 @@ export function Platforms() {
                         <boxGeometry args={[1.5, 1.5, 1.5]} />
                         <meshStandardMaterial
                             color="#8B5A2B" // Brown stone color
-                            roughness={0.9}
-                            metalness={0.1}
+                            roughness={0.7}
+                            metalness={0.05}
+                            envMapIntensity={0.7}
+                            dithering={true}
                         />
                     </mesh>
                 </RigidBody>
