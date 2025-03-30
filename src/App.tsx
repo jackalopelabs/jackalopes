@@ -7,7 +7,7 @@ import { EffectComposer, Vignette, ChromaticAberration, BrightnessContrast, Tone
 import { BlendFunction } from 'postprocessing'
 import { useFrame, useThree } from '@react-three/fiber'
 import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
-import { useControls, folder } from 'leva'
+import { useControls, folder, Leva } from 'leva'
 import { useTexture } from '@react-three/drei'
 import { useRef, useEffect, useState, useMemo } from 'react'
 import * as THREE from 'three'
@@ -32,6 +32,7 @@ declare global {
         __shotBroadcast?: ((shot: any) => any) | undefined;
         jackalopesGame?: {
             playerType?: 'merc' | 'jackalope';
+            levaPanelState?: 'open' | 'closed';
             // Add other global game properties as needed
         };
     }
@@ -1101,6 +1102,29 @@ const StatsDisplay = () => {
     );
 };
 
+// Add a helper function to explicitly reconnect the camera to fix third person view
+const forceCameraReconnection = (trigger: string) => {
+    console.log(`[CAMERA] Force reconnection triggered by: ${trigger}`);
+    
+    // Dispatch multiple events to ensure proper camera update
+    window.dispatchEvent(new CustomEvent('cameraUpdateNeeded'));
+    
+    // Add a slight delay to allow for DOM updates
+    setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('forceArmsReset'));
+        window.dispatchEvent(new CustomEvent('forceCameraSync', { 
+            detail: { 
+                timestamp: Date.now(),
+                operation: 'panel_toggle'
+            } 
+        }));
+    }, 100);
+    
+    // Additional updates with increasing delays for reliability
+    setTimeout(() => window.dispatchEvent(new CustomEvent('cameraUpdateNeeded')), 300);
+    setTimeout(() => window.dispatchEvent(new CustomEvent('cameraUpdateNeeded')), 800);
+};
+
 export function App() {
     const loading = useLoadingAssets()
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
@@ -1471,6 +1495,7 @@ export function App() {
         }, { collapsed: true })
     }, {
         collapsed: true,
+        persist: true,
         order: 995
     })
 
@@ -2367,8 +2392,178 @@ export function App() {
         };
     }, [enableMultiplayer, playerCharacterInfo.type, thirdPersonView]);
     
+    // Enhanced Leva panel toggle detection
+    useEffect(() => {
+        // Initialize global state tracking for Leva panel
+        if (!window.jackalopesGame) {
+            window.jackalopesGame = {};
+        }
+        window.jackalopesGame.levaPanelState = 'closed'; // Default to closed
+        
+        // Function to check if panel is collapsed based on DOM
+        const isPanelCollapsed = () => {
+            const levaRoot = document.getElementById('leva__root');
+            if (!levaRoot) return true; // Default to collapsed if not found
+            
+            // Look for the collapsed class on any child element
+            const collapsedElement = levaRoot.querySelector('[class*="leva-c-"][class*="collapsed"]');
+            return !!collapsedElement;
+        };
+        
+        // Function to handle manual trigger for camera update
+        const handleLevaToggle = (isOpen?: boolean) => {
+            console.log("Leva panel toggle detected - forcing camera update");
+            
+            // Update global state based on DOM if not explicitly provided
+            const newState = isOpen !== undefined ? isOpen : !isPanelCollapsed();
+            window.jackalopesGame!.levaPanelState = newState ? 'open' : 'closed';
+            console.log(`Leva panel is now ${window.jackalopesGame!.levaPanelState}`);
+            
+            forceCameraReconnection('leva_toggle');
+            
+            // Reset player position tracking to avoid jumps
+            if (playerRef.current?.rigidBody) {
+                const position = playerRef.current.rigidBody.translation();
+                if (position && playerPosition.current) {
+                    playerPosition.current.set(position.x, position.y, position.z);
+                }
+            }
+        };
+        
+        // Function to handle clicks on the Leva panel button
+        const handleLevaBtnClick = (e: MouseEvent) => {
+            const target = e.target as Element;
+            // Check for clicks on the toggle button or drag handle
+            if (target && (
+                target.closest('.leva__panel__draggable') || 
+                target.closest('#leva__root button') ||
+                // Also look for specific Leva classes
+                target.closest('[class*="leva-c-"][class*="titleBar"]') ||
+                target.closest('[class*="leva-c-"][class*="titleButton"]')
+            )) {
+                // Short delay to let DOM update
+                setTimeout(() => handleLevaToggle(), 50);
+            }
+        };
+        
+        // Add click listener for the Leva button with capture phase
+        document.addEventListener('click', handleLevaBtnClick, true);
+        
+        // Create a mutation observer with more reliable detection
+        const observer = new MutationObserver((mutations) => {
+            // Filter for mutations that might indicate panel state change
+            const relevantMutation = mutations.some(mutation => {
+                // Check for class changes
+                if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+                    const target = mutation.target as Element;
+                    return target.className && 
+                        (target.className.includes('leva-c-') || 
+                         target.className.includes('collapsed') ||
+                         target.className.includes('titleBar'));
+                }
+                return false;
+            });
+            
+            if (relevantMutation) {
+                // Short delay to let DOM update
+                setTimeout(() => handleLevaToggle(), 50);
+            }
+        });
+        
+        // Find the Leva panel root element and observe it
+        const setupObserver = () => {
+            const levaRoot = document.getElementById('leva__root');
+            if (levaRoot) {
+                observer.observe(levaRoot, { 
+                    attributes: true, 
+                    childList: true, 
+                    subtree: true 
+                });
+                console.log("Observing Leva panel for changes");
+                
+                // Initial check for panel state
+                const initialState = !isPanelCollapsed();
+                window.jackalopesGame!.levaPanelState = initialState ? 'open' : 'closed';
+                console.log(`Initial Leva panel state: ${window.jackalopesGame!.levaPanelState}`);
+            } else {
+                // Retry if not found
+                setTimeout(setupObserver, 500);
+            }
+        };
+        
+        // Setup the observer
+        setupObserver();
+        
+        // Make sure camera is updated on initial load
+        setTimeout(() => forceCameraReconnection('initial_setup'), 1500);
+        
+        return () => {
+            observer.disconnect();
+            document.removeEventListener('click', handleLevaBtnClick, true);
+        };
+    }, []);
+    
+    // Add a special effect to ensure camera is properly connected when character type changes
+    useEffect(() => {
+        // Only run for jackalope character type
+        if (playerCharacterInfo.type === 'jackalope' || thirdPersonView) {
+            console.log("Character type or view changed - ensuring camera reconnection");
+            
+            // Force immediate reconnection
+            forceCameraReconnection('character_type_change');
+            
+            // Add additional reconnection attempts with increasing delays for reliability
+            setTimeout(() => forceCameraReconnection('character_delayed_1'), 500);
+            setTimeout(() => forceCameraReconnection('character_delayed_2'), 1000);
+            setTimeout(() => forceCameraReconnection('character_delayed_3'), 2000);
+        }
+    }, [playerCharacterInfo.type, thirdPersonView]);
+    
+    // Add effect to track player type for global access
+    useEffect(() => {
+        // Create global game state object if it doesn't exist
+        if (!window.jackalopesGame) {
+            window.jackalopesGame = {};
+        }
+        
+        // Update player type in global state
+        window.jackalopesGame.playerType = enableMultiplayer 
+            ? playerCharacterInfo.type 
+            : (thirdPersonView ? 'jackalope' : 'merc');
+            
+        console.log(`Set global player type: ${window.jackalopesGame.playerType}`);
+        
+        return () => {
+            // Cleanup
+            delete window.jackalopesGame?.playerType;
+        };
+    }, [enableMultiplayer, playerCharacterInfo.type, thirdPersonView]);
+    
     return (
         <>
+            {/* Add styles to fix Leva panel positioning and prevent UI disruption */}
+            <style>
+                {`
+                /* Fix positioning of Leva panel and ensure it doesn't disrupt other UI */
+                #leva__root {
+                    position: fixed !important;
+                    z-index: 10000;
+                }
+                
+                /* Ensure Leva panel has consistent width to prevent layout shifts */
+                #leva__root > div {
+                    width: 280px !important;
+                    max-width: 280px !important;
+                }
+                
+                /* Make sure the panel doesn't overlap with important UI elements */
+                #leva__root .leva-c-kWgxhW {
+                    overflow: auto;
+                    max-height: calc(100vh - 40px);
+                }
+                `}
+            </style>
+            
             {/* Show model tester if enabled */}
             {showModelTester && <ModelTester />}
             
@@ -2822,6 +3017,23 @@ export function App() {
                     <ModelTester />
                 </div>
             )}
+            
+            {/* Add Leva panel with collapsed prop to keep it closed by default */}
+            <Leva 
+                collapsed={true} 
+                titleBar={{ title: "Game Settings", filter: true }} 
+                theme={{ 
+                    sizes: { rootWidth: "280px" },
+                    colors: {
+                        highlight1: '#ff9800',
+                        highlight2: '#ff7043',
+                        highlight3: '#ffab91'
+                    }
+                }}
+                fill={false}
+                flat={false}
+                oneLineLabels={false}
+            />
         </>
     );
 }
