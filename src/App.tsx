@@ -263,15 +263,22 @@ const Scene = ({ playerRef }: { playerRef: React.RefObject<any> }) => {
             {/* Remove wall colliders - we don't need them anymore */}
             
             <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>
-                <planeGeometry args={[mapWidth, mapDepth]} />
+                <planeGeometry args={[mapWidth, mapDepth, 64, 64]} /> {/* Add more segments for better lighting detail */}
                 <MeshReflectorMaterial
                     color={groundColor}
                     mirror={0}
-                    roughness={1}
+                    roughness={0.7} // Reduced roughness
+                    metalness={0.05} // Slight metalness to reduce harsh reflections
                     depthScale={0}
                     minDepthThreshold={0.9}
                     maxDepthThreshold={1}
-                    metalness={0}
+                    dithering={true} // Enable dithering to reduce banding
+                    resolution={1024} // Higher resolution for better quality
+                    blur={[400, 100]} // Add blur to soften reflections
+                    mixBlur={1}
+                    mixStrength={0.5}
+                    mixContrast={1}
+                    reflectorOffset={0.01} // Small offset to prevent z-fighting
                 />
             </mesh>
             

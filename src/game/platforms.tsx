@@ -301,8 +301,10 @@ export function Platforms() {
                         <meshStandardMaterial 
                             color={platformColor}
                             side={THREE.DoubleSide}
-                            roughness={0.8}
-                            metalness={0.1}
+                            roughness={0.65}
+                            metalness={0.05}
+                            envMapIntensity={0.8}
+                            dithering={true}
                         />
                     </mesh>
                     

@@ -1117,17 +1117,20 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                                 {/* Flashlight spot light */}
                                 <spotLight
                                     ref={spotlightRef}
-                                    color={0xffffcc} // Warm light color
-                                    intensity={flashlightOn ? 25 : 0}
-                                    distance={40}
-                                    angle={0.5}
-                                    penumbra={0.4}
-                                    decay={1.2}
+                                    color={0xffffdd} // Slightly more neutral white
+                                    intensity={flashlightOn ? 18 : 0} // Reduced intensity
+                                    distance={50} // Increased distance
+                                    angle={0.6} // Wider angle
+                                    penumbra={0.7} // Increased penumbra for softer edges
+                                    decay={1.5} // Increased decay for more natural falloff
                                     castShadow
-                                    shadow-mapSize-width={1024}
-                                    shadow-mapSize-height={1024}
+                                    shadow-mapSize-width={2048} // Higher resolution shadows
+                                    shadow-mapSize-height={2048} // Higher resolution shadows
                                     shadow-camera-near={0.5}
-                                    shadow-camera-far={40}
+                                    shadow-camera-far={50}
+                                    shadow-bias={-0.0005} // Adjusted shadow bias
+                                    shadow-radius={5} // Increased blur radius
+                                    shadow-normalBias={0.05} // Added normal bias to reduce artifacts
                                 />
                                 
                                 {/* We no longer need a local primitive target, as we position it directly in useFrame */}
