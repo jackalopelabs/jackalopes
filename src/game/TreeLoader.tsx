@@ -2,6 +2,7 @@ import React, { useMemo } from 'react'
 import { useGLTF } from '@react-three/drei'
 import { Environment } from '../assets'
 import * as THREE from 'three'
+import { RigidBody } from '@react-three/rapier'
 
 // Helper function to categorize assets for scaling
 const getAssetCategory = (path: string): 'tree' | 'bush' | 'plant' | 'rock' | 'other' => {
@@ -125,9 +126,18 @@ export const TreeLoader = ({
   ];
   
   return (
-    <group position={adjustedPosition} scale={adjustedScale}>
-      <primitive object={modelScene} />
-    </group>
+    <RigidBody 
+      type="fixed" 
+      position={adjustedPosition} 
+      scale={adjustedScale}
+      colliders="hull"
+      friction={0.5}
+      restitution={0.1}
+    >
+      <group>
+        <primitive object={modelScene} />
+      </group>
+    </RigidBody>
   );
 }
 
