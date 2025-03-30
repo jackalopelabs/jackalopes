@@ -71,6 +71,12 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
     // Animation state
     const [animation, setAnimation] = useState('idle')
     
+    // Hopping system
+    const hopTimer = useRef(0)
+    const hopInterval = useRef(0.6) // Time between hops in seconds (slightly slower for a natural hop rhythm)
+    const hopHeight = useRef(4.2) // Height of automatic hops (lower for more natural movement)
+    const isHopping = useRef(false)
+    
     // Core setup
     const camera = useThree((state) => state.camera)
     const [, getKeyboardControls] = useKeyboardControls()
@@ -145,6 +151,9 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         // Apply movement if we have input
         const hasMovementInput = Math.abs(inputDir.x) > 0.1 || Math.abs(inputDir.z) > 0.1
         
+        // Check if we're on the ground (moved up)
+        const groundCheck = characterController.current.computedGrounded()
+        
         if (hasMovementInput) {
             // Calculate speed
             const speed = BASE_SPEED * (isSprinting ? RUN_MULTIPLIER : 1.0)
@@ -155,10 +164,26 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             
             // Set animation based on speed
             setAnimation(isSprinting ? 'run' : 'walk')
+            
+            // Auto-hopping system when moving
+            hopTimer.current += delta
+            if (hopTimer.current >= hopInterval.current && groundCheck) {
+                // Time to hop - apply upward velocity if we're on the ground
+                // Make hops faster and lower during sprinting for a quick-hopping effect
+                velocity.current.y = jumpForce * hopHeight.current
+                // Reduce hop interval when sprinting for faster, quick hops
+                hopInterval.current = isSprinting ? 0.4 : 0.8
+                hopTimer.current = 0
+                isHopping.current = true
+            }
         } else {
             // Slow down if no input
             velocity.current.x *= 0.8
             velocity.current.z *= 0.8
+            
+            // Reset hop timer when not moving
+            hopTimer.current = 0
+            isHopping.current = false
             
             // Clamp small velocities to 0
             if (Math.abs(velocity.current.x) < 0.01) velocity.current.x = 0
@@ -171,9 +196,10 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         }
         
         // Jump handling
-        const groundCheck = characterController.current.computedGrounded()
         if (isJumping && groundCheck) {
             velocity.current.y = jumpForce * JUMP_MULTIPLIER
+            isHopping.current = false // Reset hopping state on manual jump
+            hopTimer.current = 0 // Reset hop timer on manual jump
         }
         
         // Apply gravity if not on ground
