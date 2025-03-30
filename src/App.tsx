@@ -23,7 +23,6 @@ import { ConnectionTest } from './components/ConnectionTest'
 import { VirtualGamepad } from './components/VirtualGamepad'
 import { RemotePlayer } from './game/RemotePlayer'
 // import { KeyDisplay } from './common/components/key-display' // Commenting out unused import
-import { ModelTester } from './game/ModelTester'
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -2101,9 +2100,6 @@ export function App() {
         setSphereDarkMode(darkMode);
     }, [darkMode]);
 
-    // Add state for model tester
-    const [showModelTester, setShowModelTester] = useState(false)
-
     // Add an effect to forcibly correct character type based on player index when component mounts
     useEffect(() => {
         // Only run this once on component mount
@@ -2564,8 +2560,8 @@ export function App() {
                 `}
             </style>
             
-            {/* Show model tester if enabled */}
-            {showModelTester && <ModelTester />}
+            {/* Remove model tester component */}
+            {/* {showModelTester && <ModelTester />} */}
             
             <div style={{
                 position: 'absolute',
@@ -2985,36 +2981,6 @@ export function App() {
                     Player ID: <strong>{connectionManager.getPlayerId?.() || 'None'}</strong><br />
                     Connection: <strong>{connectionManager.isOfflineMode() ? 'Offline' : 'Online'}</strong><br />
                     Multiplayer: <strong>{enableMultiplayer ? 'Enabled' : 'Disabled'}</strong>
-                </div>
-            )}
-            
-            {/* Model tester button */}
-            <div style={{
-                position: 'absolute',
-                bottom: '10px',
-                right: '10px',
-                zIndex: 1000
-            }}>
-                <button 
-                    onClick={() => setShowModelTester(!showModelTester)}
-                    style={{
-                        padding: '8px 12px',
-                        backgroundColor: showModelTester ? '#f44336' : '#4CAF50',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontWeight: 'bold'
-                    }}
-                >
-                    {showModelTester ? 'Close Model Tester' : 'Test Model Animations'}
-                </button>
-            </div>
-
-            {/* Model tester for debugging */}
-            {showModelTester && (
-                <div style={{ position: 'fixed', inset: 0, zIndex: 1000 }}>
-                    <ModelTester />
                 </div>
             )}
             
