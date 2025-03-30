@@ -266,7 +266,7 @@ export function Platforms() {
                     {/* Add a tree on top of each block */}
                     <TreeLoader 
                         position={[0, size[1] / 2, 0]}
-                        scale={0.3}
+                        scale={1.5}
                     />
                 </RigidBody>
             ))}
