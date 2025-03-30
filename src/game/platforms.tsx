@@ -1,6 +1,7 @@
 import { RigidBody } from '@react-three/rapier'
 import * as THREE from 'three'
 import { useTexture } from '@react-three/drei'
+import { SimpleTree } from './SimpleTree'
 
 type BoxDimensions = [width: number, height: number, depth: number]
 
@@ -50,6 +51,18 @@ export function Platforms() {
                             metalness={0.1}
                         />
                     </mesh>
+                    
+                    {/* Add a tree on top of each block */}
+                    <SimpleTree 
+                        position={[0, size[1] / 2, 0]}
+                        scale={0.25}
+                        trunkHeight={5}
+                        trunkRadius={0.6}
+                        leavesRadius={2.5}
+                        // Randomize tree colors slightly for variety
+                        trunkColor={`hsl(25, ${45 + Math.random() * 20}%, ${20 + Math.random() * 10}%)`}
+                        leavesColor={`hsl(${100 + Math.random() * 40}, 60%, ${30 + Math.random() * 15}%)`}
+                    />
                 </RigidBody>
             ))}
         </group>

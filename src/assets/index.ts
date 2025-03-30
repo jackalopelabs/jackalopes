@@ -47,6 +47,9 @@ export const Animations = {
 // Environment Assets
 export const Environment = {
   // Add environment assets here
+  Trees: {
+    SimpleTree: 'src/assets/environment/simple-tree.glb', // For future use with actual 3D models
+  }
 };
 
 // Sound Assets
