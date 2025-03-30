@@ -14,6 +14,7 @@ import { useMultiplayer } from '../network/MultiplayerManager'
 import { MercModel } from './MercModel' // Import our new MercModel component
 import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel
 import { FpsArmsModelPath } from '../assets' // Import FPS arms model path
+import { FootstepAudio } from '../components/FootstepAudio' // Import our new FootstepAudio component
 
 const _direction = new THREE.Vector3()
 const _frontVector = new THREE.Vector3()
@@ -981,6 +982,12 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         }
     });
 
+    // Expose player state as a memoized object to reduce re-renders
+    const playerState = useMemo(() => ({
+        isWalking,
+        isRunning
+    }), [isWalking, isRunning]);
+
     return (
         <>
             <Entity isPlayer ref={playerRef}>
@@ -997,6 +1004,15 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     </RigidBody>
                 </Component>
             </Entity>
+            
+            {/* Add FootstepAudio component to handle spatial audio */}
+            {playerType === 'merc' && (
+                <FootstepAudio
+                    playerRef={playerRef}
+                    isWalking={playerState.isWalking}
+                    isRunning={playerState.isRunning}
+                />
+            )}
             
             {/* Render player model when in third-person view or visible is true */}
             {(thirdPersonView || visible) && playerType === 'merc' && (

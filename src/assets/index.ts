@@ -51,7 +51,11 @@ export const Environment = {
 
 // Sound Assets
 export const Sounds = {
-  // Add sound assets here
+  // Footstep sounds
+  Footsteps: {
+    MercWalking: 'src/assets/audio/merc-walking.ogg',
+    MercRunning: 'src/assets/audio/merc-running.ogg',
+  }
 };
 
 // Helper function to check if assets exist
