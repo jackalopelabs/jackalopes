@@ -10,7 +10,6 @@ interface MountainProps {
   width?: number;
   depth?: number;
   color?: string;
-  snowCoverage?: number;
   roughness?: number;
   seed?: number;
 }
@@ -22,7 +21,6 @@ export const Mountain: React.FC<MountainProps> = ({
   width = 20,
   depth = 20,
   color = '#5D4037',
-  snowCoverage = 0.5,
   roughness = 0.8,
   seed = Math.random() * 1000
 }) => {
@@ -33,7 +31,7 @@ export const Mountain: React.FC<MountainProps> = ({
   };
 
   // Generate mountain geometry
-  const { geometry, snowGeometry } = useMemo(() => {
+  const geometry = useMemo(() => {
     try {
       // Create mountain base shape
       const baseGeometry = new THREE.BufferGeometry();
@@ -96,46 +94,15 @@ export const Mountain: React.FC<MountainProps> = ({
       baseGeometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
       baseGeometry.computeVertexNormals();
       
-      // Create snow-capped version
-      const snowGeometry = baseGeometry.clone();
-      
-      // Filter vertices for snow (only use vertices above a certain height)
-      const positions = baseGeometry.attributes.position.array;
-      const snowIndices = [];
-      
-      // Determine snow height threshold based on snowCoverage
-      const maxHeight = Math.max(...Array.from({ length: positions.length / 3 }, (_, i) => positions[i * 3 + 1]));
-      const snowThreshold = maxHeight * (1 - snowCoverage);
-      
-      // Build indices for snow-covered areas
-      for (let i = 0; i < indices.length; i += 3) {
-        const a = indices[i];
-        const b = indices[i + 1];
-        const c = indices[i + 2];
-        
-        const yA = positions[a * 3 + 1];
-        const yB = positions[b * 3 + 1];
-        const yC = positions[c * 3 + 1];
-        
-        // If all vertices of the triangle are above snow threshold
-        if (yA > snowThreshold && yB > snowThreshold && yC > snowThreshold) {
-          snowIndices.push(a, b, c);
-        }
-      }
-      
-      snowGeometry.setIndex(snowIndices);
-      
-      return { geometry: baseGeometry, snowGeometry };
+      return baseGeometry;
     } catch (error) {
       console.error("Error generating mountain geometry:", error);
-      // Return simple fallback geometries if there's an error
-      const fallbackGeometry = new THREE.BoxGeometry(width, height / 2, depth);
-      const fallbackSnowGeometry = new THREE.BoxGeometry(width * 0.8, height / 4, depth * 0.8);
-      return { geometry: fallbackGeometry, snowGeometry: fallbackSnowGeometry };
+      // Return simple fallback geometry if there's an error
+      return new THREE.ConeGeometry(width/2, height, 8);
     }
-  }, [width, depth, height, seed, snowCoverage]);
+  }, [width, depth, height, seed]);
   
-  // Create materials
+  // Create material
   const mountainMaterial = useMemo(() => {
     return new THREE.MeshStandardMaterial({
       color: new THREE.Color(color),
@@ -145,24 +112,11 @@ export const Mountain: React.FC<MountainProps> = ({
     });
   }, [color, roughness]);
   
-  const snowMaterial = useMemo(() => {
-    return new THREE.MeshStandardMaterial({
-      color: new THREE.Color('#FFFFFF'),
-      roughness: 0.7,
-      metalness: 0.1,
-      flatShading: true,
-      side: THREE.DoubleSide
-    });
-  }, []);
-  
   return (
     <RigidBody type="fixed" position={position} colliders="cuboid">
       <group scale={[scale, scale, scale]}>
         {/* Main mountain */}
         <mesh geometry={geometry} material={mountainMaterial} castShadow receiveShadow />
-        
-        {/* Snow cap */}
-        <mesh geometry={snowGeometry} material={snowMaterial} castShadow receiveShadow />
       </group>
     </RigidBody>
   );
@@ -199,7 +153,6 @@ export const MountainRange: React.FC<MountainRangeProps> = ({
       // Calculate random variations
       const scale = baseScale * (1 - scaleVariation / 2 + random(0.1) * scaleVariation);
       const height = 30 * (1 - heightVariation / 2 + random(0.2) * heightVariation);
-      const snowCoverage = 0.4 + random(0.3) * 0.2;
       
       // Calculate position and ensure mountains face outward from the center
       let posX = position[0] + offset + (random(0.4) - 0.5) * (spread / count);
@@ -218,6 +171,13 @@ export const MountainRange: React.FC<MountainRangeProps> = ({
         posZ += dirZ * outwardBias;
       }
       
+      // Generate different mountain colors based on index
+      const colorBase = {
+        r: 93 + random(0.8) * 20,
+        g: 64 + random(0.9) * 15, 
+        b: 55 + random(1.0) * 10
+      };
+      
       result.push(
         <Mountain 
           key={`mountain-${i}-${seed}`}
@@ -226,8 +186,7 @@ export const MountainRange: React.FC<MountainRangeProps> = ({
           height={height}
           width={20 + random(0.6) * 10}
           depth={20 + random(0.7) * 10}
-          color={`rgb(${93 + random(0.8) * 20}, ${64 + random(0.9) * 15}, ${55 + random(1.0) * 10})`}
-          snowCoverage={snowCoverage}
+          color={`rgb(${colorBase.r}, ${colorBase.g}, ${colorBase.b})`}
           roughness={0.7 + random(1.1) * 0.2}
           seed={seed}
         />
