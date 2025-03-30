@@ -13,7 +13,6 @@ import { useRef, useEffect, useState, useMemo } from 'react'
 import * as THREE from 'three'
 import { Player, PlayerControls } from './game/player'
 import { Jackalope } from './game/jackalope'
-import { Ball } from './game/ball'
 import { SphereTool, setSphereDarkMode } from './game/sphere-tool'
 import { Platforms } from './game/platforms'
 import { MultiplayerManager, useRemoteShots } from './network/MultiplayerManager'
@@ -2868,7 +2867,6 @@ export function App() {
                         )}
                     </PlayerControls>
                     <Platforms />
-                    <Ball />
 
                     <Scene playerRef={playerRef} />
                     
