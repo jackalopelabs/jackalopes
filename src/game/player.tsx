@@ -982,11 +982,12 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
         }
     });
 
-    // Expose player state as a memoized object to reduce re-renders
-    const playerState = useMemo(() => ({
+    // Expose player state directly instead of using a memoized object
+    // This is for components that need to access player state
+    const playerState = {
         isWalking,
         isRunning
-    }), [isWalking, isRunning]);
+    };
 
     return (
         <>
@@ -1009,8 +1010,8 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             {playerType === 'merc' && (
                 <FootstepAudio
                     playerRef={playerRef}
-                    isWalking={playerState.isWalking}
-                    isRunning={playerState.isRunning}
+                    isWalking={isWalking}
+                    isRunning={isRunning}
                 />
             )}
             

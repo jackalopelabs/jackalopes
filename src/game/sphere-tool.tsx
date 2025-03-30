@@ -900,6 +900,15 @@ export const SphereTool = ({
             return;
         }
 
+        // Trigger weapon sound effect
+        // Try the global function first, if available
+        if (window.__playMercShot) {
+            window.__playMercShot();
+        } else {
+            // Fallback to dispatching the custom event
+            window.dispatchEvent(new CustomEvent('shotFired'));
+        }
+
         setAmmoCount(prev => {
             const newCount = prev - 1
             if (newCount <= 0) {
@@ -1240,6 +1249,10 @@ declare global {
     interface Window {
         __setGraphicsQuality?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
         __currentQuality?: 'auto' | 'high' | 'medium' | 'low'; // Add this
+        __shotBroadcast?: (shot: any) => any;
+        __processedShots?: Set<string>;
+        __sendTestShot?: () => void;
+        __playMercShot?: () => void;
     }
 }
 

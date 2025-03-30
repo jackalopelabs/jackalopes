@@ -81,14 +81,19 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
     
     // Create audio listener if not already present on camera
     let listener: THREE.AudioListener;
-    if (!camera.children.some(child => child instanceof THREE.AudioListener)) {
+    
+    // Check for existing global audio listeners to prevent duplicates
+    const existingListener = camera.children.find(child => child instanceof THREE.AudioListener);
+    
+    if (existingListener) {
+      console.log('Using existing audio listener for footstep sounds');
+      listener = existingListener as THREE.AudioListener;
+    } else {
+      console.log('Creating new audio listener for footstep sounds');
       listener = new THREE.AudioListener();
       camera.add(listener);
-      console.log('Created new audio listener');
-    } else {
-      // Use existing listener if present
-      listener = camera.children.find(child => child instanceof THREE.AudioListener) as THREE.AudioListener;
-      console.log('Using existing audio listener');
+      // Mark this listener as the main audio listener for the app
+      camera.userData.mainAudioListener = listener;
     }
     
     listenerRef.current = listener;
@@ -253,19 +258,24 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
       if (Math.random() < 0.001) {
         console.log('Footstep audio position:', position);
         console.log('Player state:', { isWalking, isRunning });
+        console.log('Audio loaded state:', { walkingAudioLoaded, runningAudioLoaded });
+        console.log('Audio playing state:', { 
+          walkingPlaying: walkingSoundRef.current?.isPlaying,
+          runningPlaying: runningSoundRef.current?.isPlaying
+        });
       }
       
       // Handle walking sound
       if (walkingSoundRef.current && walkingAudioLoaded) {
         // Only play walking sound if we're walking but not running
         if (isWalking && !isRunning && !walkingSoundRef.current.isPlaying) {
+          console.log('Starting walking sound - walking:', isWalking, 'running:', isRunning);
           walkingSoundRef.current.play();
-          console.log('Started playing walking sound');
         } 
         // Stop walking sound if we're not walking or if we're running
         else if ((!isWalking || isRunning) && walkingSoundRef.current.isPlaying) {
+          console.log('Stopping walking sound - walking:', isWalking, 'running:', isRunning);
           walkingSoundRef.current.stop();
-          console.log('Stopped playing walking sound');
         }
       }
       
@@ -273,13 +283,13 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
       if (runningSoundRef.current && runningAudioLoaded) {
         // Only play running sound if we're running
         if (isRunning && !runningSoundRef.current.isPlaying) {
+          console.log('Starting running sound - walking:', isWalking, 'running:', isRunning);
           runningSoundRef.current.play();
-          console.log('Started playing running sound');
         } 
         // Stop running sound if we're not running
         else if (!isRunning && runningSoundRef.current.isPlaying) {
+          console.log('Stopping running sound - walking:', isWalking, 'running:', isRunning);
           runningSoundRef.current.stop();
-          console.log('Stopped playing running sound');
         }
       }
     }

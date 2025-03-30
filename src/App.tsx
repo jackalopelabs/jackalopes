@@ -23,6 +23,7 @@ import { ConnectionTest } from './components/ConnectionTest'
 import { VirtualGamepad } from './components/VirtualGamepad'
 import { RemotePlayer } from './game/RemotePlayer'
 import { AudioController } from './components/AudioController' // Import the AudioController component
+import { WeaponSoundEffects } from './components/WeaponSoundEffects' // Import the WeaponSoundEffects component
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -35,6 +36,7 @@ declare global {
             flashlightOn?: boolean; // Add flashlight state
             // Add other global game properties as needed
         };
+        __playMercShot?: () => void; // Add weapon sound function
     }
 }
 
@@ -2910,6 +2912,11 @@ export function App() {
 
                 {/* Add MoonOrbit component if orbiting is enabled */}
                 {moonOrbit && <MoonOrbit />}
+
+                {/* Add WeaponSoundEffects component if player is merc */}
+                {(enableMultiplayer ? playerCharacterInfo.type === 'merc' : characterType === 'merc') && (
+                    <WeaponSoundEffects />
+                )}
 
                 {enablePostProcessing && globalQualityParams.effectsEnabled && (
                     <EffectComposer>
