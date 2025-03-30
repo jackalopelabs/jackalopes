@@ -45,8 +45,8 @@ const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height
     const moonRef = useRef<THREE.Group>(null);
     const angle = useRef(0);
     
-    // Create moon light
-    const moonLightRef = useRef<THREE.PointLight>(null);
+    // Create moon light - change to spotlight
+    const moonLightRef = useRef<THREE.SpotLight>(null);
     
     useFrame(() => {
         if (!moonRef.current || !moonLightRef.current) return;
@@ -66,29 +66,45 @@ const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height
         
         // Light follows moon with slight offset to avoid z-fighting
         moonLightRef.current.position.set(x, height - 2, z);
+        
+        // Update spotlight target to point slightly downward
+        if (moonLightRef.current.target) {
+            moonLightRef.current.target.position.set(x, 0, z);
+            moonLightRef.current.target.updateMatrixWorld();
+        }
     });
     
-    // Simplified glow effect with fewer layers for better performance
+    // Brighter glow effect
     const createGlowEffect = () => {
         return (
             <>
-                {/* Core moon */}
+                {/* Core moon - make it brighter */}
                 <mesh castShadow>
                     <sphereGeometry args={[4, 24, 24]} />
                     <meshStandardMaterial 
                         color="#ffffff" 
                         emissive="#ffffff" 
-                        emissiveIntensity={2.5} 
+                        emissiveIntensity={5} 
+                        toneMapped={false}
                     />
                 </mesh>
                 
-                {/* Single outer glow layer for better performance */}
+                {/* Outer glow layer - make it brighter */}
                 <mesh>
                     <sphereGeometry args={[6, 24, 24]} />
                     <meshBasicMaterial 
-                        color="#f0f8ff" 
+                        color="#ffffff" 
                         transparent={true} 
-                        opacity={0.3}
+                        opacity={0.5}
+                    />
+                </mesh>
+                
+                {/* Add additional bright core */}
+                <mesh>
+                    <sphereGeometry args={[3, 16, 16]} />
+                    <meshBasicMaterial 
+                        color="#ffffff"
+                        toneMapped={false}
                     />
                 </mesh>
             </>
@@ -102,19 +118,21 @@ const Moon = ({ orbitRadius, height, orbitSpeed }: { orbitRadius: number, height
                 {createGlowEffect()}
             </group>
             
-            {/* Moon light */}
-            <pointLight 
+            {/* Moon spotlight - replace pointLight */}
+            <spotLight 
                 ref={moonLightRef}
                 position={[orbitRadius, height - 2, 0]}
-                intensity={9}
-                color="#f0f8ff"
-                distance={400}
-                decay={1.5} // Lower decay for harder shadows (less falloff)
+                intensity={15}
+                color="#ffffff"
+                distance={600}
+                angle={Math.PI / 6} // 30 degrees cone
+                penumbra={0.2} // Soft edge
+                decay={1.0} // Lower decay for harder shadows (less falloff)
                 castShadow
-                shadow-mapSize={[2048, 2048]} // Reduced from 4096 for better performance
+                shadow-mapSize={[2048, 2048]}
                 shadow-bias={-0.001}
                 shadow-camera-near={1}
-                shadow-camera-far={150}
+                shadow-camera-far={200}
                 shadow-radius={1} // Smaller shadow radius for harder edges
             />
         </>
@@ -1449,19 +1467,19 @@ export function App() {
     } = useControls({
         fog: folder({
             fogEnabled: true,
-            fogColor: '#dbdbdb',
-            fogNear: { value: 26, min: 0, max: 100, step: 1 },
-            fogFar: { value: 190, min: 0, max: 200, step: 1 }
+            fogColor: '#030812', // Darker blue color for night sky
+            fogNear: { value: 50, min: 0, max: 100, step: 1 },
+            fogFar: { value: 250, min: 0, max: 500, step: 5 } // Increased render distance
         }, { collapsed: true }),
         lighting: folder({
-            ambientIntensity: { value: 0, min: 0, max: 2, step: 0.1 },
-            directionalIntensity: { value: 3.0, min: 0, max: 5, step: 0.1 },
-            directionalHeight: { value: 80, min: 5, max: 120, step: 1 },
-            directionalDistance: { value: 80, min: 5, max: 140, step: 1 },
-            moonOrbit: { value: false, label: 'Moon Orbits Level' },
-            moonOrbitSpeed: { value: 0.005, min: 0.001, max: 0.1, step: 0.001, label: 'Orbit Speed' },
-            moonVisible: { value: false, label: 'Show Moon Mesh' },
-            highQualityShadows: { value: false, label: 'High Quality Shadows' },
+            ambientIntensity: { value: 0.05, min: 0, max: 2, step: 0.1 },
+            directionalIntensity: { value: 2.0, min: 0, max: 5, step: 0.1 },
+            directionalHeight: { value: 100, min: 5, max: 120, step: 1 },
+            directionalDistance: { value: 100, min: 5, max: 140, step: 1 },
+            moonOrbit: { value: true, label: 'Moon Orbits Level' },
+            moonOrbitSpeed: { value: 0.002, min: 0.001, max: 0.1, step: 0.001, label: 'Orbit Speed' },
+            moonVisible: { value: true, label: 'Show Moon Mesh' },
+            highQualityShadows: { value: true, label: 'High Quality Shadows' },
         }, { collapsed: true }),
         stars: folder({
             starsEnabled: { value: true, label: 'Show Stars' },
@@ -1529,7 +1547,7 @@ export function App() {
             label: 'Dark Mode'
         },
         forceDarkLevel: {
-            value: true, // Changed from false to true to enable Dark Level by default
+            value: true, // Keep this true for a nice dark environment to see the moon
             label: 'Dark Level Lighting'
         }
     }, { collapsed: true });
@@ -1848,12 +1866,17 @@ export function App() {
             const x = Math.sin(angle.current) * xRadius;
             const z = Math.cos(angle.current) * zRadius;
             
-            // Set light position
+            // Set light position with higher elevation for more dramatic shadows
             directionalLightRef.current.position.set(
                 x,
-                directionalHeight,
+                directionalHeight * 1.2, // Make it higher for more dramatic shadows
                 z
             );
+            
+            // Update directional light target to focus on level center
+            // This creates more interesting and varied shadows as the moon orbits
+            directionalLightRef.current.target.position.set(0, 0, 0);
+            directionalLightRef.current.target.updateMatrixWorld();
         });
         
         return null;
@@ -2904,7 +2927,8 @@ export function App() {
                     position={[0, 10, 10]} 
                     rotation={[0, 0, 0]}
                     near={0.1}
-                    far={2000}
+                    far={500} // Increased far plane to render the outdoor area
+                    fov={90}
                 />
 
                 {/* Add third-person camera when needed */}
@@ -2914,7 +2938,7 @@ export function App() {
                         makeDefault
                         position={[0, cameraHeight, cameraDistance]} 
                         near={0.1}
-                        far={2000}
+                        far={500} // Increased far plane
                         fov={75}
                     />
                 )}
