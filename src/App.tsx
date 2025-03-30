@@ -1317,7 +1317,7 @@ export function App() {
             label: 'Enable Connection'
         }
     }, {
-        collapsed: false,
+        collapsed: true,
         order: 997
     });
 
@@ -1505,7 +1505,7 @@ export function App() {
             value: false,
             label: 'Dark Level Lighting'
         }
-    });
+    }, { collapsed: true });
     
     // Get the setter from the returned controls object
     const setControls = (restControls as any).set;
@@ -1836,7 +1836,7 @@ export function App() {
             }
         }
     }, {
-        collapsed: false,
+        collapsed: true,
         order: 999
     });
     
