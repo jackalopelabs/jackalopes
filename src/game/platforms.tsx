@@ -4,6 +4,7 @@ import { useTexture } from '@react-three/drei'
 import { SimpleTree } from './SimpleTree'
 import { TreeLoader } from './TreeLoader'
 import { useRef } from 'react'
+import { MountainRange } from './Mountain'
 
 type BoxDimensions = [width: number, height: number, depth: number]
 
@@ -385,6 +386,88 @@ export function Platforms() {
                     treeType={idx % 2 === 0 ? "plant" : "bush"} // Alternate between plants and bushes
                 />
             ))}
+
+            {/* Add mountain ranges around the map boundary to create a natural barrier */}
+            
+            {/* North mountain range */}
+            <MountainRange 
+                position={[0, 0, -120]}
+                count={8}
+                spread={200}
+                baseScale={1.5}
+                scaleVariation={0.4}
+                heightVariation={0.5}
+            />
+            
+            {/* Northeast mountains */}
+            <MountainRange 
+                position={[100, 0, -100]}
+                count={4}
+                spread={80}
+                baseScale={1.3}
+                scaleVariation={0.3}
+                heightVariation={0.4}
+            />
+            
+            {/* East mountain range */}
+            <MountainRange 
+                position={[120, 0, 0]}
+                count={6}
+                spread={160}
+                baseScale={1.4}
+                scaleVariation={0.35}
+                heightVariation={0.45}
+            />
+            
+            {/* Southeast mountains */}
+            <MountainRange 
+                position={[100, 0, 100]}
+                count={4}
+                spread={70}
+                baseScale={1.2}
+                scaleVariation={0.3}
+                heightVariation={0.4}
+            />
+            
+            {/* South mountain range */}
+            <MountainRange 
+                position={[0, 0, 120]}
+                count={8}
+                spread={200}
+                baseScale={1.5}
+                scaleVariation={0.4}
+                heightVariation={0.5}
+            />
+            
+            {/* Southwest mountains */}
+            <MountainRange 
+                position={[-100, 0, 100]}
+                count={4}
+                spread={80}
+                baseScale={1.3}
+                scaleVariation={0.3}
+                heightVariation={0.4}
+            />
+            
+            {/* West mountain range */}
+            <MountainRange 
+                position={[-120, 0, 0]}
+                count={6}
+                spread={160}
+                baseScale={1.4}
+                scaleVariation={0.35}
+                heightVariation={0.45}
+            />
+            
+            {/* Northwest mountains */}
+            <MountainRange 
+                position={[-100, 0, -100]}
+                count={4}
+                spread={70}
+                baseScale={1.2}
+                scaleVariation={0.3}
+                heightVariation={0.4}
+            />
         </group>
     )
 }
