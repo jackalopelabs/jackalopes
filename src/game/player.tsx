@@ -930,48 +930,53 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             
             // Get camera direction
             const cameraDirection = new THREE.Vector3(0, 0, -1);
-            const cameraMatrix = new THREE.Matrix4();
+            const cameraQuaternion = new THREE.Quaternion();
             
             if (fpsCameraRef.current) {
-                // Get camera world matrix
+                // Get camera world matrix and extract position and orientation
                 fpsCameraRef.current.matrixWorld.decompose(
                     _cameraPosition, 
-                    new THREE.Quaternion(), 
+                    cameraQuaternion,
                     new THREE.Vector3()
                 );
                 
-                cameraMatrix.makeRotationFromQuaternion(fpsCameraRef.current.quaternion);
-                cameraDirection.applyMatrix4(cameraMatrix);
+                // Apply camera quaternion directly to the direction vector for more accurate rotation
+                cameraDirection.applyQuaternion(cameraQuaternion);
                 
-                // Create a global position for the spotlight
-                const spotlightGlobalPos = new THREE.Vector3();
-                if (fpsArmsRef.current) {
-                    const flashlightGroup = fpsArmsRef.current.children.find(
-                        child => child.type === 'Group' && child.position.z > 0
-                    );
-                    if (flashlightGroup) {
-                        flashlightGroup.getWorldPosition(spotlightGlobalPos);
-                    } else {
-                        // Fallback to camera position if flashlight group not found
-                        spotlightGlobalPos.copy(_cameraPosition);
-                    }
-                } else {
-                    spotlightGlobalPos.copy(_cameraPosition);
-                }
-                
-                // Position target far in front of camera
+                // Position the spotlight target relative to camera direction
+                // This ensures the flashlight beam follows exactly where the player is looking
                 spotlightTargetRef.current.position.copy(_cameraPosition);
                 spotlightTargetRef.current.position.addScaledVector(cameraDirection, 20);
                 
-                // Debug - log positions occasionally
-                if (Math.random() < 0.001) {
-                    console.log('Flashlight position:', spotlightGlobalPos);
-                    console.log('Target position:', spotlightTargetRef.current.position);
-                    console.log('Camera direction:', cameraDirection);
+                // Make sure the flashlight group follows the camera rotation exactly
+                if (fpsArmsRef.current) {
+                    // Find the flashlight group using the userData marker
+                    const flashlightGroup = fpsArmsRef.current.children.find(
+                        child => child.userData?.type === 'flashlight'
+                    );
+                    
+                    if (flashlightGroup) {
+                        // Set the flashlight group's quaternion to match the camera
+                        // This ensures the visual flashlight element rotates with the camera
+                        flashlightGroup.quaternion.copy(cameraQuaternion);
+                        
+                        // Debug - log occasionally to help trace issues
+                        if (Math.random() < 0.001) {
+                            console.log('[FLASHLIGHT] Synchronized with camera rotation');
+                            console.log('Flashlight group found:', flashlightGroup);
+                        }
+                    }
                 }
                 
                 // Force update world matrix to ensure proper targeting
                 spotlightTargetRef.current.updateMatrixWorld(true);
+                
+                // Debug - log positions and rotation occasionally
+                if (Math.random() < 0.001) {
+                    console.log('Camera direction:', cameraDirection);
+                    console.log('Camera quaternion:', cameraQuaternion);
+                    console.log('Target position:', spotlightTargetRef.current.position);
+                }
             }
         }
     });
@@ -1080,8 +1085,11 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                                 userData={{ type: 'primitive' }} // Add a marker to find this child
                             />
                             
-                            {/* Flashlight */}
-                            <group position={[0, -0.3, 0.5]}>
+                            {/* Flashlight - positioned within FPS arms group but attached to camera for rotation */}
+                            <group 
+                                position={[0, -0.3, 0.5]} 
+                                userData={{ type: 'flashlight' }} // Add a marker for easier selection
+                            >
                                 {/* Flashlight spot light */}
                                 <spotLight
                                     ref={spotlightRef}
@@ -1098,8 +1106,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                                     shadow-camera-far={40}
                                 />
                                 
-                                {/* Flashlight target - this is what the spotlight points at */}
-                                <primitive object={spotlightTargetRef.current} position={[0, 0, -15]} />
+                                {/* We no longer need a local primitive target, as we position it directly in useFrame */}
                                 
                                 {/* Visual indicator of the flashlight - make it brighter */}
                                 {flashlightOn && (
