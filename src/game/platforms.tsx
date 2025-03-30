@@ -391,7 +391,7 @@ export function Platforms() {
             
             {/* North mountain range */}
             <MountainRange 
-                position={[0, 0, -120]}
+                position={[0, 0, -150]}
                 count={8}
                 spread={200}
                 baseScale={1.5}
@@ -401,7 +401,7 @@ export function Platforms() {
             
             {/* Northeast mountains */}
             <MountainRange 
-                position={[100, 0, -100]}
+                position={[130, 0, -130]}
                 count={4}
                 spread={80}
                 baseScale={1.3}
@@ -411,7 +411,7 @@ export function Platforms() {
             
             {/* East mountain range */}
             <MountainRange 
-                position={[120, 0, 0]}
+                position={[150, 0, 0]}
                 count={6}
                 spread={160}
                 baseScale={1.4}
@@ -421,7 +421,7 @@ export function Platforms() {
             
             {/* Southeast mountains */}
             <MountainRange 
-                position={[100, 0, 100]}
+                position={[130, 0, 130]}
                 count={4}
                 spread={70}
                 baseScale={1.2}
@@ -431,7 +431,7 @@ export function Platforms() {
             
             {/* South mountain range */}
             <MountainRange 
-                position={[0, 0, 120]}
+                position={[0, 0, 150]}
                 count={8}
                 spread={200}
                 baseScale={1.5}
@@ -441,7 +441,7 @@ export function Platforms() {
             
             {/* Southwest mountains */}
             <MountainRange 
-                position={[-100, 0, 100]}
+                position={[-130, 0, 130]}
                 count={4}
                 spread={80}
                 baseScale={1.3}
@@ -451,7 +451,7 @@ export function Platforms() {
             
             {/* West mountain range */}
             <MountainRange 
-                position={[-120, 0, 0]}
+                position={[-150, 0, 0]}
                 count={6}
                 spread={160}
                 baseScale={1.4}
@@ -461,7 +461,7 @@ export function Platforms() {
             
             {/* Northwest mountains */}
             <MountainRange 
-                position={[-100, 0, -100]}
+                position={[-130, 0, -130]}
                 count={4}
                 spread={70}
                 baseScale={1.2}

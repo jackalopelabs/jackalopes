@@ -200,8 +200,23 @@ export const MountainRange: React.FC<MountainRangeProps> = ({
       const scale = baseScale * (1 - scaleVariation / 2 + random(0.1) * scaleVariation);
       const height = 30 * (1 - heightVariation / 2 + random(0.2) * heightVariation);
       const snowCoverage = 0.4 + random(0.3) * 0.2;
-      const posX = position[0] + offset + (random(0.4) - 0.5) * (spread / count);
-      const posZ = position[2] + (random(0.5) - 0.5) * (spread / 4);
+      
+      // Calculate position and ensure mountains face outward from the center
+      let posX = position[0] + offset + (random(0.4) - 0.5) * (spread / count);
+      let posZ = position[2] + (random(0.5) - 0.5) * (spread / 4);
+      
+      // Adjust position to ensure mountains face outward from map center
+      const distanceFromCenter = Math.sqrt(position[0]**2 + position[2]**2);
+      if (distanceFromCenter > 0) {
+        // Calculate unit vector pointing away from center
+        const dirX = position[0] / distanceFromCenter;
+        const dirZ = position[2] / distanceFromCenter;
+        
+        // Add outward bias to position (push mountains away from center)
+        const outwardBias = 5 + random(0.6) * 10;
+        posX += dirX * outwardBias;
+        posZ += dirZ * outwardBias;
+      }
       
       result.push(
         <Mountain 
