@@ -568,33 +568,60 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       
       // Create a unique handler for this jackalope instance
       window.__jackalopeAttachmentHandlers[playerId] = (projectileData: {id: string, position: THREE.Vector3}) => {
+        console.log(`Jackalope ${playerId} received attachment request for sphere ${projectileData.id}`, {
+          spherePosition: projectileData.position,
+          jackalopePosition: position,
+          attachedProjectilesCount: attachedProjectilesRef.current.length
+        });
+        
         // Check if we already have this projectile to prevent duplicates
         if (attachedProjectilesRef.current.some(p => p.id === projectileData.id)) {
           console.log(`Projectile ${projectileData.id} already attached to jackalope ${playerId}`);
           return true;
         }
         
-        // Add the new projectile
+        // Generate a new unique ID to prevent React key conflicts
+        const uniqueId = `attached_${projectileData.id}_${Date.now()}`;
+        
+        // IMPROVED: Play hit sound immediately for better feedback
+        if (window.__playJackalopeHitSound) {
+          window.__playJackalopeHitSound();
+        }
+        
+        // Add the new projectile with the unique ID
         setAttachedProjectiles(prev => {
-          // Check for max projectiles directly here
+          console.log(`Adding projectile to jackalope ${playerId}, current count: ${prev.length}`);
+          
+          // Check for max projectiles
           const MAX_PROJECTILES = 8;
-          let newList = [...prev, projectileData];
+          let newList = [...prev, {
+            id: uniqueId, // Use the new unique ID instead of the original
+            position: projectileData.position
+          }];
           
           // If we exceed the maximum, remove the oldest ones
           if (newList.length > MAX_PROJECTILES) {
             newList = newList.slice(-MAX_PROJECTILES);
           }
           
+          console.log(`Updated attached projectiles for jackalope ${playerId}, new count: ${newList.length}`);
           return newList;
         });
         
         return true;
       };
       
+      // Log available attachment handlers for debugging
+      console.log(`[JACKALOPE ${playerId}] Registered attachment handler`);
+      if (window.__jackalopeAttachmentHandlers) {
+        console.log("Current jackalope handlers:", Object.keys(window.__jackalopeAttachmentHandlers));
+      }
+      
       // Cleanup
       return () => {
         if (window.__jackalopeAttachmentHandlers) {
           delete window.__jackalopeAttachmentHandlers[playerId];
+          console.log(`[JACKALOPE ${playerId}] Unregistered attachment handler`);
         }
       };
     }, [playerId]);
@@ -643,7 +670,14 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
           rotation={[0, (rotation || 0) + Math.PI, 0]}
           colliders={false}
           name={`remote-jackalope-${playerId}`}
-          userData={{ isJackalope: true, playerId, playerType: 'jackalope', jackalopeId: playerId }}
+          userData={{ 
+            isJackalope: true, 
+            playerId, 
+            playerType: 'jackalope', 
+            jackalopeId: playerId,
+            // Add explicit collision data to help detection
+            collisionTarget: 'jackalope'
+          }}
           friction={1}
           sensor={false}
           includeInvisible={true}
@@ -651,18 +685,42 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
           collisionGroups={0xFFFFFFFF} // Collide with everything
           restitution={0.1} // Make collisions less bouncy
         >
-          {/* Use multiple colliders to ensure good collision detection */}
-          {/* Main body collider - enlarged for better hit detection */}
-          <CapsuleCollider args={[1.2, 1.0]} position={[0, 0.6, 0]} sensor={false} friction={1} restitution={0.1} />
+          {/* SIGNIFICANTLY INCREASE COLLIDER SIZES - almost double original size */}
+          {/* Main body collider - enlarged for easier hit detection */}
+          <CapsuleCollider 
+            args={[2.0, 1.5]} 
+            position={[0, 0.8, 0]} 
+            sensor={false} 
+            friction={1} 
+            restitution={0.1}
+          />
           
           {/* Add a box collider to ensure hits register */}
-          <CuboidCollider args={[1.0, 1.0, 1.0]} position={[0, 0.6, 0]} sensor={false} friction={1} restitution={0.1} />
+          <CuboidCollider 
+            args={[1.8, 1.5, 1.8]} 
+            position={[0, 0.8, 0]} 
+            sensor={false} 
+            friction={1} 
+            restitution={0.1}
+          />
           
           {/* Add a collider for the head area */}
-          <BallCollider args={[0.7]} position={[0, 1.5, 0]} sensor={false} friction={1} restitution={0.1} />
+          <BallCollider 
+            args={[1.2]} 
+            position={[0, 1.8, 0]} 
+            sensor={false} 
+            friction={1} 
+            restitution={0.1}
+          />
           
-          {/* Extra collider to catch projectiles */}
-          <BallCollider args={[1.2]} position={[0, 0.8, 0]} sensor={false} friction={1} restitution={0.1} />
+          {/* Extra large collider to catch projectiles */}
+          <BallCollider 
+            args={[2.0]} 
+            position={[0, 1.0, 0]} 
+            sensor={false} 
+            friction={1} 
+            restitution={0.1}
+          />
           
           <JackalopeModel 
             animation={localIsMoving ? "walk" : "idle"}

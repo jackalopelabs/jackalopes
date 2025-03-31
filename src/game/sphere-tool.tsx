@@ -637,24 +637,117 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
             
             // Get userData if available to check for player type
             const targetUserData = targetObject?.userData;
-            const isJackalopeByUserData = targetUserData?.isJackalope === true || parentUserData?.isJackalope === true;
+            const isJackalopeByUserData = 
+                targetUserData?.isJackalope === true || 
+                parentUserData?.isJackalope === true ||
+                targetUserData?.collisionTarget === 'jackalope' ||
+                parentUserData?.collisionTarget === 'jackalope';
             const isMercByUserData = targetUserData?.isMerc === true || parentUserData?.isMerc === true;
             
             // Enhanced collision detection with more thorough checks
             // Check for jackalope in all the possible ways it could be named
-            const jackalopeNamePatterns = ['jackalope', 'remote-jackalope', 'jackalope-player'];
-            const mercNamePatterns = ['merc', 'remote-merc', 'merc-player'];
+            const jackalopeNamePatterns = [
+                'jackalope', 
+                'remote-jackalope', 
+                'jackalope-player',
+                'remote_jackalope',
+                'remotejackalope',
+                'jackalope_',
+                'jacka'
+            ];
+            const mercNamePatterns = [
+                'merc', 
+                'remote-merc', 
+                'merc-player',
+                'remote_merc',
+                'remotemerc'
+            ];
             
+            // Add ultra-verbose logging to help diagnose collision issues
+            console.log('[DEBUG COLLISION] TARGET DETAILS:', {
+                sphereId: id,
+                targetObject: targetObject?.name,
+                hasRigidBody: !!payload.other.rigidBody,
+                hasCollider: !!payload.other.collider,
+                colliderIsEnabled: payload.other.collider?.isEnabled(),
+                colliderIsSensor: payload.other.collider?.isSensor(),
+                isJackalopeByUserData,
+                targetName,
+                parentName
+            });
+            
+            // Add extensive debugging to understand what's in the collision data
+            console.log('COLLISION OBJECT DETAILS:', {
+                targetObject: targetObject?.name,
+                targetType: targetObject?.type,
+                targetParent: targetObject?.parent?.name,
+                targetHasRigidBody: !!payload.other.rigidBody,
+                targetCollider: !!payload.other.collider,
+                userDataKeys: targetUserData ? Object.keys(targetUserData) : [],
+                userDataValues: targetUserData,
+                parentUserDataKeys: parentUserData ? Object.keys(parentUserData) : [],
+                parentUserDataValues: parentUserData
+            });
+            
+            // Check if jackalope appears anywhere in the rigid body object name or parent name
+            const jackalopeNameMatch = jackalopeNamePatterns.some(pattern => 
+                (targetName && targetName.includes(pattern)) || 
+                (parentName && parentName.includes(pattern))
+            );
+            
+            // Check if player type in userData is jackalope
+            const jackalopeTypeMatch = 
+                (targetUserData?.playerType === 'jackalope') || 
+                (parentUserData?.playerType === 'jackalope');
+            
+            // Additional direct checks for jackalope name
+            const directJackalopeMatch = 
+                (targetName && targetName.toLowerCase().indexOf('jackalope') >= 0) || 
+                (parentName && parentName.toLowerCase().indexOf('jackalope') >= 0) ||
+                (targetObject?.name && targetObject.name.toLowerCase().indexOf('jackalope') >= 0);
+                
+            // Try to detect jackalope collision using collision targets manually
+            const manualJackalopeCheck = payload.other.rigidBody && (() => {
+                try {
+                    // Since we can't access rigidBody.name() directly, 
+                    // check for jackalope in any accessible properties
+                    if (targetObject && targetObject.name && 
+                        targetObject.name.toLowerCase().includes('jackalope')) {
+                        console.log(`[DIRECT DETECTION] Found jackalope in object name: ${targetObject.name}`);
+                        return true;
+                    }
+                    return false;
+                } catch (err) {
+                    console.error('Error in manual jackalope check:', err);
+                    return false;
+                }
+            })();
+            
+            // Combined check for jackalope with all possible methods
             const isJackalopeCollision = 
                 isJackalopeByUserData || 
-                jackalopeNamePatterns.some(pattern => targetName.includes(pattern)) ||
-                jackalopeNamePatterns.some(pattern => parentName.includes(pattern));
+                jackalopeNameMatch ||
+                jackalopeTypeMatch ||
+                directJackalopeMatch ||
+                manualJackalopeCheck;
                 
+            // Similar check for merc
+            const mercNameMatch = mercNamePatterns.some(pattern => 
+                (targetName && targetName.includes(pattern)) || 
+                (parentName && parentName.includes(pattern))
+            );
+            
+            const mercTypeMatch = 
+                (targetUserData?.playerType === 'merc') || 
+                (parentUserData?.playerType === 'merc');
+                
+            // Combined check for merc
             const isMercCollision = 
                 isMercByUserData || 
-                mercNamePatterns.some(pattern => targetName.includes(pattern)) ||
-                mercNamePatterns.some(pattern => parentName.includes(pattern));
+                mercNameMatch ||
+                mercTypeMatch;
                 
+            // Overall player collision check
             const isPlayerCollision = 
                 isJackalopeCollision || 
                 isMercCollision || 
@@ -671,10 +764,23 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 isJackalopeByUserData,
                 isMercByUserData,
                 isJackalopeCollision,
-                isMercCollision, 
+                isMercCollision,
                 isPlayerCollision,
                 targetType: payload.other.rigidBodyObject?.type,
                 sphereId: id
+            });
+            
+            // Add more specific jackalope detection debugging
+            console.log('JACKALOPE DETECTION DETAILS:', {
+                isJackalopeByUserData,
+                jackalopeNameMatch,
+                jackalopeTypeMatch,
+                directJackalopeMatch,
+                manualJackalopeCheck,
+                isJackalopeCollision,
+                jackalopeNamePatterns,
+                targetIncludesJackalope: targetName ? jackalopeNamePatterns.map(p => targetName.includes(p)) : [],
+                parentIncludesJackalope: parentName ? jackalopeNamePatterns.map(p => parentName.includes(p)) : []
             });
             
             // SPECIAL HANDLING FOR JACKALOPE COLLISIONS
@@ -751,6 +857,31 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                         }
                     }
                     
+                    // IMPROVED JACKALOPE ID EXTRACTION - direct access from other rigid body
+                    if (!jackalopeId && payload.other && payload.other.rigidBodyObject) {
+                        try {
+                            const rigidBodyName = payload.other.rigidBodyObject.name;
+                            console.log("Checking rigid body object name:", rigidBodyName);
+                            
+                            if (rigidBodyName && rigidBodyName.includes('remote-jackalope-')) {
+                                const nameParts = rigidBodyName.split('remote-jackalope-');
+                                if (nameParts.length > 1) {
+                                    jackalopeId = nameParts[1];
+                                    console.log("Extracted jackalopeId from rigidBodyObject name:", jackalopeId);
+                                }
+                            }
+                            
+                            // Also check userData directly from the rigid body object
+                            const rigidBodyUserData = payload.other.rigidBodyObject.userData;
+                            if (rigidBodyUserData && (rigidBodyUserData.jackalopeId || rigidBodyUserData.playerId)) {
+                                jackalopeId = rigidBodyUserData.jackalopeId || rigidBodyUserData.playerId;
+                                console.log("Extracted jackalopeId from rigidBodyObject userData:", jackalopeId);
+                            }
+                        } catch (err) {
+                            console.error("Error extracting jackalope ID from rigid body:", err);
+                        }
+                    }
+                    
                     // Check window global registry of jackalope handlers
                     if (window.__jackalopeAttachmentHandlers) {
                         console.log("Available jackalope handlers:", Object.keys(window.__jackalopeAttachmentHandlers));
@@ -763,6 +894,15 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                         try {
                             // Convert the attachment point to a Vector3
                             const attachPosition = new THREE.Vector3(attachPoint.x, attachPoint.y, attachPoint.z);
+                            
+                            // ENHANCED: Ensure sphere is immediately fixed in place to prevent bouncing
+                            if (rigidBodyRef.current) {
+                                // Immediately make it fixed and stop all movement
+                                rigidBodyRef.current.setBodyType(1, true); // 1 for Fixed, true to wake the body
+                                rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+                                rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
+                                rigidBodyRef.current.setTranslation(attachPoint, true);
+                            }
                             
                             // Call the handler with the projectile data
                             const success = window.__jackalopeAttachmentHandlers[jackalopeId]({
@@ -809,6 +949,24 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                                     
                                     // Mark as stuck
                                     setStuck(true);
+                                    
+                                    // CRITICAL FIX: Immediately schedule this sphere for destruction
+                                    // This prevents React key duplication errors when the same ID appears in multiple places
+                                    console.log(`Scheduling sphere ${id} for immediate destruction to prevent duplication`);
+                                    if (window.__scheduleSphereForDestruction) {
+                                        window.__scheduleSphereForDestruction(id);
+                                    } else {
+                                        // As a fallback, try to remove the sphere directly from the parent
+                                        if (groupRef.current && groupRef.current.parent) {
+                                            console.log(`Directly removing sphere ${id} from parent`);
+                                            try {
+                                                // Remove from scene to prevent duplicate React keys
+                                                groupRef.current.parent.remove(groupRef.current);
+                                            } catch (e) {
+                                                console.error("Error removing sphere from parent:", e);
+                                            }
+                                        }
+                                    }
                                     
                                     // Play hit sound if available
                                     if (window.__playJackalopeHitSound) {
@@ -924,7 +1082,7 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 
                 // Handle player collision detection for non-jackalope players
                 if (isPlayerCollision) {
-                    if (isMercCollision) {
+                    if (isMercByUserData) {
                         console.log('Shot hit a merc!', targetName);
                         
                         // Play merc hit sound if available
@@ -1657,6 +1815,29 @@ export const SphereTool = ({
         };
     }, [spheres]);
 
+    // Add state for sphere management
+    const spheresRef = useRef<SphereProps[]>([]);
+    
+    // Keep the spheres ref in sync with state
+    useEffect(() => {
+        spheresRef.current = spheres;
+    }, [spheres]);
+
+    // Add sphere destruction scheduler function to window
+    useEffect(() => {
+        // Set up global function for immediate sphere destruction
+        window.__scheduleSphereForDestruction = (sphereId: string) => {
+            console.log(`GLOBAL SCHEDULER: Removing sphere ${sphereId} to prevent duplicate keys`);
+            // Immediately remove the sphere from our state
+            setSpheres(prev => prev.filter(s => s.id !== sphereId));
+        };
+        
+        // Cleanup
+        return () => {
+            window.__scheduleSphereForDestruction = undefined;
+        };
+    }, []);
+
     return (
         <group>
             {/* Render all pooled lights in one place */}
@@ -1732,6 +1913,7 @@ declare global {
         __playMercHitSound?: () => void;
         __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
         __disableStabilizationFor?: Record<string, boolean>;
+        __scheduleSphereForDestruction?: (sphereId: string) => void;
     }
 }
 

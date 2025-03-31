@@ -89,6 +89,7 @@ interface PlayerSnapshot {
   rotation: [number, number, number, number];
   velocity?: [number, number, number];
   health: number;
+  playerType: 'merc' | 'jackalope'; // Add playerType as a required field
 }
 
 interface GameEvent {
@@ -212,6 +213,7 @@ export const useMultiplayer = (
         position: positionArray,
         rotation: rotationArray,
         health: 100, // Assuming default health
+        playerType: 'merc'
       };
     }
     
@@ -223,6 +225,7 @@ export const useMultiplayer = (
           position: objectToArrayPosition(data.position),
           rotation: [0, data.rotation, 0, 1], // Convert simple rotation to quaternion
           health: 100, // Assuming default health
+          playerType: 'merc'
         };
       }
     });
@@ -275,12 +278,12 @@ export const useMultiplayer = (
       stateBuffer.current = stateBuffer.current.slice(-100);
     }
 
-    // Send to server with sequence number for reconciliation
-    connectionManager.sendPlayerUpdate(
-      positionArray, 
-      rotationArray,
-      sequenceNumber.current
-    );
+    // Send to server with sequence number for reconciliation - fix parameter structure
+    connectionManager.sendPlayerUpdate({
+      position: positionArray, 
+      rotation: rotationArray,
+      sequence: sequenceNumber.current
+    });
     
     // Increment sequence number for next update
     sequenceNumber.current++;
@@ -1076,7 +1079,8 @@ export const useMultiplayer = (
           id,
           position,
           rotation,
-          health: Math.floor(beforePlayer.health + (afterPlayer.health - beforePlayer.health) * t)
+          health: Math.floor(beforePlayer.health + (afterPlayer.health - beforePlayer.health) * t),
+          playerType: beforePlayer.playerType
         };
       } else if (beforePlayer) {
         // Only in before snapshot - assume player was removed
