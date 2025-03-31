@@ -4,7 +4,10 @@ import * as THREE from 'three'
 
 // Import assets from centralized asset index
 import { MercModelPath, AnimationNames } from '../assets'
+// Import debug utilities
+import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils'
 
+// Remove the hardcoded debug level
 // This component will handle the merc character with embedded animations
 export const MercModel = ({ 
   animation = 'walk', 
@@ -33,18 +36,25 @@ export const MercModel = ({
   // Log model loading success
   useEffect(() => {
     if (scene) {
-      console.log('Successfully loaded merc model:', scene);
+      if (isDebugEnabled(2)) {
+        console.log('Successfully loaded merc model:', scene);
       
-      if (animations && animations.length > 0) {
-        console.log('Model has embedded animations:');
-        animations.forEach((anim, i) => {
-          console.log(`  ${i+1}. "${anim.name}" (duration: ${anim.duration.toFixed(2)}s)`);
-        });
-      } else {
+        if (animations && animations.length > 0) {
+          console.log('Model has embedded animations:');
+          animations.forEach((anim, i) => {
+            console.log(`  ${i+1}. "${anim.name}" (duration: ${anim.duration.toFixed(2)}s)`);
+          });
+        }
+      }
+      
+      if (animations.length === 0 && isDebugEnabled(1)) {
         console.warn('No animations found in the model');
       }
     } else {
       setModelError('Failed to load model: scene is undefined');
+      if (isDebugEnabled(1)) {
+        console.error('Failed to load merc model: scene is undefined');
+      }
     }
   }, [scene, animations]);
   
@@ -53,8 +63,10 @@ export const MercModel = ({
     if (!mixer || !actions) return;
     
     // Log the requested animation
-    console.log(`Animation requested: "${animation}"`);
-    console.log(`Available actions:`, Object.keys(actions));
+    if (isDebugEnabled(3)) {
+      console.log(`Animation requested: "${animation}"`);
+      console.log(`Available actions:`, Object.keys(actions));
+    }
     
     // Don't stop all animations immediately - instead use crossfade
     // mixer.stopAllAction();
@@ -63,7 +75,9 @@ export const MercModel = ({
     // Special handling for idle - always use 'idle' animation
     if (animation === 'idle') {
       if (actions['idle']) {
-        console.log(`Playing exact idle animation directly`);
+        if (isDebugEnabled(3)) {
+          console.log(`Playing exact idle animation directly`);
+        }
         const idleAction = actions['idle'];
         
         // Check if already playing this animation
@@ -85,14 +99,16 @@ export const MercModel = ({
             idleAction.timeScale = 1.0;
           }
         }
-      } else {
+      } else if (isDebugEnabled(1)) {
         console.warn('Idle animation not found');
       }
     } 
     // For walk animation
     else if (animation === 'walk') {
       if (actions['walk']) {
-        console.log(`Playing exact walk animation directly`);
+        if (isDebugEnabled(3)) {
+          console.log(`Playing exact walk animation directly`);
+        }
         const walkAction = actions['walk'];
         
         // Check if already playing this animation
@@ -114,14 +130,16 @@ export const MercModel = ({
             walkAction.timeScale = 1.0;
           }
         }
-      } else {
+      } else if (isDebugEnabled(1)) {
         console.warn('Walk animation not found');
       }
     }
     // For run animation - speed up the walk animation
     else if (animation === 'run') {
       if (actions['walk']) {
-        console.log(`Using walk animation for running (sped up)`);
+        if (isDebugEnabled(3)) {
+          console.log(`Using walk animation for running (sped up)`);
+        }
         const runAction = actions['walk'];
         
         // Check if already playing walk animation
@@ -144,17 +162,21 @@ export const MercModel = ({
             runAction.timeScale = 1.5;
           }
         }
-      } else {
+      } else if (isDebugEnabled(1)) {
         console.warn('Walk animation not found for running');
       }
     }
     // Fallback to any available animation
     else {
-      console.warn(`Animation "${animation}" not found, available:`, Object.keys(actions));
+      if (isDebugEnabled(1)) {
+        console.warn(`Animation "${animation}" not found, available:`, Object.keys(actions));
+      }
       
       // Try to use idle if available
       if (actions['idle']) {
-        console.log(`Falling back to idle animation`);
+        if (isDebugEnabled(3)) {
+          console.log(`Falling back to idle animation`);
+        }
         const idleAction = actions['idle'];
         if (idleAction) {
           idleAction.reset().fadeIn(0.3).play();
@@ -164,7 +186,9 @@ export const MercModel = ({
       // Otherwise use the first available
       else if (Object.keys(actions).length > 0) {
         const defaultAnim = Object.keys(actions)[0];
-        console.log(`Falling back to first animation: ${defaultAnim}`);
+        if (isDebugEnabled(3)) {
+          console.log(`Falling back to first animation: ${defaultAnim}`);
+        }
         const defaultAction = actions[defaultAnim];
         if (defaultAction) {
           defaultAction.reset().fadeIn(0.3).play();
@@ -174,16 +198,18 @@ export const MercModel = ({
     }
 
     // Log the actual state of animations after setting
-    setTimeout(() => {
-      // Check which animations are actually active
-      if (mixer && actions) {
-        console.log(`Animation state after change:`, {
-          idle: actions['idle']?.isRunning() || false,
-          walk: actions['walk']?.isRunning() || false,
-          currentAnimation
-        });
-      }
-    }, 100);
+    if (isDebugEnabled(3)) {
+      setTimeout(() => {
+        // Check which animations are actually active
+        if (mixer && actions) {
+          console.log(`Animation state after change:`, {
+            idle: actions['idle']?.isRunning() || false,
+            walk: actions['walk']?.isRunning() || false,
+            currentAnimation
+          });
+        }
+      }, 100);
+    }
   }, [animation, actions, mixer]);
   
   // Convert position and rotation to proper format
@@ -243,8 +269,12 @@ export const MercModel = ({
 // Try preloading with error handling
 try {
   useGLTF.preload(MercModelPath);
-  console.log('Preloaded merc model');
+  if (isDebugEnabled(2)) {
+    console.log('Preloaded merc model');
+  }
 } catch (err) {
   const error = err as Error;
-  console.error('Error preloading merc model:', error.message);
+  if (isDebugEnabled(1)) {
+    console.error('Error preloading merc model:', error.message);
+  }
 } 

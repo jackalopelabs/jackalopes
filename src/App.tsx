@@ -25,16 +25,22 @@ import { AudioController } from './components/AudioController' // Import the Aud
 import { WeaponSoundEffects } from './components/WeaponSoundEffects' // Import the WeaponSoundEffects component
 import { HealthBar } from './components/HealthBar' // Import the HealthBar component
 import { AudioToggleButton } from './components/AudioToggleButton' // Import the AudioToggleButton component
+import { initDebugSystem, DEBUG_LEVELS } from './utils/debugUtils';
+import { PlayerPositionTracker } from './components/PlayerPositionTracker';
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
     interface Window {
         __setGraphicsQuality?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
         __shotBroadcast?: ((shot: any) => any) | undefined;
+        __setDebugLevel?: (level: number) => void; // Add debug level control
+        __toggleNetworkLogs?: (verbose: boolean) => string; // Add network log control
+        connectionManager?: any; // Make ConnectionManager accessible globally
         jackalopesGame?: {
             playerType?: 'merc' | 'jackalope';
             levaPanelState?: 'open' | 'closed';
             flashlightOn?: boolean; // Add flashlight state
+            debugLevel?: number; // Store debug level
             // Add other global game properties as needed
         };
         __playMercShot?: () => void; // Add weapon sound function
@@ -1144,140 +1150,40 @@ export function App() {
     // Add health state
     const [playerHealth, setPlayerHealth] = useState(100);
     
-    // Create a helper component to handle useFrame inside Canvas
-    const PlayerPositionTracker = ({ playerRef, playerPosition }: { 
-        playerRef: React.RefObject<any>,
-        playerPosition: React.RefObject<THREE.Vector3>
-    }) => {
-        // Store the last valid position to avoid jumps
-        const lastValidPosition = useRef<THREE.Vector3 | null>(null);
-        const velocityRef = useRef<THREE.Vector3>(new THREE.Vector3(0, 0, 0));
-        const lastUpdateTime = useRef<number>(Date.now());
-        const frameCountRef = useRef(0);
-        const positionStabilityRef = useRef(new THREE.Vector3());
-        const positionHistoryRef = useRef<THREE.Vector3[]>([]);
-        const MAX_HISTORY = 3; // Further reduced from 5 to 3 for even more responsive camera
+    // Initialize debug system
+    useEffect(() => {
+        // Initialize the debug system with a default level
+        const debugSystem = initDebugSystem();
         
-        // This useFrame is now safely inside the Canvas component
-        useFrame(() => {
-            if (!playerRef.current || !playerRef.current.rigidBody || !playerPosition.current) return;
-            
-            try {
-                const position = playerRef.current.rigidBody.translation();
-                const now = Date.now();
-                const deltaTime = (now - lastUpdateTime.current) / 1000; // Convert to seconds
-                lastUpdateTime.current = now;
-                
-                // Track frames for stability analysis
-                frameCountRef.current++;
-                
-                // Check if position is valid and not NaN
-                if (position && 
-                    !Number.isNaN(position.x) && 
-                    !Number.isNaN(position.y) && 
-                    !Number.isNaN(position.z)) {
-                    
-                    // First time initialization
-                    if (!lastValidPosition.current) {
-                        lastValidPosition.current = new THREE.Vector3(position.x, position.y, position.z);
-                        playerPosition.current.copy(lastValidPosition.current);
-                        positionStabilityRef.current.copy(lastValidPosition.current);
-                        
-                        // Initialize history with current position
-                        for (let i = 0; i < MAX_HISTORY; i++) {
-                            positionHistoryRef.current.push(lastValidPosition.current.clone());
-                        }
-                        
-                        // Expose the updater function globally for direct updates from jackalope
-                        if (!window.playerPositionTracker) {
-                            window.playerPositionTracker = {
-                                updatePosition: (newPos: THREE.Vector3) => {
-                                    if (playerPosition.current && newPos) {
-                                        // Direct update from the jackalope with minimal smoothing
-                                        const isJackalope = window.jackalopesGame?.playerType === 'jackalope';
-                                        const smoothingFactor = isJackalope ? 0.5 : 0.25; // Faster updates for jackalope
-                                        playerPosition.current.lerp(newPos, smoothingFactor);
-                                    }
-                                }
-                            };
-                        }
-                        
-                        return;
-                    }
-                    
-                    // Create a temp vector for the new position
-                    const newPosition = new THREE.Vector3(position.x, position.y, position.z);
-                    
-                    // Calculate velocity for prediction
-                    if (deltaTime > 0) {
-                        const instantVelocity = new THREE.Vector3()
-                            .subVectors(newPosition, lastValidPosition.current)
-                            .divideScalar(deltaTime);
-                        
-                        // Very low lerp factor for super smooth velocity changes
-                        velocityRef.current.lerp(instantVelocity, 0.1);
-                    }
-                    
-                    // Check for large jumps (could indicate a glitch)
-                    const distance = newPosition.distanceTo(lastValidPosition.current);
-                    if (distance > 5) {
-                        console.warn("Detected large position jump, smoothing:", distance);
-                        // For very large jumps, teleport and reset history
-                        if (distance > 10) {
-                            playerPosition.current.copy(newPosition);
-                            lastValidPosition.current.copy(newPosition);
-                            positionStabilityRef.current.copy(newPosition);
-                            
-                            // Reset history
-                            positionHistoryRef.current = [];
-                            for (let i = 0; i < MAX_HISTORY; i++) {
-                                positionHistoryRef.current.push(newPosition.clone());
-                            }
-                            console.warn("Teleporting due to extreme position change");
-                            return;
-                        }
-                        
-                        // Use stronger lerp to smooth out large jumps
-                        newPosition.lerp(lastValidPosition.current, 0.8);
-                    }
-                    
-                    // Add current position to history, removing oldest
-                    positionHistoryRef.current.push(newPosition.clone());
-                    if (positionHistoryRef.current.length > MAX_HISTORY) {
-                        positionHistoryRef.current.shift();
-                    }
-                    
-                    // Use a weighted average of history for super smooth movement
-                    const smoothedPosition = new THREE.Vector3();
-                    let totalWeight = 0;
-                    
-                    // More recent positions have higher weight
-                    positionHistoryRef.current.forEach((pos, index) => {
-                        // Increase weight for recent positions to reduce lag
-                        const weight = Math.pow((index + 1) / positionHistoryRef.current.length, 2);
-                        totalWeight += weight;
-                        smoothedPosition.add(pos.clone().multiplyScalar(weight));
-                    });
-                    
-                    // Normalize by total weight
-                    if (totalWeight > 0) {
-                        smoothedPosition.divideScalar(totalWeight);
-                    }
-                    
-                    // Apply much faster interpolation for snappier movement
-                    const smoothingFactor = Math.min(0.4, deltaTime * 15);
-                    playerPosition.current.lerp(smoothedPosition, smoothingFactor);
-                    
-                    // Update the last valid position
-                    lastValidPosition.current.copy(playerPosition.current);
-                }
-            } catch (error) {
-                console.error("Error updating player position reference:", error);
+        // Set default level to errors only
+        debugSystem.setDebugLevel(DEBUG_LEVELS.ERROR);
+        
+        // Add the network logging control function
+        window.__toggleNetworkLogs = (verbose: boolean = false) => {
+            if (!window.connectionManager) {
+                console.warn('Connection manager not available');
+                return 'Connection manager not available';
             }
-        });
+            
+            if (verbose) {
+                window.connectionManager.enableVerboseLogging();
+                return 'Network logging: VERBOSE - all messages shown';
+            } else {
+                window.connectionManager.disableVerboseLogging();
+                return 'Network logging: NORMAL - player_update messages filtered';
+            }
+        };
         
-        return null; // This component doesn't render anything
-    };
+        return () => {
+            // Clean up debug system if needed
+            if (window.__setDebugLevel) {
+                delete window.__setDebugLevel;
+            }
+            if (window.__toggleNetworkLogs) {
+                delete window.__toggleNetworkLogs;
+            }
+        };
+    }, []);
     
     // Create a shared ConnectionManager instance with the staging server URL
     const [connectionManager] = useState(() => new ConnectionManager('ws://staging.games.bonsai.so/websocket/'));
@@ -1298,18 +1204,7 @@ export function App() {
     // Use a ref to track if shoot is on cooldown
     const shootCooldownRef = useRef(false);
     
-    // Detect mobile devices
-    useEffect(() => {
-        const checkMobile = () => {
-            setIsMobile(/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent));
-        };
-        
-        checkMobile();
-        window.addEventListener('resize', checkMobile);
-        
-        return () => window.removeEventListener('resize', checkMobile);
-    }, []);
-    
+    // Create a helper component to handle useFrame inside Canvas
     // Auto-show gamepad on mobile devices
     useEffect(() => {
         if (isMobile) {
@@ -2669,6 +2564,18 @@ export function App() {
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
+    
+    // Make connectionManager available globally
+    useEffect(() => {
+      if (connectionManager) {
+        window.connectionManager = connectionManager;
+        
+        // Clean up on unmount
+        return () => {
+          delete window.connectionManager;
+        };
+      }
+    }, [connectionManager]);
     
     return (
         <>

@@ -10,6 +10,9 @@ import { useThree, useFrame } from '@react-three/fiber';
 import { useRef, useEffect, useState } from 'react';
 import * as THREE from 'three';
 import { Sounds } from '../assets';
+import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils';
+
+// Remove the hardcoded debug level constant - using global debug system instead
 
 interface RemotePlayerAudioProps {
   playerId: string;
@@ -129,13 +132,17 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
   useEffect(() => {
     if (!audioGroupRef.current) return;
     
-    console.log(`Setting up remote player audio system for player: ${playerId}`);
-    
     // Find existing audio listener on camera
     const listener = camera.children.find(child => child instanceof THREE.AudioListener) as THREE.AudioListener;
     
+    if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+      log.audio(`Setting up remote player audio system for player: ${playerId}`);
+    }
+    
     if (!listener) {
-      console.error('No audio listener found on camera for remote player audio');
+      if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+        log.error('No audio listener found on camera for remote player audio');
+      }
       return;
     }
     
@@ -175,10 +182,14 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
     shotSound.setMaxDistance(150); // Gunshots can be heard from very far
     
     // Load walking sound
-    console.log(`Loading walking sound for remote player ${playerId}`);
+    if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+      log.audio(`Loading walking sound for remote player ${playerId}`);
+    }
     audioLoader.load(Sounds.Footsteps.MercWalking.path, 
       (buffer) => {
-        console.log(`Walking sound loaded successfully for player ${playerId}`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.audio(`Walking sound loaded successfully for player ${playerId}`);
+        }
         walkingSound.setBuffer(buffer);
         walkingSound.setLoop(true);
         walkingSound.setVolume(audioSettings.walkingVolume * audioSettings.masterVolume * 0.9); // Increase volume for walking
@@ -195,33 +206,52 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
               walkingSound.setVolume(testVolume);
             }, 300);
           } catch (error) {
-            console.error(`Error testing walking sound: ${error}`);
+            if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+              log.error(`Error testing walking sound: ${error}`);
+            }
           }
         }, 1500);
       },
+      // Progress callback
       undefined,
-      (error) => console.error(`Error loading remote player walking sound: ${error}`)
+      (error) => {
+        if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+          log.error(`Error loading walking sound for player ${playerId}:`, error);
+        }
+      }
     );
     
     // Load running sound
-    console.log(`Loading running sound for remote player ${playerId}`);
+    if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+      log.audio(`Loading running sound for remote player ${playerId}`);
+    }
     audioLoader.load(Sounds.Footsteps.MercRunning.path,
       (buffer) => {
-        console.log(`Running sound loaded successfully for player ${playerId}`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.audio(`Running sound loaded successfully for player ${playerId}`);
+        }
         runningSound.setBuffer(buffer);
         runningSound.setLoop(true);
         runningSound.setVolume(audioSettings.runningVolume * audioSettings.masterVolume * 0.8);
         setRunningAudioLoaded(true);
       },
       undefined,
-      (error) => console.error(`Error loading remote player running sound: ${error}`)
+      (error) => {
+        if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+          log.error(`Error loading remote player running sound: ${error}`);
+        }
+      }
     );
     
     // Load shot sound with priority - we need this to work properly
-    console.log(`Loading shot sound for remote player ${playerId}`);
+    if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+      log.audio(`Loading shot sound for remote player ${playerId}`);
+    }
     audioLoader.load(Sounds.Weapons.MercShot.path,
       (buffer) => {
-        console.log(`Shot sound loaded successfully for player ${playerId}, duration:`, buffer.duration);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.audio(`Shot sound loaded successfully for player ${playerId}, duration:`, buffer.duration);
+        }
         shotSound.setBuffer(buffer);
         shotSound.setLoop(false); // Shot sound should only play once
         shotSound.setVolume(1.0 * audioSettings.masterVolume); // INCREASED weapon volume for better feedback
@@ -235,7 +265,9 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
         // Test play the shot sound once to ensure it's working
         setTimeout(() => {
           try {
-            console.log(`Testing shot sound for player ${playerId}`);
+            if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+              log.audio(`Testing shot sound for player ${playerId}`);
+            }
             const testVolume = shotSound.getVolume();
             shotSound.setVolume(0.1); // Low volume for test
             shotSound.play();
@@ -244,16 +276,19 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
               shotSound.setVolume(testVolume);
             }, 200);
           } catch (error) {
-            console.error(`Error testing shot sound: ${error}`);
+            if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+              log.error(`Error testing shot sound: ${error}`);
+            }
           }
         }, 2000);
       },
-      (progress) => {
-        if (progress.loaded === progress.total) {
-          console.log(`Shot sound loading complete for player ${playerId}`);
+      // Progress callback
+      undefined,
+      (error) => {
+        if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+          log.error(`Error loading remote player shot sound: ${error}`);
         }
-      },
-      (error) => console.error(`Error loading remote player shot sound: ${error}`)
+      }
     );
     
     // Cleanup on unmount
@@ -274,22 +309,30 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
   useEffect(() => {
     const handleRemoteShot = (event: CustomEvent<{playerId: string, position: {x: number, y: number, z: number}}>) => {
       // Log all shot events to debug
-      console.log(`Shot event received for player ${event.detail.playerId}, my player: ${playerId}`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+        log.audio(`Shot event received for player ${event.detail.playerId}, my player: ${playerId}`);
+      }
       
       // Only play shot sound if it's for this player
       if (event.detail.playerId !== playerId) {
-        console.log(`Shot event for ${event.detail.playerId}, but I am ${playerId} - ignoring`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.audio(`Shot event for ${event.detail.playerId}, but I am ${playerId} - ignoring`);
+        }
         return;
       }
       
-      console.log(`Processing shot for my player ${playerId}`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+        log.audio(`Processing shot for my player ${playerId}`);
+      }
       
       // Update shot fired time
       shotFiredTimeRef.current = Date.now();
       
       // Play the shot sound
       if (shotSoundRef.current && shotAudioLoaded && audioSettings.remoteSoundsEnabled) {
-        console.log(`Playing shot sound for remote player ${playerId}`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.audio(`Playing shot sound for remote player ${playerId}`);
+        }
         
         // Ensure shot sound is correctly initialized
         if (shotSoundRef.current.source) {
@@ -313,22 +356,32 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
             detail: { playerId, timestamp: Date.now() }
           }));
           
-          console.log(`Shot sound playback started for ${playerId}`);
+          if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+            log.audio(`Shot sound playback started for ${playerId}`);
+          }
         } catch (e) {
-          console.error(`Error playing shot sound for ${playerId}:`, e);
+          if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+            log.error(`Error playing shot sound for ${playerId}:`, e);
+          }
           
           // Try again after a short delay
           setTimeout(() => {
             try {
-              console.log(`Retrying shot sound playback for ${playerId}`);
+              if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+                log.audio(`Retrying shot sound playback for ${playerId}`);
+              }
               shotSoundRef.current?.play();
             } catch (retryError) {
-              console.error(`Retry failed for shot sound:`, retryError);
+              if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+                log.error(`Retry failed for shot sound:`, retryError);
+              }
             }
           }, 100);
         }
       } else {
-        console.warn(`Cannot play shot sound for ${playerId}: loaded=${shotAudioLoaded}, enabled=${audioSettings.remoteSoundsEnabled}`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.audio(`Cannot play shot sound for ${playerId}: loaded=${shotAudioLoaded}, enabled=${audioSettings.remoteSoundsEnabled}`);
+        }
       }
     };
     
@@ -340,7 +393,9 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       if (isShooting && shotSoundRef.current && shotAudioLoaded && audioSettings.remoteSoundsEnabled) {
         const now = Date.now();
         if (now - shotFiredTimeRef.current > 300) {
-          console.log(`Playing shot sound via prop check for ${playerId}`);
+          if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+            log.audio(`Playing shot sound via prop check for ${playerId}`);
+          }
           shotFiredTimeRef.current = now;
           
           try {
@@ -353,7 +408,9 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
             shotSoundRef.current.setVolume(1.0 * audioSettings.masterVolume);
             shotSoundRef.current.play();
           } catch (e) {
-            console.error(`Error playing shot via prop:`, e);
+            if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+              log.error(`Error playing shot via prop:`, e);
+            }
           }
         }
       }
@@ -366,7 +423,9 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
     const shootingCheckInterval = setInterval(checkShootingProp, 300);
     
     // Log registration
-    console.log(`Registered shot event listener for player ${playerId}`);
+    if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+      log.audio(`Registered shot event listener for player ${playerId}`);
+    }
     
     // Clean up
     return () => {
@@ -386,7 +445,9 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       // Add a function for this player to the global object
       window.__playerShots[playerId] = () => {
         if (shotSoundRef.current && shotAudioLoaded) {
-          console.log(`Manual shot trigger for player ${playerId}`);
+          if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+            log.audio(`Manual shot trigger for player ${playerId}`);
+          }
           
           try {
             // Stop if playing
@@ -400,7 +461,9 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
             
             return true;
           } catch (e) {
-            console.error('Error in manual shot:', e);
+            if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+              log.error('Error in manual shot:', e);
+            }
             return false;
           }
         }
@@ -443,7 +506,9 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
         window.dispatchEvent(event);
         
         // Log the manual trigger
-        console.log(`Manually triggered shot for player ${targetId}`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.audio(`Manually triggered shot for player ${targetId}`);
+        }
         
         // Return success
         return `Shot triggered for ${targetId}`;
@@ -477,12 +542,14 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
     
     // Only log occasionally to reduce spam (reduced frequency)
     if (Math.random() < 0.002) {
-      console.log(`Remote player ${playerId} audio state:`, { 
-        isWalking, 
-        isRunning,
-        walkingPlaying: walkingSoundRef.current?.isPlaying || false,
-        runningPlaying: runningSoundRef.current?.isPlaying || false
-      });
+      if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+        console.log(`Remote player ${playerId} audio state:`, { 
+          isWalking, 
+          isRunning,
+          walkingPlaying: walkingSoundRef.current?.isPlaying || false,
+          runningPlaying: runningSoundRef.current?.isPlaying || false
+        });
+      }
     }
     
     // Handle sound state changes
@@ -496,25 +563,31 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
     
     // Log on state changes to help diagnose issues
     if (prevState.isWalking !== isWalking || prevState.isRunning !== isRunning) {
-      console.log(`%c🎧 ${playerId} movement state changed:`, 'background: #333; color: #ff0; font-weight: bold', {
-        isWalking, 
-        isRunning, 
-        shouldPlayWalking,
-        shouldPlayRunning
-      });
+      if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+        console.log(`🎧 ${playerId} movement state changed:`, 'background: #333; color: #ff0; font-weight: bold', {
+          isWalking, 
+          isRunning, 
+          shouldPlayWalking,
+          shouldPlayRunning
+        });
+      }
     }
     
     // First ensure running sound is stopped if we're not running
     // This ensures walking never tries to play while running is still playing
     if (!shouldPlayRunning && runningSoundRef.current?.isPlaying) {
-      console.log(`%c🛑 ${playerId}: Stopping RUNNING sound first`, 'background: #900; color: white; font-weight: bold');
+      if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+        console.log(`🛑 ${playerId}: Stopping RUNNING sound first`, 'background: #900; color: white; font-weight: bold');
+      }
       runningSoundRef.current.stop();
     }
     
     // Then ensure walking sound is stopped if we're running or not walking
     // This ensures running never tries to play while walking is still playing
     if (!shouldPlayWalking && walkingSoundRef.current?.isPlaying) {
-      console.log(`%c🛑 ${playerId}: Stopping WALKING sound first`, 'background: #900; color: white; font-weight: bold');
+      if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+        console.log(`🛑 ${playerId}: Stopping WALKING sound first`, 'background: #900; color: white; font-weight: bold');
+      }
       walkingSoundRef.current.stop();
     }
     
@@ -525,11 +598,15 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       if (shouldPlayWalking) {
         // Should play walking sound - but double check running is stopped
         if (!walkingSoundRef.current.isPlaying && !runningSoundRef.current?.isPlaying) {
-          console.log(`%c🚶 ${playerId}: Starting WALKING sound`, 'background: #060; color: white; font-weight: bold');
+          if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+            console.log(`🚶 ${playerId}: Starting WALKING sound`, 'background: #060; color: white; font-weight: bold');
+          }
           try {
             walkingSoundRef.current.play();
           } catch (e) {
-            console.error(`Error playing walking sound: ${e}`);
+            if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+              console.error(`Error playing walking sound: ${e}`);
+            }
           }
         }
       }
@@ -540,11 +617,15 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       if (shouldPlayRunning) {
         // Should play running sound - but double check walking is stopped
         if (!runningSoundRef.current.isPlaying && !walkingSoundRef.current?.isPlaying) {
-          console.log(`%c🏃 ${playerId}: Starting RUNNING sound`, 'background: #600; color: white; font-weight: bold');
+          if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+            console.log(`🏃 ${playerId}: Starting RUNNING sound`, 'background: #600; color: white; font-weight: bold');
+          }
           try {
             runningSoundRef.current.play();
           } catch (e) {
-            console.error(`Error playing running sound: ${e}`);
+            if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+              console.error(`Error playing running sound: ${e}`);
+            }
           }
         }
       }
@@ -559,12 +640,16 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
         shotFiredTimeRef.current = now;
         
         if (!shotSoundRef.current.isPlaying) {
-          console.log(`Playing gunshot for ${playerId}`);
+          if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+            console.log(`Playing gunshot for ${playerId}`);
+          }
           try {
             shotSoundRef.current.setVolume(1.0 * audioSettings.masterVolume);
             shotSoundRef.current.play();
           } catch (e) {
-            console.error(`Error playing shot: ${e}`);
+            if (isDebugEnabled(DEBUG_LEVELS.ERROR)) {
+              console.error(`Error playing shot: ${e}`);
+            }
           }
         }
       }

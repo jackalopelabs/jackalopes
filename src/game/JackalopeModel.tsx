@@ -5,7 +5,10 @@ import { useFrame } from '@react-three/fiber'
 
 // Import assets from centralized asset index
 import { JackalopeModelPath } from '../assets'
+// Import debug utilities
+import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils'
 
+// Remove debug level constant - using global debug system instead
 // This component will handle the jackalope character - static model for now
 export const JackalopeModel = ({ 
   animation = 'idle', // Keep parameter for future animation support
@@ -35,7 +38,9 @@ export const JackalopeModel = ({
   // Apply pivot correction to center the model rotation
   useEffect(() => {
     if (scene) {
-      console.log('Successfully loaded jackalope model:', scene);
+      if (isDebugEnabled(2)) {
+        console.log('Successfully loaded jackalope model:', scene);
+      }
       
       // Center the model by moving its children to adjust the pivot point
       // This makes the model rotate around its visual center instead of its origin point
@@ -47,16 +52,23 @@ export const JackalopeModel = ({
       });
       
       // Log the adjustment for debugging
-      console.log(`Applied pivot correction: offset Z by ${pivotOffsetZ}`);
+      if (isDebugEnabled(2)) {
+        console.log(`Applied pivot correction: offset Z by ${pivotOffsetZ}`);
+      }
     } else {
       setModelError('Failed to load jackalope model: scene is undefined');
+      if (isDebugEnabled(1)) {
+        console.error('Failed to load jackalope model: scene is undefined');
+      }
     }
   }, [scene]);
   
   // Track the current animation for pivot adjustment
   useEffect(() => {
     // Log animation changes for debugging
-    console.log(`Animation changed to: ${animation}`);
+    if (isDebugEnabled(3)) {
+      console.log(`Animation changed to: ${animation}`);
+    }
   }, [animation]);
   
   // Convert position and rotation to proper format
@@ -73,7 +85,7 @@ export const JackalopeModel = ({
     if (group.current) {
       const [x, y, z] = finalPosition;
       // Log position occasionally for debugging
-      if (Math.random() < 0.01) {
+      if (isDebugEnabled(3) && Math.random() < 0.01) {
         console.log(`[MODEL] Directly setting position: (${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)})`);
       }
       // Apply position directly
@@ -100,6 +112,10 @@ export const JackalopeModel = ({
   
   // If there was an error loading the model, render a geometric bunny placeholder
   if (modelError || !scene) {
+    if (isDebugEnabled(1)) {
+      console.warn('Using fallback geometric bunny model due to loading error');
+    }
+    
     return (
       <group 
         ref={group} 

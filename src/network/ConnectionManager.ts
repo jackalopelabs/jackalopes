@@ -132,6 +132,21 @@ export class ConnectionManager extends EventEmitter {
 
   // Helper methods for logging with different levels
   private log(level: LogLevel, ...args: any[]): void {
+    // Filter out player_update messages unless we're at VERBOSE level
+    if (args.length > 0 && typeof args[0] === 'string') {
+      // Check if this is a player_update message
+      const isPlayerUpdate = (
+        (args[0].includes('Sending data to server (player_update)')) || 
+        (args[0].includes('Received message from server (player_update)'))
+      );
+      
+      // Only log player_update messages if we're at VERBOSE level
+      if (isPlayerUpdate && level < LogLevel.VERBOSE) {
+        return;
+      }
+    }
+
+    // Log non-player_update messages normally
     if (level <= this.logLevel) {
       switch (level) {
         case LogLevel.ERROR:
@@ -155,6 +170,22 @@ export class ConnectionManager extends EventEmitter {
   setLogLevel(level: LogLevel): void {
     this.logLevel = level;
     this.log(LogLevel.INFO, `Log level set to: ${LogLevel[level]}`);
+  }
+  
+  // Public methods to easily change log levels
+  enableVerboseLogging(): void {
+    this.setLogLevel(LogLevel.VERBOSE);
+    this.log(LogLevel.INFO, '📊 Verbose logging enabled - showing all network messages');
+  }
+
+  disableVerboseLogging(): void {
+    this.setLogLevel(LogLevel.INFO);
+    this.log(LogLevel.INFO, '📊 Verbose logging disabled - filtering player_update messages');
+  }
+
+  // Method to get the current log level
+  getLogLevel(): LogLevel {
+    return this.logLevel;
   }
   
   connect(): void {

@@ -6,6 +6,7 @@ import { Points, BufferGeometry, NormalBufferAttributes, Material } from 'three'
 import { MercModel } from './MercModel'; // Import MercModel for remote players
 import { JackalopeModel } from './JackalopeModel'; // Import the new JackalopeModel
 import { RemotePlayerAudio } from '../components/RemotePlayerAudio'; // Import RemotePlayerAudio component
+import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils'; // Import new debug utilities
 
 // Define the RemotePlayerData interface locally to match MultiplayerManager
 interface RemotePlayerData {
@@ -17,10 +18,6 @@ interface RemotePlayerData {
   isRunning?: boolean;
   isShooting?: boolean;
 }
-
-// Add a global debug level constant
-// 0 = no logs, 1 = error only, 2 = important info, 3 = verbose 
-const DEBUG_LEVEL = 2;
 
 // Interface for RemotePlayer props
 export interface RemotePlayerProps {
@@ -135,7 +132,9 @@ const PilotLight = () => {
 // Remote Player Component
 export const RemotePlayer = ({ playerId, position, rotation, playerType, isMoving, isRunning, isShooting }: RemotePlayerData) => {
   // Add debug logging for player type
-  console.log(`🎮 RemotePlayer ${playerId} rendering with playerType: ${playerType || 'undefined'}`);
+  if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+    log.player(`RemotePlayer ${playerId} rendering with playerType: ${playerType || 'undefined'}`);
+  }
   
   const meshRef = useRef<THREE.Mesh>(null);
   const lastAnimationChangeTime = useRef<number>(Date.now());
@@ -151,10 +150,14 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   
   // Log initialization
   useEffect(() => {
-    console.log(`RemotePlayer ${playerId} initialized.`);
+    if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+      log.player(`RemotePlayer ${playerId} initialized.`);
+    }
     
     return () => {
-      console.log(`RemotePlayer ${playerId} unmounted.`);
+      if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
+        log.player(`RemotePlayer ${playerId} unmounted.`);
+      }
     };
   }, [playerId]);
   
@@ -164,22 +167,26 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   
   // Log every state update to debug movement sound issues
   useEffect(() => {
-    console.log(`RemotePlayer ${playerId} received props update:`, { 
-      isMoving, 
-      isRunning, 
-      isShooting,
-      localIsMoving,
-      localIsRunning
-    });
+    if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+      log.player(`RemotePlayer ${playerId} received props update: ${JSON.stringify({ 
+        isMoving, 
+        isRunning, 
+        isShooting,
+        localIsMoving,
+        localIsRunning
+      })}`);
+    }
   }, [isMoving, isRunning, isShooting, localIsMoving, localIsRunning, playerId]);
   
   // Force re-check movement state when props change
   useEffect(() => {
     // Debug the incoming props more clearly
-    console.log(`RemotePlayer ${playerId} movement props received:`, {
-      isMoving: isMoving === true ? "TRUE" : (isMoving === false ? "FALSE" : "undefined"),
-      isRunning: isRunning === true ? "TRUE" : (isRunning === false ? "FALSE" : "undefined"),
-    });
+    if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+      log.player(`RemotePlayer ${playerId} movement props received: ${JSON.stringify({
+        isMoving: isMoving === true ? "TRUE" : (isMoving === false ? "FALSE" : "undefined"),
+        isRunning: isRunning === true ? "TRUE" : (isRunning === false ? "FALSE" : "undefined"),
+      })}`);
+    }
     
     // Add hysteresis to prevent rapid toggling between states
     const now = Date.now();
@@ -188,26 +195,34 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
     
     // If it's too soon for another state change, ignore this update
     if (timeSinceLastChange < MIN_STATE_CHANGE_INTERVAL) {
-      console.log(`${playerId}: Ignoring movement state change - too frequent (${timeSinceLastChange}ms)`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+        log.player(`${playerId}: Ignoring movement state change - too frequent (${timeSinceLastChange}ms)`);
+      }
       return;
     }
     
     // Don't let walking and running both be true at the same time
     if (isMoving === true && isRunning === true) {
       // Running takes precedence
-      console.log(`${playerId}: Both moving and running flags are true - setting to RUNNING`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+        log.player(`${playerId}: Both moving and running flags are true - setting to RUNNING`);
+      }
       setLocalIsMoving(true);
       setLocalIsRunning(true);
       lastAnimationChangeTime.current = now;
     } else if (isMoving === true && isRunning !== true) {
       // Walking only - make sure isRunning is explicitly FALSE
-      console.log(`${playerId}: Moving=true, Running!=true - setting to WALKING`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+        log.player(`${playerId}: Moving=true, Running!=true - setting to WALKING`);
+      }
       setLocalIsMoving(true);
       setLocalIsRunning(false);
       lastAnimationChangeTime.current = now;
     } else if (isMoving === false) {
       // Not moving - stop all movement
-      console.log(`${playerId}: Moving=false - setting to STOPPED`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+        log.player(`${playerId}: Moving=false - setting to STOPPED`);
+      }
       setLocalIsMoving(false);
       setLocalIsRunning(false);
       lastAnimationChangeTime.current = now;
@@ -220,12 +235,14 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   
   // Log changes in the calculated audio states
   useEffect(() => {
-    console.log(`${playerId} audio states calculated:`, {
-      walkingOnly,
-      running,
-      shouldPlayWalkSound: walkingOnly,
-      shouldPlayRunSound: running,
-    });
+    if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+      log.player(`${playerId} audio states calculated: ${JSON.stringify({
+        walkingOnly,
+        running,
+        shouldPlayWalkSound: walkingOnly,
+        shouldPlayRunSound: running,
+      })}`);
+    }
   }, [walkingOnly, running, playerId]);
   
   // Update local isMoving state when the prop changes, with rate limiting
@@ -234,32 +251,42 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       const now = Date.now();
       const timeSinceLastChange = now - lastAnimationChangeTime.current;
       
-      console.log(`RemotePlayer ${playerId} movement state update: isMoving=${isMoving}, isRunning=${isRunning}`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+        log.player(`RemotePlayer ${playerId} movement state update: isMoving=${isMoving}, isRunning=${isRunning}`);
+      }
       
       // Apply rate limiting to prevent animation flicker
       if (timeSinceLastChange < MIN_ANIMATION_CHANGE_INTERVAL) {
         // Too soon for another animation change, store it as pending
         pendingAnimationChange.current = isMoving ? "walk" : "idle";
-        console.log(`Animation change too frequent for ${playerId}, queueing ${pendingAnimationChange.current}`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.player(`Animation change too frequent for ${playerId}, queueing ${pendingAnimationChange.current}`);
+        }
       } else {
         // Apply animation change immediately
         setLocalIsMoving(isMoving);
         currentAnimation.current = isMoving ? "walk" : "idle";
         lastAnimationChangeTime.current = now;
-        console.log(`Remote player ${playerId} animation set to ${isMoving ? "walk" : "idle"} from props`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.player(`Remote player ${playerId} animation set to ${isMoving ? "walk" : "idle"} from props`);
+        }
       }
     }
     
     // Update running state
     if (isRunning !== undefined) {
       setLocalIsRunning(isRunning);
-      console.log(`RemotePlayer ${playerId} running state set to ${isRunning}`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+        log.player(`RemotePlayer ${playerId} running state set to ${isRunning}`);
+      }
     }
   }, [isMoving, isRunning, playerId]);
   
   // Add debug output to monitor state changes
   useEffect(() => {
-    console.log(`RemotePlayer ${playerId} state updated: localIsMoving=${localIsMoving}, localIsRunning=${localIsRunning}`);
+    if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+      log.player(`RemotePlayer ${playerId} state updated: localIsMoving=${localIsMoving}, localIsRunning=${localIsRunning}`);
+    }
   }, [localIsMoving, localIsRunning, playerId]);
   
   // Apply any pending animation changes
@@ -276,7 +303,9 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
         currentAnimation.current = newAnim;
         lastAnimationChangeTime.current = now;
         pendingAnimationChange.current = null;
-        console.log(`Applied pending animation change for ${playerId}: ${newAnim}`);
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+          log.player(`Applied pending animation change for ${playerId}: ${newAnim}`);
+        }
       }
     }
     
@@ -317,7 +346,9 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
             setLocalIsMoving(true);
             currentAnimation.current = "walk";
             lastAnimationChangeTime.current = now;
-            console.log(`Remote player ${playerId} started moving: ${distance.toFixed(4)} at speed ${speed.toFixed(2)}`);
+            if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+              log.player(`Remote player ${playerId} started moving: ${distance.toFixed(4)} at speed ${speed.toFixed(2)}`);
+            }
           }
           
           // Check if player is running based on speed with higher threshold
@@ -325,12 +356,16 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
           if (speed > 8.0 && !localIsRunning && canChangeState) {
             setLocalIsRunning(true);
             lastAnimationChangeTime.current = now;
-            console.log(`Remote player ${playerId} is now running at speed ${speed.toFixed(2)}`);
+            if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+              log.player(`Remote player ${playerId} is now running at speed ${speed.toFixed(2)}`);
+            }
           } else if (speed < 6.0 && localIsRunning && canChangeState) {
             // Use a lower threshold for turning off running (hysteresis)
             setLocalIsRunning(false);
             lastAnimationChangeTime.current = now;
-            console.log(`Remote player ${playerId} is now walking at speed ${speed.toFixed(2)}`);
+            if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+              log.player(`Remote player ${playerId} is now walking at speed ${speed.toFixed(2)}`);
+            }
           }
         } else {
           // If player has stopped moving for a while, set state to idle
@@ -339,7 +374,9 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
             setLocalIsRunning(false);
             currentAnimation.current = "idle";
             lastAnimationChangeTime.current = now;
-            console.log(`Remote player ${playerId} stopped moving: ${distance.toFixed(4)}`);
+            if (isDebugEnabled(DEBUG_LEVELS.VERBOSE)) {
+              log.player(`Remote player ${playerId} stopped moving: ${distance.toFixed(4)}`);
+            }
           }
         }
       }
@@ -372,8 +409,8 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       meshRef.current.rotation.set(0, currentRotation.current, 0);
       
       // Debug rotation occasionally
-      if (Math.random() < 0.01) {
-        console.log(`Remote player ${playerId} rotation updated: ${currentRotation.current.toFixed(2)}`);
+      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE) && Math.random() < 0.01) {
+        log.player(`Remote player ${playerId} rotation updated: ${currentRotation.current.toFixed(2)}`);
       }
     }
   });
@@ -422,7 +459,7 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   if (playerType === 'jackalope') {
     // Debug output occasionally to help diagnose position issues
     if (Date.now() % 5000 < 20) {
-      console.log(`Remote jackalope position: (${position?.x.toFixed(2)}, ${position?.y.toFixed(2)}, ${position?.z.toFixed(2)})`);
+      log.player(`Remote jackalope position: (${position?.x.toFixed(2)}, ${position?.y.toFixed(2)}, ${position?.z.toFixed(2)})`);
     }
     
     return (
