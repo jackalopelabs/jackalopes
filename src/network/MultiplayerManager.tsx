@@ -26,7 +26,9 @@ type RemotePlayerData = {
   rotation: number;
   lastUpdate?: number;
   playerType?: 'merc' | 'jackalope';
-  isMoving?: boolean; // Add isMoving flag to indicate if player is moving
+  isMoving?: boolean;  // Flag to indicate if player is moving
+  isRunning?: boolean; // Added flag to indicate if player is running
+  isShooting?: boolean; // Added flag to indicate if player is shooting
 };
 
 // Interface for RemotePlayer props
@@ -490,7 +492,9 @@ export const useMultiplayer = (
             rotation,
             lastUpdate: Date.now(),
             playerType: playerType as 'merc' | 'jackalope',
-            isMoving: false // Start as idle
+            isMoving: false, // Start as idle
+            isRunning: false, // Start as not running
+            isShooting: false // Start as not shooting
           }
         };
       });
@@ -547,6 +551,9 @@ export const useMultiplayer = (
 
         // Detect movement by calculating position change
         let isMoving = false;
+        let isRunning = false;
+        let timeDelta = 0.016; // Default to 60fps (~16ms)
+        let speed = 0;
         
         if (prev[data.id] && prev[data.id].position) {
           const prevPos = prev[data.id].position;
@@ -558,23 +565,44 @@ export const useMultiplayer = (
           
           // Get the current moving state
           const wasMoving = prev[data.id].isMoving || false;
+          const wasRunning = prev[data.id].isRunning || false;
+          
+          // Calculate speed if we have a previous update time
+          if (prev[data.id].lastUpdate) {
+            // Calculate time delta in seconds (max 1s to avoid giant jumps)
+            timeDelta = Math.min((now - prev[data.id].lastUpdate) / 1000, 1);
+            if (timeDelta > 0) {
+              speed = distance / timeDelta;
+            }
+          }
           
           // Apply hysteresis - use different thresholds for starting vs stopping movement
-          // This prevents rapid toggling between states
           if (!wasMoving && distance > 0.05) {
-            // Need more movement to start walking
+            // Need significant movement to start walking
             isMoving = true;
           } else if (wasMoving && distance < 0.02) {
-            // Need more stillness to stop walking
+            // Need very little movement to be considered stopped
             isMoving = false;
+            isRunning = false; // Stop running if we're stopped
           } else {
-            // Otherwise, maintain previous state
+            // Otherwise maintain previous state
             isMoving = wasMoving;
           }
           
-          // Log movement state changes (but not too often)
-          if (prev[data.id].isMoving !== isMoving && Math.random() < 0.2) {
-            console.log(`Remote player ${data.id} ${isMoving ? 'started' : 'stopped'} moving (distance: ${distance.toFixed(4)})`);
+          // Determine running based on speed
+          if (isMoving && speed > 0.4) {
+            isRunning = true;
+          } else if (wasRunning && speed < 0.3) {
+            // Need to slow down more to stop running (hysteresis)
+            isRunning = false;
+          } else {
+            // Otherwise maintain previous running state
+            isRunning = wasRunning && isMoving; // Only keep running if still moving
+          }
+          
+          // Log movement state changes occasionally
+          if ((prev[data.id].isMoving !== isMoving || prev[data.id].isRunning !== isRunning) && Math.random() < 0.2) {
+            console.log(`Remote player ${data.id} movement: ${isMoving ? (isRunning ? 'running' : 'walking') : 'idle'} (dist: ${distance.toFixed(3)}, speed: ${speed.toFixed(2)})`);
           }
         }
         
@@ -589,7 +617,8 @@ export const useMultiplayer = (
               rotation,
               lastUpdate: now,
               playerType: data.state?.playerType || data.playerType || 'merc',
-              isMoving: false // Start as idle
+              isMoving: false,
+              isRunning: false
             }
           };
         }
@@ -603,7 +632,7 @@ export const useMultiplayer = (
             rotation,
             lastUpdate: now,
             isMoving,
-            // Extract playerType from state if available, otherwise keep existing or default to merc
+            isRunning,
             playerType: data.state?.playerType || data.playerType || prev[data.id].playerType || 'merc'
           }
         };
@@ -1072,6 +1101,78 @@ export const useMultiplayer = (
     };
   }, [connectionManager]);
   
+  // Function to handle remote shots
+  const handleRemoteShot = (shotData: any) => {
+    try {
+      if (!shotData || !shotData.id || !shotData.origin) {
+        console.warn('Invalid shot data received:', shotData);
+        return;
+      }
+      
+      // Skip our own shots (they'll be handled by the local player)
+      if (shotData.id === connectionManager.getPlayerId()) {
+        return;
+      }
+      
+      console.log(`Remote shot received from ${shotData.id}`);
+      
+      // Set shooting state for the remote player
+      setRemotePlayers(prev => {
+        // If we don't have this player, ignore the shot
+        if (!prev[shotData.id]) {
+          return prev;
+        }
+        
+        // Create a copy with updated shooting state
+        return {
+          ...prev,
+          [shotData.id]: {
+            ...prev[shotData.id],
+            isShooting: true,
+            // Reset shooting state after a short delay
+            lastShotTime: Date.now()
+          }
+        };
+      });
+      
+      // Dispatch a custom event that RemotePlayerAudio will listen for
+      window.dispatchEvent(new CustomEvent('remoteShotFired', {
+        detail: {
+          playerId: shotData.id,
+          position: {
+            x: shotData.origin[0],
+            y: shotData.origin[1],
+            z: shotData.origin[2]
+          }
+        }
+      }));
+      
+      // Reset shooting state after a short delay
+      setTimeout(() => {
+        setRemotePlayers(prev => {
+          // If the player is gone, do nothing
+          if (!prev[shotData.id]) {
+            return prev;
+          }
+          
+          // Reset shooting state
+          return {
+            ...prev,
+            [shotData.id]: {
+              ...prev[shotData.id],
+              isShooting: false
+            }
+          };
+        });
+      }, 200); // Short delay to ensure the animation and sound can play
+    } catch (error) {
+      console.error('Error handling remote shot:', error);
+    }
+  };
+  
+  // Add listener for shot events
+  connectionManager.on('shot', handleRemoteShot);
+  
   return {
     remotePlayers,
     handleShoot: (origin: [number, number, number], direction: [number, number, number]) => {
@@ -1129,6 +1230,8 @@ export const RemotePlayers = React.memo(({
           rotation={playerData.rotation}
           playerType={playerData.playerType || 'merc'}
           isMoving={playerData.isMoving}
+          isRunning={playerData.isRunning}
+          isShooting={playerData.isShooting}
         />
       ))}
     </>
@@ -1279,7 +1382,9 @@ export const MultiplayerManager: React.FC<{
             rotation,
             lastUpdate: Date.now(),
             playerType: playerType as 'merc' | 'jackalope',
-            isMoving: false // Start as idle
+            isMoving: false, // Start as idle
+            isRunning: false, // Start as not running
+            isShooting: false // Start as not shooting
           }
         };
       });
@@ -1336,6 +1441,9 @@ export const MultiplayerManager: React.FC<{
 
         // Detect movement by calculating position change
         let isMoving = false;
+        let isRunning = false;
+        let timeDelta = 0.016; // Default to 60fps (~16ms)
+        let speed = 0;
         
         if (prev[data.id] && prev[data.id].position) {
           const prevPos = prev[data.id].position;
@@ -1347,23 +1455,44 @@ export const MultiplayerManager: React.FC<{
           
           // Get the current moving state
           const wasMoving = prev[data.id].isMoving || false;
+          const wasRunning = prev[data.id].isRunning || false;
+          
+          // Calculate speed if we have a previous update time
+          if (prev[data.id].lastUpdate) {
+            // Calculate time delta in seconds (max 1s to avoid giant jumps)
+            timeDelta = Math.min((now - prev[data.id].lastUpdate) / 1000, 1);
+            if (timeDelta > 0) {
+              speed = distance / timeDelta;
+            }
+          }
           
           // Apply hysteresis - use different thresholds for starting vs stopping movement
-          // This prevents rapid toggling between states
           if (!wasMoving && distance > 0.05) {
-            // Need more movement to start walking
+            // Need significant movement to start walking
             isMoving = true;
           } else if (wasMoving && distance < 0.02) {
-            // Need more stillness to stop walking
+            // Need very little movement to be considered stopped
             isMoving = false;
+            isRunning = false; // Stop running if we're stopped
           } else {
-            // Otherwise, maintain previous state
+            // Otherwise maintain previous state
             isMoving = wasMoving;
           }
           
-          // Log movement state changes (but not too often)
-          if (prev[data.id].isMoving !== isMoving && Math.random() < 0.2) {
-            console.log(`Remote player ${data.id} ${isMoving ? 'started' : 'stopped'} moving (distance: ${distance.toFixed(4)})`);
+          // Determine running based on speed
+          if (isMoving && speed > 0.4) {
+            isRunning = true;
+          } else if (wasRunning && speed < 0.3) {
+            // Need to slow down more to stop running (hysteresis)
+            isRunning = false;
+          } else {
+            // Otherwise maintain previous running state
+            isRunning = wasRunning && isMoving; // Only keep running if still moving
+          }
+          
+          // Log movement state changes occasionally
+          if ((prev[data.id].isMoving !== isMoving || prev[data.id].isRunning !== isRunning) && Math.random() < 0.2) {
+            console.log(`Remote player ${data.id} movement: ${isMoving ? (isRunning ? 'running' : 'walking') : 'idle'} (dist: ${distance.toFixed(3)}, speed: ${speed.toFixed(2)})`);
           }
         }
         
@@ -1378,7 +1507,8 @@ export const MultiplayerManager: React.FC<{
               rotation,
               lastUpdate: now,
               playerType: data.state?.playerType || data.playerType || 'merc',
-              isMoving: false // Start as idle
+              isMoving: false,
+              isRunning: false
             }
           };
         }
@@ -1392,7 +1522,7 @@ export const MultiplayerManager: React.FC<{
             rotation,
             lastUpdate: now,
             isMoving,
-            // Extract playerType from state if available, otherwise keep existing or default to merc
+            isRunning,
             playerType: data.state?.playerType || data.playerType || prev[data.id].playerType || 'merc'
           }
         };

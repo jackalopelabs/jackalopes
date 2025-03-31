@@ -10,37 +10,63 @@ import { WeaponSoundSettings } from './WeaponSoundEffects';
 export const AudioController = () => {
   const [audioInitialized, setAudioInitialized] = useState(false);
   
+  // Load saved preferences from localStorage
+  const loadSavedPreferences = () => {
+    try {
+      const savedSettings = localStorage.getItem('audioSettings');
+      if (savedSettings) {
+        return JSON.parse(savedSettings);
+      }
+    } catch (error) {
+      console.error('Error loading saved audio preferences:', error);
+    }
+    return null;
+  };
+  
+  // Get saved preferences or defaults
+  const savedPreferences = loadSavedPreferences() || {};
+  
   // Set up standard audio settings controls
   const { 
     masterVolume,
     footstepsEnabled,
     walkingVolume, 
     runningVolume,
-    spatialAudioEnabled
+    spatialAudioEnabled,
+    remoteSoundsEnabled, // Add new control for remote player sounds
+    muteAll // Add global mute control
   } = useControls('Audio Settings', {
     masterVolume: {
-      value: 1.0, 
+      value: savedPreferences.masterVolume ?? 1.0, 
       min: 0, 
       max: 1,
       step: 0.05,
     },
+    muteAll: {
+      value: savedPreferences.muteAll ?? false,
+      label: '🔇 Mute All Audio'
+    },
     footstepsEnabled: {
-      value: true,
+      value: savedPreferences.footstepsEnabled ?? true,
       label: 'Footsteps Enabled'
     },
+    remoteSoundsEnabled: {
+      value: savedPreferences.remoteSoundsEnabled ?? true,
+      label: '👥 Remote Player Sounds'
+    },
     spatialAudioEnabled: {
-      value: true,
+      value: savedPreferences.spatialAudioEnabled ?? true,
       label: 'Spatial Audio'
     },
     walkingVolume: {
-      value: 0.3, 
+      value: savedPreferences.walkingVolume ?? 0.3, 
       min: 0, 
       max: 1,
       step: 0.05,
       label: 'Walking Volume'
     },
     runningVolume: {
-      value: 0.4, 
+      value: savedPreferences.runningVolume ?? 0.4, 
       min: 0, 
       max: 1,
       step: 0.05,
@@ -51,7 +77,7 @@ export const AudioController = () => {
   // Add weapon volume control separately to avoid TypeScript issues
   useControls('Weapon Sounds', {
     weaponVolume: {
-      value: WeaponSoundSettings.volume,
+      value: savedPreferences.weaponVolume ?? WeaponSoundSettings.volume,
       min: 0,
       max: 1,
       step: 0.05,
@@ -64,33 +90,84 @@ export const AudioController = () => {
     }
   });
   
-  // When settings change, broadcast them as custom events
+  // Save preferences to localStorage when settings change
   useEffect(() => {
     if (!audioInitialized) {
       setAudioInitialized(true);
       return;
     }
     
-    // Dispatch event with the current audio settings
-    window.dispatchEvent(new CustomEvent('audioSettingsChanged', {
-      detail: {
+    // Save preferences to localStorage
+    try {
+      const settingsToSave = {
         masterVolume,
+        muteAll,
         footstepsEnabled,
         walkingVolume,
         runningVolume,
-        spatialAudioEnabled
+        spatialAudioEnabled,
+        remoteSoundsEnabled,
+        weaponVolume: window.__getWeaponVolume?.() ?? WeaponSoundSettings.volume
+      };
+      
+      localStorage.setItem('audioSettings', JSON.stringify(settingsToSave));
+    } catch (error) {
+      console.error('Error saving audio preferences:', error);
+    }
+    
+    // Apply mute all setting if enabled
+    const effectiveMasterVolume = muteAll ? 0 : masterVolume;
+    
+    // Apply mute setting directly to WeaponSoundSettings
+    WeaponSoundSettings.setMuted(muteAll);
+    
+    // Dispatch event with the current audio settings
+    window.dispatchEvent(new CustomEvent('audioSettingsChanged', {
+      detail: {
+        masterVolume: effectiveMasterVolume,
+        footstepsEnabled,
+        walkingVolume,
+        runningVolume,
+        spatialAudioEnabled,
+        remoteSoundsEnabled,
+        muteAll
+      }
+    }));
+    
+    // Also dispatch a specific event for remote sounds toggle
+    window.dispatchEvent(new CustomEvent('remoteSoundsToggled', {
+      detail: {
+        enabled: remoteSoundsEnabled && !muteAll
       }
     }));
     
     console.log('Audio settings updated:', {
-      masterVolume,
+      masterVolume: effectiveMasterVolume,
+      muteAll,
       footstepsEnabled,
       walkingVolume,
       runningVolume,
-      spatialAudioEnabled
+      spatialAudioEnabled,
+      remoteSoundsEnabled
     });
-  }, [masterVolume, footstepsEnabled, walkingVolume, runningVolume, spatialAudioEnabled, audioInitialized]);
+  }, [
+    masterVolume, 
+    muteAll,
+    footstepsEnabled, 
+    walkingVolume, 
+    runningVolume, 
+    spatialAudioEnabled,
+    remoteSoundsEnabled,
+    audioInitialized
+  ]);
   
   // This component doesn't render anything visible
   return null;
-}; 
+};
+
+// Update TypeScript declaration for window.__getWeaponVolume
+declare global {
+  interface Window {
+    __getWeaponVolume?: () => number;
+  }
+} 

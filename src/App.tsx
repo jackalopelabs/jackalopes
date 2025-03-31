@@ -24,6 +24,7 @@ import { RemotePlayer } from './game/RemotePlayer'
 import { AudioController } from './components/AudioController' // Import the AudioController component
 import { WeaponSoundEffects } from './components/WeaponSoundEffects' // Import the WeaponSoundEffects component
 import { HealthBar } from './components/HealthBar' // Import the HealthBar component
+import { AudioToggleButton } from './components/AudioToggleButton' // Import the AudioToggleButton component
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -3173,6 +3174,9 @@ export function App() {
                     Press [H] to decrease health • [R] to reset
                 </div>
             )}
+
+            {/* Add AudioToggleButton for easy audio control */}
+            <AudioToggleButton position="bottom-right" showRemoteToggle={enableMultiplayer} />
         </>
     );
 }

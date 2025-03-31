@@ -7,10 +7,15 @@ import { Sounds } from '../assets';
 // This can be adjusted from anywhere in the app
 export const WeaponSoundSettings = {
   volume: 0.1, // Default volume (quieter than before)
+  masterMuted: false, // Add a flag to track if all audio is muted
   setVolume: (value: number) => {
     // Ensure volume is between 0 and 1
     WeaponSoundSettings.volume = Math.min(1, Math.max(0, value));
     console.log(`Weapon sound volume set to: ${WeaponSoundSettings.volume}`);
+  },
+  setMuted: (muted: boolean) => {
+    WeaponSoundSettings.masterMuted = muted;
+    console.log(`Weapon sounds ${muted ? 'muted' : 'unmuted'}`);
   }
 };
 
@@ -23,10 +28,30 @@ export const WeaponSoundEffects = () => {
   
   // Track if audio is loaded
   const [shotAudioLoaded, setShotAudioLoaded] = useState(false);
+  // Track mute state
+  const [audioMuted, setAudioMuted] = useState(false);
   
   // Web Audio API context and buffer
   const audioContextRef = useRef<AudioContext | null>(null);
   const shotBufferRef = useRef<AudioBuffer | null>(null);
+  
+  // Listen for audio settings changes from AudioController
+  useEffect(() => {
+    const handleAudioSettingsChanged = (event: CustomEvent<{masterVolume: number, muteAll?: boolean}>) => {
+      const isMuted = event.detail.masterVolume === 0 || event.detail.muteAll === true;
+      setAudioMuted(isMuted);
+      WeaponSoundSettings.setMuted(isMuted);
+      
+      console.log(`Weapon sound settings updated from event: muted=${isMuted}`);
+    };
+    
+    // Register for global audio settings changes
+    window.addEventListener('audioSettingsChanged', handleAudioSettingsChanged as EventListener);
+    
+    return () => {
+      window.removeEventListener('audioSettingsChanged', handleAudioSettingsChanged as EventListener);
+    };
+  }, []);
   
   // Set up audio system on component mount
   useEffect(() => {
@@ -68,6 +93,12 @@ export const WeaponSoundEffects = () => {
       
       // Define the playback function
       window.__playMercShot = () => {
+        // Skip playing if audio is muted
+        if (WeaponSoundSettings.masterMuted) {
+          console.log('Shot sound not played - audio is muted');
+          return;
+        }
+        
         console.log('Playing shot with HTML5 Audio fallback');
         // Find a non-playing audio element
         let audio = audioPool.find(a => a.paused);
@@ -128,6 +159,12 @@ export const WeaponSoundEffects = () => {
     
     // Function to play the shot sound using Web Audio API
     const playShotSound = (volume = WeaponSoundSettings.volume) => { // Use global volume setting
+      // Skip playing if audio is muted
+      if (WeaponSoundSettings.masterMuted) {
+        console.log('Shot sound not played - audio is muted');
+        return;
+      }
+      
       if (!audioContextRef.current || !shotBufferRef.current) {
         console.warn('Audio context or buffer not ready');
         return;
@@ -168,6 +205,9 @@ export const WeaponSoundEffects = () => {
     
     // Listen for mouse down events (when the player shoots)
     const handleShot = (event: MouseEvent) => {
+      // Skip if audio is muted
+      if (WeaponSoundSettings.masterMuted) return;
+      
       // Less restrictive check to ensure the sound plays in more scenarios
       if (event.button === 0) {
         console.log(`Mouse ${event.type} event detected, playing shot sound`);
@@ -184,6 +224,9 @@ export const WeaponSoundEffects = () => {
     
     // Create a named function for the shotFired event to allow proper cleanup
     const handleShotFired = () => {
+      // Skip if audio is muted
+      if (WeaponSoundSettings.masterMuted) return;
+      
       console.log('shotFired event received');
       playShotSound();
     };
@@ -201,6 +244,12 @@ export const WeaponSoundEffects = () => {
     
     // Universal method to play the shot sound
     window.__playMercShot = () => {
+      // Skip if audio is muted
+      if (WeaponSoundSettings.masterMuted) {
+        console.log('Global __playMercShot not played - audio is muted');
+        return;
+      }
+      
       console.log('Global __playMercShot called directly');
       playShotSound();
     };
@@ -209,6 +258,11 @@ export const WeaponSoundEffects = () => {
     window.__setWeaponVolume = (volume: number) => {
       WeaponSoundSettings.setVolume(volume);
       console.log(`Weapon volume set to ${WeaponSoundSettings.volume}`);
+    };
+    
+    // Add a method to retrieve the current weapon volume
+    window.__getWeaponVolume = () => {
+      return WeaponSoundSettings.volume;
     };
     
     // Cleanup on unmount
@@ -221,6 +275,7 @@ export const WeaponSoundEffects = () => {
       window.removeEventListener('shotFired', handleShotFired);
       window.__playMercShot = undefined;
       window.__setWeaponVolume = undefined;
+      window.__getWeaponVolume = undefined;
       
       // Close audio context
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
@@ -238,5 +293,6 @@ declare global {
   interface Window {
     __playMercShot?: () => void;
     __setWeaponVolume?: (volume: number) => void;
+    __getWeaponVolume?: () => number;
   }
 } 

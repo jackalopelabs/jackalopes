@@ -5,6 +5,7 @@ import { useFrame, RootState } from '@react-three/fiber';
 import { Points, BufferGeometry, NormalBufferAttributes, Material } from 'three';
 import { MercModel } from './MercModel'; // Import MercModel for remote players
 import { JackalopeModel } from './JackalopeModel'; // Import the new JackalopeModel
+import { RemotePlayerAudio } from '../components/RemotePlayerAudio'; // Import RemotePlayerAudio component
 
 // Define the RemotePlayerData interface locally to match MultiplayerManager
 interface RemotePlayerData {
@@ -13,6 +14,8 @@ interface RemotePlayerData {
   rotation: number;
   playerType?: 'merc' | 'jackalope';
   isMoving?: boolean;
+  isRunning?: boolean;
+  isShooting?: boolean;
 }
 
 // Add a global debug level constant
@@ -130,13 +133,14 @@ const PilotLight = () => {
 };
 
 // Remote Player Component
-export const RemotePlayer = ({ playerId, position, rotation, playerType, isMoving }: RemotePlayerData) => {
+export const RemotePlayer = ({ playerId, position, rotation, playerType, isMoving, isRunning, isShooting }: RemotePlayerData) => {
   // Add debug logging for player type
   console.log(`🎮 RemotePlayer ${playerId} rendering with playerType: ${playerType || 'undefined'}`);
   
   const meshRef = useRef<THREE.Mesh>(null);
   const lastPosition = useRef<THREE.Vector3 | null>(null);
   const [localIsMoving, setLocalIsMoving] = useState(false);
+  const [localIsRunning, setLocalIsRunning] = useState(false);
   const currentAnimation = useRef("idle"); // Default to idle
   
   // Add refs for animation debouncing
@@ -173,7 +177,12 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
         console.log(`Remote player ${playerId} animation set to ${isMoving ? "walk" : "idle"} from props`);
       }
     }
-  }, [isMoving, playerId]);
+    
+    // Update running state
+    if (isRunning !== undefined) {
+      setLocalIsRunning(isRunning);
+    }
+  }, [isMoving, isRunning, playerId]);
   
   // Apply any pending animation changes
   useFrame(() => {
@@ -220,10 +229,20 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
             currentAnimation.current = "walk";
             console.log(`Remote player ${playerId} started moving: ${distance.toFixed(4)}`);
           }
+          
+          // Check if player is running based on speed
+          const timeDelta = 1/60; // Assume 60fps
+          const speed = distance / timeDelta;
+          if (speed > 0.2 && !localIsRunning) {
+            setLocalIsRunning(true);
+          } else if (speed <= 0.2 && localIsRunning) {
+            setLocalIsRunning(false);
+          }
         } else {
           // If player has stopped moving for a while, set state to idle
           if (localIsMoving) {
             setLocalIsMoving(false);
+            setLocalIsRunning(false);
             currentAnimation.current = "idle";
             console.log(`Remote player ${playerId} stopped moving: ${distance.toFixed(4)}`);
           }
@@ -242,6 +261,17 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       meshRef.current.rotation.set(0, rotation, 0);
     }
   });
+
+  // Common component for all player types
+  const audioComponent = (
+    <RemotePlayerAudio
+      playerId={playerId}
+      position={position} 
+      isWalking={localIsMoving && !localIsRunning}
+      isRunning={localIsRunning}
+      isShooting={isShooting}
+    />
+  );
 
   // For merc type, use the MercModel
   if (playerType === 'merc') {
@@ -266,6 +296,8 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
             {playerId?.split('-')[0]}
           </div>
         </Html>
+        {/* Add spatial audio for remote merc player */}
+        {audioComponent}
       </>
     );
   }
@@ -298,6 +330,8 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
             {playerId?.split('-')[0]}
           </div>
         </Html>
+        {/* Add spatial audio for remote jackalope player */}
+        {audioComponent}
       </>
     );
   }
@@ -322,23 +356,28 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   }, [playerId]);
 
   return (
-    <mesh ref={meshRef} position={[position.x, position.y, position.z]} rotation={[0, rotation, 0]}>
-      {/* Body */}
-      <boxGeometry args={[0.5, 1, 0.25]} />
-      <meshStandardMaterial color={color} />
-      
-      {/* Head */}
-      <mesh position={[0, 0.65, 0]}>
-        <sphereGeometry args={[0.15, 16, 16]} />
+    <>
+      <mesh ref={meshRef} position={[position.x, position.y, position.z]} rotation={[0, rotation, 0]}>
+        {/* Body */}
+        <boxGeometry args={[0.5, 1, 0.25]} />
         <meshStandardMaterial color={color} />
+        
+        {/* Head */}
+        <mesh position={[0, 0.65, 0]}>
+          <sphereGeometry args={[0.15, 16, 16]} />
+          <meshStandardMaterial color={color} />
+        </mesh>
+        
+        {/* Indicator with player ID */}
+        <mesh position={[0, 1.1, 0]}>
+          <boxGeometry args={[0.1, 0.1, 0.1]} />
+          <meshStandardMaterial color="yellow" />
+        </mesh>
       </mesh>
       
-      {/* Indicator with player ID */}
-      <mesh position={[0, 1.1, 0]}>
-        <boxGeometry args={[0.1, 0.1, 0.1]} />
-        <meshStandardMaterial color="yellow" />
-      </mesh>
-    </mesh>
+      {/* Add spatial audio for remote fallback player */}
+      {audioComponent}
+    </>
   );
 };
 
