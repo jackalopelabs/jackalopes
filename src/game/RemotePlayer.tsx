@@ -533,35 +533,146 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       log.player(`Remote jackalope position: (${position?.x.toFixed(2)}, ${position?.y.toFixed(2)}, ${position?.z.toFixed(2)}), rotation: ${rotation?.toFixed(2)}`);
     }
     
+    // Track attached projectiles with a ref
+    const [attachedProjectiles, setAttachedProjectiles] = useState<{id: string, position: THREE.Vector3}[]>([]);
+    const attachedProjectilesRef = useRef<{id: string, position: THREE.Vector3}[]>([]);
+    const rigidBodyRef = useRef<any>(null);
+    
+    // Keep ref in sync with state
+    useEffect(() => {
+      attachedProjectilesRef.current = attachedProjectiles;
+    }, [attachedProjectiles]);
+    
+    // Add automatic cleanup for old projectiles
+    useEffect(() => {
+      // Set up a timer to clean up projectiles after some time
+      const cleanupTimer = setInterval(() => {
+        if (attachedProjectilesRef.current.length > 0) {
+          const MAX_PROJECTILES = 8; // Maximum allowed projectiles per jackalope
+          
+          // If we have too many projectiles, remove the oldest ones
+          if (attachedProjectilesRef.current.length > MAX_PROJECTILES) {
+            setAttachedProjectiles(prev => prev.slice(-MAX_PROJECTILES));
+          }
+        }
+      }, 5000); // Check every 5 seconds
+      
+      return () => clearInterval(cleanupTimer);
+    }, []);
+    
+    // Add a global handler to allow attaching projectiles to this jackalope from anywhere
+    useEffect(() => {
+      if (!window.__jackalopeAttachmentHandlers) {
+        window.__jackalopeAttachmentHandlers = {};
+      }
+      
+      // Create a unique handler for this jackalope instance
+      window.__jackalopeAttachmentHandlers[playerId] = (projectileData: {id: string, position: THREE.Vector3}) => {
+        // Check if we already have this projectile to prevent duplicates
+        if (attachedProjectilesRef.current.some(p => p.id === projectileData.id)) {
+          console.log(`Projectile ${projectileData.id} already attached to jackalope ${playerId}`);
+          return true;
+        }
+        
+        // Add the new projectile
+        setAttachedProjectiles(prev => {
+          // Check for max projectiles directly here
+          const MAX_PROJECTILES = 8;
+          let newList = [...prev, projectileData];
+          
+          // If we exceed the maximum, remove the oldest ones
+          if (newList.length > MAX_PROJECTILES) {
+            newList = newList.slice(-MAX_PROJECTILES);
+          }
+          
+          return newList;
+        });
+        
+        return true;
+      };
+      
+      // Cleanup
+      return () => {
+        if (window.__jackalopeAttachmentHandlers) {
+          delete window.__jackalopeAttachmentHandlers[playerId];
+        }
+      };
+    }, [playerId]);
+    
+    // Render the attached projectiles more efficiently
+    const renderedProjectiles = useMemo(() => {
+      return attachedProjectiles.map(projectile => (
+        <group 
+          key={projectile.id} 
+          position={[
+            projectile.position.x - (position?.x || 0), 
+            projectile.position.y - (position?.y || 0) - 0.3, 
+            projectile.position.z - (position?.z || 0)
+          ]}
+          name={`attached-projectile-${projectile.id}`}
+        >
+          <mesh>
+            <sphereGeometry args={[0.2, 16, 16]} />
+            <meshStandardMaterial 
+              emissive="#ff4500" 
+              emissiveIntensity={3} 
+              toneMapped={false}
+            />
+          </mesh>
+          <mesh>
+            <sphereGeometry args={[0.3, 16, 16]} />
+            <meshStandardMaterial 
+              color="#ff7f00"
+              transparent={true}
+              opacity={0.6}
+              emissive="#ff7f00"
+              emissiveIntensity={1.5}
+            />
+          </mesh>
+          {/* Disable point light for performance - use emissive materials instead */}
+        </group>
+      ));
+    }, [attachedProjectiles, position]);
+    
     return (
       <>
         <RigidBody 
+          ref={rigidBodyRef}
           type="fixed" 
           position={position ? [position.x, position.y + 0.3, position.z] : [0, 0.3, 0]}
           rotation={[0, (rotation || 0) + Math.PI, 0]}
           colliders={false}
           name={`remote-jackalope-${playerId}`}
-          userData={{ isJackalope: true, playerId }}
+          userData={{ isJackalope: true, playerId, playerType: 'jackalope', jackalopeId: playerId }}
           friction={1}
           sensor={false}
           includeInvisible={true}
           ccd={true} // Add continuous collision detection
           collisionGroups={0xFFFFFFFF} // Collide with everything
+          restitution={0.1} // Make collisions less bouncy
         >
-          {/* Use multiple colliders for better hit detection */}
-          <CapsuleCollider args={[1.0, 0.8]} position={[0, 0.6, 0]} sensor={false} />
+          {/* Use multiple colliders to ensure good collision detection */}
+          {/* Main body collider - enlarged for better hit detection */}
+          <CapsuleCollider args={[1.2, 1.0]} position={[0, 0.6, 0]} sensor={false} friction={1} restitution={0.1} />
           
           {/* Add a box collider to ensure hits register */}
-          <CuboidCollider args={[0.8, 0.8, 0.8]} position={[0, 0.6, 0]} sensor={false} />
+          <CuboidCollider args={[1.0, 1.0, 1.0]} position={[0, 0.6, 0]} sensor={false} friction={1} restitution={0.1} />
           
           {/* Add a collider for the head area */}
-          <BallCollider args={[0.5]} position={[0, 1.2, 0]} sensor={false} />
+          <BallCollider args={[0.7]} position={[0, 1.5, 0]} sensor={false} friction={1} restitution={0.1} />
+          
+          {/* Extra collider to catch projectiles */}
+          <BallCollider args={[1.2]} position={[0, 0.8, 0]} sensor={false} friction={1} restitution={0.1} />
           
           <JackalopeModel 
             animation={localIsMoving ? "walk" : "idle"}
             scale={[2, 2, 2]}
           />
+          
+          {/* Render all attached projectiles directly as children of the jackalope */}
+          {renderedProjectiles}
         </RigidBody>
+        
         {/* Player ID tag */}
         <Html position={[position?.x || 0, (position?.y || 0) + 2.5, position?.z || 0]} center>
           <div style={{ 
@@ -637,4 +748,11 @@ const compareRemotePlayers = (prevProps: RemotePlayerData, nextProps: RemotePlay
   return prevProps.playerId === nextProps.playerId;
 };
 
-export const RemotePlayerMemo = React.memo(RemotePlayer, compareRemotePlayers); 
+export const RemotePlayerMemo = React.memo(RemotePlayer, compareRemotePlayers);
+
+// Add type declaration for window.__jackalopeAttachmentHandlers
+declare global {
+  interface Window {
+    __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
+  }
+} 

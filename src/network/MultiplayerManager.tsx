@@ -4,6 +4,10 @@ declare global {
     __shotBroadcast?: (shot: any) => any;
     __processedShots?: Set<string>;
     __sendTestShot?: () => void;
+    __playJackalopeHitSound?: () => void;
+    __playMercHitSound?: () => void;
+    __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
+    __disableStabilizationFor?: Record<string, boolean>;
   }
 }
 
@@ -19,11 +23,20 @@ import { Html } from '@react-three/drei';
 // 0 = no logs, 1 = error only, 2 = important info, 3 = verbose 
 const DEBUG_LEVEL = 1;
 
+// Helper functions to convert between position types
+const arrayToObjectPosition = (pos: [number, number, number]): { x: number, y: number, z: number } => {
+  return { x: pos[0], y: pos[1], z: pos.length > 2 ? pos[2] : 0 };
+};
+
+const objectToArrayPosition = (pos: { x: number, y: number, z: number }): [number, number, number] => {
+  return [pos.x, pos.y, pos.z];
+};
+
 // Types for multiplayer system
 type RemotePlayerData = {
   playerId: string;
   position: { x: number, y: number, z: number };
-  rotation: number;
+  rotation: number;  // For simpler cases we use a single rotation value (yaw around Y axis)
   lastUpdate?: number;
   playerType?: 'merc' | 'jackalope';
   isMoving?: boolean;  // Flag to indicate if player is moving
@@ -207,8 +220,8 @@ export const useMultiplayer = (
       if (data && data.position) {
         players[id] = {
           id,
-          position: data.position,
-          rotation: data.rotation,
+          position: objectToArrayPosition(data.position),
+          rotation: [0, data.rotation, 0, 1], // Convert simple rotation to quaternion
           health: 100, // Assuming default health
         };
       }
@@ -931,9 +944,9 @@ export const useMultiplayer = (
     // Store methods in a separate structure, not as part of RemotePlayerData
     if (!remotePlayerRefs.current[id]) {
       remotePlayerRefs.current[id] = {
-        id,
-        position: [0, 0, 0],
-        rotation: [0, 0, 0, 1],
+        playerId: id,
+        position: { x: 0, y: 0, z: 0 },
+        rotation: 0,
         lastUpdate: Date.now()
       };
     }
@@ -1113,13 +1126,12 @@ export const useMultiplayer = (
     setTimeout(() => {
       console.log("🔍 MULTIPLAYER CONNECTION STATUS (after 5s):");
       console.log("- IsConnected:", isConnected);
-      console.log("- PlayerId:", playerId);
       console.log("- Remote players:", Object.keys(remotePlayers).length);
       console.log("- Server URL:", connectionManager.getServerUrl());
-      console.log("- Socket state:", connectionManager.socket?.readyState || "NO_SOCKET");
+      console.log("- Socket state:", connectionManager.isReadyToSend() ? "READY" : "NOT_READY");
       
       // Try to reestablish connection if needed
-      if (!isConnected && connectionManager.socket?.readyState !== WebSocket.OPEN) {
+      if (!isConnected && !connectionManager.isReadyToSend()) {
         console.log("Attempting to reconnect...");
         connectionManager.connect();
       }
@@ -1507,7 +1519,6 @@ export const MultiplayerManager: React.FC<{
     setTimeout(() => {
       console.log("🔍 MULTIPLAYER CONNECTION STATUS (after 5s):");
       console.log("- IsConnected:", isConnected);
-      console.log("- PlayerId:", playerId);
       console.log("- Remote players:", Object.keys(remotePlayers).length);
       console.log("- Server URL:", connectionManager.getServerUrl());
       console.log("- Socket state:", connectionManager.socket?.readyState || "NO_SOCKET");
@@ -2126,11 +2137,6 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
   }, [connectionManager]);
   
   return shots;
-};
-
-// Function to convert array position to object position
-const arrayToObjectPosition = (pos: [number, number, number]): { x: number, y: number, z: number } => {
-  return { x: pos[0], y: pos[1], z: pos[2] };
 };
 
 // Function to convert quaternion to rotation angle

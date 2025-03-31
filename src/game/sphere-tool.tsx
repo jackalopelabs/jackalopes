@@ -389,6 +389,7 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     const [stuck, setStuck] = useState(initialIsStuck || false)
     const [finalPosition, setFinalPosition] = useState<[number, number, number]>(position)
     const rigidBodyRef = useRef<RapierRigidBody>(null)
+    const groupRef = useRef<THREE.Group>(null) // Add group reference for direct manipulation
     const [intensity, setIntensity] = useState(2)
     const [canCollide, setCanCollide] = useState(false)
     const distanceTraveled = useRef(0)
@@ -400,6 +401,8 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     const startTime = useRef(Date.now())
     const isGrowing = useRef(true)
     const collisionCounter = useRef(0) // Track number of collisions for debugging
+    // Store the radius value for collision detection
+    const sphereRadius = useRef(radius)
     
     // Track stuck state for parent component
     const stuckRef = useRef(stuck)
@@ -674,48 +677,263 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 sphereId: id
             });
             
-            // Get current position
-            const position = rigidBodyRef.current.translation();
-            setFinalPosition([position.x, position.y, position.z]);
-            
-            // Stick to the surface by making it fixed
-            rigidBodyRef.current.setBodyType(1, true); // 1 for Fixed, true to wake the body
-            
-            // Disable all movement
-            rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
-            rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
-            
-            // Mark as stuck but DON'T remove from light pool until later
-            setStuck(true);
-            
-            // Register this collision time to start light fade timer
-            collisionTimeRef.current = Date.now();
-            
-            // Add visual/audio feedback for player hit
-            if (isPlayerCollision) {
-                if (isJackalopeCollision) {
-                    console.log('SHOT HIT A JACKALOPE!', {
-                        targetName,
-                        parentName,
-                        jackalopeId: targetUserData?.playerId || parentUserData?.playerId || 'unknown'
+            // SPECIAL HANDLING FOR JACKALOPE COLLISIONS
+            if (isJackalopeCollision) {
+                console.log("JACKALOPE HIT - USING PARENT-CHILD SYSTEM");
+                
+                // Mark as stuck immediately to prevent multiple collision handling
+                setStuck(true);
+                stuckRef.current = true;
+                
+                try {
+                    // Get the jackalope position
+                    const jackalope = payload.other.rigidBody;
+                    const jackalopePos = jackalope.translation();
+                    
+                    // Get current position of the sphere
+                    const spherePos = rigidBodyRef.current.translation();
+                    
+                    // Calculate vector from jackalope to sphere
+                    const attachVector = new THREE.Vector3(
+                        spherePos.x - jackalopePos.x,
+                        spherePos.y - jackalopePos.y,
+                        spherePos.z - jackalopePos.z
+                    ).normalize();
+                    
+                    // Set attachment point on the jackalope surface
+                    // Use a fixed offset from the jackalope center
+                    const jackalopeRadius = 1.0; // Approximate collision radius
+                    const attachPoint = {
+                        x: jackalopePos.x + attachVector.x * jackalopeRadius,
+                        y: jackalopePos.y + attachVector.y * jackalopeRadius,
+                        z: jackalopePos.z + attachVector.z * jackalopeRadius
+                    };
+                    
+                    // Log the attachment point
+                    console.log("ATTACHING FIREBALL AT POINT:", attachPoint);
+                    
+                    // Get the jackalope ID from userData with improved detection
+                    // First try extracting from target object userData with detailed logging
+                    let jackalopeId = targetUserData?.jackalopeId || targetUserData?.playerId;
+                    
+                    // Enhanced extraction with detailed logging
+                    console.log("JACKALOPE ID EXTRACTION:", {
+                        targetUserData,
+                        parentUserData,
+                        "targetUserData?.jackalopeId": targetUserData?.jackalopeId,
+                        "targetUserData?.playerId": targetUserData?.playerId,
+                        "parentUserData?.jackalopeId": parentUserData?.jackalopeId,
+                        "parentUserData?.playerId": parentUserData?.playerId,
+                        "targetName": targetName,
+                        "parentName": parentName
                     });
                     
-                    // Apply a dramatic hit effect
-                    applyJackalopeHitEffect();
-                    
-                    // Play jackalope hit sound if available
-                    if (window.__playJackalopeHitSound) {
-                        window.__playJackalopeHitSound();
+                    // If not found, try parent userData
+                    if (!jackalopeId) {
+                        jackalopeId = parentUserData?.jackalopeId || parentUserData?.playerId;
                     }
-                } else if (isMercCollision) {
-                    console.log('Shot hit a merc!', targetName);
                     
-                    // Play merc hit sound if available
-                    if (window.__playMercHitSound) {
-                        window.__playMercHitSound();
+                    // Last resort - try to extract from entity name
+                    if (!jackalopeId && targetName.includes('jackalope-')) {
+                        const nameParts = targetName.split('jackalope-');
+                        if (nameParts.length > 1) {
+                            jackalopeId = nameParts[1];
+                            console.log("Extracted jackalopeId from name:", jackalopeId);
+                        }
                     }
-                } else {
-                    console.log('Shot hit a generic player!', targetName);
+                    
+                    // Also check remote-jackalope pattern
+                    if (!jackalopeId && targetName.includes('remote-jackalope-')) {
+                        const nameParts = targetName.split('remote-jackalope-');
+                        if (nameParts.length > 1) {
+                            jackalopeId = nameParts[1];
+                            console.log("Extracted jackalopeId from remote-jackalope name:", jackalopeId);
+                        }
+                    }
+                    
+                    // Check window global registry of jackalope handlers
+                    if (window.__jackalopeAttachmentHandlers) {
+                        console.log("Available jackalope handlers:", Object.keys(window.__jackalopeAttachmentHandlers));
+                    }
+                    
+                    if (jackalopeId && window.__jackalopeAttachmentHandlers && window.__jackalopeAttachmentHandlers[jackalopeId]) {
+                        // Use the special attachment handler provided by the jackalope
+                        console.log(`Using attachment handler for jackalope ${jackalopeId}`);
+                        
+                        try {
+                            // Convert the attachment point to a Vector3
+                            const attachPosition = new THREE.Vector3(attachPoint.x, attachPoint.y, attachPoint.z);
+                            
+                            // Call the handler with the projectile data
+                            const success = window.__jackalopeAttachmentHandlers[jackalopeId]({
+                                id,
+                                position: attachPosition
+                            });
+                            
+                            if (success) {
+                                console.log(`Successfully attached projectile ${id} to jackalope ${jackalopeId}`);
+                                
+                                try {
+                                    // COMPLETELY disable the original sphere - OPTIMIZED VERSION
+                                    console.log("Disabling original sphere");
+                                    
+                                    // First hide visuals immediately to provide instant feedback
+                                    if (groupRef.current) {
+                                        groupRef.current.visible = false;
+                                    }
+                                    
+                                    // Completely remove all colliders in one step
+                                    if (rigidBodyRef.current) {
+                                        // Set all colliders as sensors first
+                                        const numColliders = rigidBodyRef.current.numColliders();
+                                        for (let i = 0; i < numColliders; i++) {
+                                            const collider = rigidBodyRef.current.collider(i);
+                                            if (collider) {
+                                                collider.setSensor(true);
+                                            }
+                                        }
+                                        
+                                        // Optimization: disable rigid body and move in one operation
+                                        rigidBodyRef.current.setEnabled(false);
+                                        rigidBodyRef.current.setBodyType(1, false); // Set fixed type without waking
+                                        rigidBodyRef.current.setTranslation({ x: 0, y: -9999, z: 0 }, false); // Don't wake up
+                                    }
+                                    
+                                    // CRITICAL: Completely bypass stabilization
+                                    setFinalPosition([-9999, -9999, -9999]);
+                                    stuckRef.current = true;
+                                    
+                                    // Set the special flag to disable stabilization
+                                    (window as any).__disableStabilizationFor = (window as any).__disableStabilizationFor || {};
+                                    (window as any).__disableStabilizationFor[id] = true;
+                                    
+                                    // Mark as stuck
+                                    setStuck(true);
+                                    
+                                    // Play hit sound if available
+                                    if (window.__playJackalopeHitSound) {
+                                        window.__playJackalopeHitSound();
+                                    }
+                                    
+                                    // Instead of checking state again with setTimeout, just ensure cleanup happens properly
+                                    // We'll remove the need for double-checking which can cause performance issues
+                                    
+                                    // Instead of multiple console logs, just log success once
+                                    console.log("Successfully attached projectile to jackalope");
+                                } catch (error) {
+                                    console.error("Error disabling sphere:", error);
+                                }
+                            } else {
+                                console.warn(`No attachment handler found for jackalope ${jackalopeId || 'unknown'}`);
+                                // Fall back to old method if no attachment handler is available
+                                fallbackToPhysicsAttachment();
+                            }
+                        } catch (error) {
+                            console.error("Error in attachment process:", error);
+                            fallbackToPhysicsAttachment();
+                        }
+                    } else {
+                        console.warn(`No attachment handler found for jackalope ${jackalopeId || 'unknown'}`);
+                        // Fall back to old method if no attachment handler is available
+                        fallbackToPhysicsAttachment();
+                    }
+                    
+                    // Define the fallback function that uses the old physics-based attachment
+                    function fallbackToPhysicsAttachment() {
+                        console.log("FALLING BACK TO PHYSICS-BASED ATTACHMENT");
+                        
+                        // Only proceed if rigidBodyRef is still valid
+                        if (!rigidBodyRef.current) {
+                            console.warn("Cannot attach: rigid body no longer exists");
+                            return;
+                        }
+                        
+                        // Set the attachment position
+                        const attachPosition: [number, number, number] = [attachPoint.x, attachPoint.y, attachPoint.z];
+                        
+                        // Update final position for rendering
+                        setFinalPosition(attachPosition);
+                        
+                        // Set the rigid body to fixed type
+                        rigidBodyRef.current.setBodyType(1, true);
+                        
+                        // Set the position exactly where we want it
+                        rigidBodyRef.current.setTranslation(attachPoint, true);
+                        
+                        // Stop all movement
+                        rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+                        rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
+                        
+                        // Force the rigid body position update
+                        setTimeout(() => {
+                            if (rigidBodyRef.current) {
+                                rigidBodyRef.current.setTranslation(attachPoint, true);
+                                rigidBodyRef.current.wakeUp();
+                                
+                                // Update visuals directly as well
+                                if (groupRef.current) {
+                                    groupRef.current.position.set(attachPoint.x, attachPoint.y, attachPoint.z);
+                                }
+                                
+                                console.log("FIREBALL POSITION VERIFIED:", rigidBodyRef.current.translation());
+                            }
+                        }, 10);
+                        
+                        // Update the collider to be a sensor
+                        if (rigidBodyRef.current) {
+                            const numColliders = rigidBodyRef.current.numColliders();
+                            for (let i = 0; i < numColliders; i++) {
+                                const collider = rigidBodyRef.current.collider(i);
+                                if (collider) {
+                                    collider.setSensor(true);
+                                }
+                            }
+                        }
+                        
+                        // Apply the hit effect
+                        applyJackalopeHitEffect();
+                    }
+                } catch (error) {
+                    console.error("ERROR ATTACHING FIREBALL TO JACKALOPE:", error);
+                }
+            } else {
+                // STANDARD COLLISION HANDLING FOR NON-JACKALOPE OBJECTS
+                
+                // Get current position from the collision point
+                const position = rigidBodyRef.current.translation();
+                
+                // Standard attachment position
+                const attachPosition: [number, number, number] = [position.x, position.y, position.z];
+                
+                // Set final position based on the attachment point
+                setFinalPosition(attachPosition);
+                
+                // Stick to the surface by making it fixed
+                rigidBodyRef.current.setBodyType(1, true); // 1 for Fixed, true to wake the body
+                
+                // Disable all movement
+                rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+                rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
+                
+                // Mark as stuck
+                setStuck(true);
+                stuckRef.current = true;
+                
+                // Register this collision time to start light fade timer
+                collisionTimeRef.current = Date.now();
+                
+                // Handle player collision detection for non-jackalope players
+                if (isPlayerCollision) {
+                    if (isMercCollision) {
+                        console.log('Shot hit a merc!', targetName);
+                        
+                        // Play merc hit sound if available
+                        if (window.__playMercHitSound) {
+                            window.__playMercHitSound();
+                        }
+                    } else {
+                        console.log('Shot hit a generic player!', targetName);
+                    }
                 }
             }
         } catch (error) {
@@ -728,45 +946,150 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
         // Make the glow effect stronger by increasing the material intensity
         if (outerMaterialRef.current) {
             // Increase the emissive intensity to make the hit more visually apparent
-            outerMaterialRef.current.emissiveIntensity *= 2.0;
+            outerMaterialRef.current.emissiveIntensity *= 2.5;
             // Add a red tint to indicate a hit
             outerMaterialRef.current.emissive.setRGB(1.0, 0.3, 0.1);
+            // Make it more opaque
+            outerMaterialRef.current.opacity = 0.8;
         }
         
         if (innerMaterialRef.current) {
             // Also increase the inner core brightness
-            innerMaterialRef.current.emissiveIntensity *= 2.0;
+            innerMaterialRef.current.emissiveIntensity *= 2.5;
             // Add a red tint to indicate a hit
             innerMaterialRef.current.emissive.setRGB(1.0, 0.4, 0.2);
+            // Make it fully opaque
+            innerMaterialRef.current.opacity = 1.0;
         }
         
         // Make the hit more visually apparent by scaling up the fireball
-        setScale(scale * 1.25);
+        setScale(scale * 1.5);
     }
     
     // Auto-destroy after 5 seconds
     useEffect(() => {
         if (stuck) {
+            // Set up a delay to destroy the sphere after some time
             const timeout = setTimeout(() => {
-                if (rigidBodyRef.current) {
-                    rigidBodyRef.current.sleep();
+                // Clean up cached data first
+                if ((window as any).__disableStabilizationFor && (window as any).__disableStabilizationFor[id]) {
+                    delete (window as any).__disableStabilizationFor[id];
                 }
-                // Remove from light pool when destroyed - already handled by collision timer
-                // LightPool.getInstance().removeFireball(id);
+                
+                // Clean up the light pool
+                LightPool.getInstance().removeFireball(id);
+                
+                // Remove the rigid body if it still exists
+                if (rigidBodyRef.current) {
+                    try {
+                        console.log(`Sphere ${id} destroy timer expired`);
+                        rigidBodyRef.current.sleep();
+                        rigidBodyRef.current.setEnabled(false);
+                    } catch (err) {
+                        // Ignore errors during cleanup
+                    }
+                }
             }, 5000);
             
             return () => clearTimeout(timeout);
         }
     }, [stuck, id]);
     
+    // Add extra stabilization effect to ensure stuck spheres stay attached
+    useEffect(() => {
+        if (!stuck) return; // Only apply to stuck spheres
+        
+        // Check if this sphere should skip stabilization (using parent-child system)
+        if ((window as any).__disableStabilizationFor && (window as any).__disableStabilizationFor[id]) {
+            // Removed console log to reduce overhead
+            return; // Skip stabilization for this sphere
+        }
+        
+        // Get the final position for reference
+        const initialPosition = new THREE.Vector3(...finalPosition);
+        
+        // Don't stabilize if we've set finalPosition to far away
+        if (initialPosition.x < -9000 || initialPosition.y < -9000) {
+            // Removed console log to reduce overhead
+            return;
+        }
+        
+        // Reduce logging - only log on first setup
+        console.log(`Stabilization active for sphere ${id}`);
+        
+        // Create a persistent verification loop with reduced frequency
+        // This is necessary because physics interactions can sometimes dislodge
+        // stuck objects, especially when they're attached to moving objects
+        const stableInterval = setInterval(() => {
+            if (!rigidBodyRef.current || !stuckRef.current) return;
+            
+            try {
+                // Check if the sphere has moved from its attachment position
+                const currentPos = rigidBodyRef.current.translation();
+                const currentPosVector = new THREE.Vector3(currentPos.x, currentPos.y, currentPos.z);
+                
+                // Calculate distance from original attachment point
+                const distance = currentPosVector.distanceTo(initialPosition);
+                
+                // If the sphere has moved too far from its attachment point,
+                // force it back to the original position
+                if (distance > 0.2) { // Increased threshold from 0.1 to 0.2
+                    // Log correction but with less frequency
+                    console.log(`Sphere ${id} correction - drift: ${distance.toFixed(2)}`);
+                    
+                    // Force rigid body back to proper position - batching operations
+                    try {
+                        // Perform operations with minimal wake-ups
+                        rigidBodyRef.current.setBodyType(1, false); // Fixed, don't wake
+                        rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, false);
+                        rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, false);
+                        rigidBodyRef.current.setTranslation({
+                            x: initialPosition.x,
+                            y: initialPosition.y,
+                            z: initialPosition.z
+                        }, true); // Only wake on final operation
+                        
+                        // Update visual position directly
+                        if (groupRef.current) {
+                            groupRef.current.position.set(
+                                initialPosition.x,
+                                initialPosition.y,
+                                initialPosition.z
+                            );
+                        }
+                    } catch (err) {
+                        // Catch any errors but don't log them to reduce console spam
+                    }
+                }
+            } catch (err) {
+                // Catch errors but avoid logging to reduce console spam
+            }
+        }, 200); // Increased from 100ms to 200ms for better performance
+        
+        // Clean up interval on unmount
+        return () => clearInterval(stableInterval);
+    }, [stuck, finalPosition, id]);
+    
     // Also auto-destroy after 15 seconds even if not stuck
     useEffect(() => {
         const timeout = setTimeout(() => {
-            if (rigidBodyRef.current && !stuck) {
-                rigidBodyRef.current.sleep();
+            // Clean up cached data
+            if ((window as any).__disableStabilizationFor && (window as any).__disableStabilizationFor[id]) {
+                delete (window as any).__disableStabilizationFor[id];
             }
-            // Remove from light pool when destroyed
+            
+            // Clean up the light pool
             LightPool.getInstance().removeFireball(id);
+            
+            // Clean up the rigid body
+            if (rigidBodyRef.current && !stuck) {
+                try {
+                    rigidBodyRef.current.sleep();
+                    rigidBodyRef.current.setEnabled(false);
+                } catch (err) {
+                    // Ignore errors during cleanup
+                }
+            }
         }, 15000);
         
         return () => clearTimeout(timeout);
@@ -775,16 +1098,32 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     // Clean up on unmount
     useEffect(() => {
         return () => {
+            // Clean up cached data
+            if ((window as any).__disableStabilizationFor && (window as any).__disableStabilizationFor[id]) {
+                delete (window as any).__disableStabilizationFor[id];
+            }
+            
             // Ensure light is removed from pool when component unmounts
             LightPool.getInstance().removeFireball(id);
+            
+            // Make sure no other references remain
+            if (rigidBodyRef.current) {
+                try {
+                    rigidBodyRef.current.sleep();
+                    rigidBodyRef.current.setEnabled(false);
+                } catch (err) {
+                    // Ignore errors during cleanup
+                }
+            }
         };
     }, [id]);
     
+    // Render sphere with glow effect
     return (
         <>
-            <RigidBody
+            <RigidBody 
                 ref={rigidBodyRef}
-                position={position}
+                position={position} 
                 friction={1}
                 angularDamping={0.8}
                 linearDamping={0.05} // Lower damping for longer travel
@@ -796,32 +1135,48 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 linearVelocity={stuck ? [0, 0, 0] : [direction[0] * SHOOT_FORCE, direction[1] * SHOOT_FORCE, direction[2] * SHOOT_FORCE]}
                 type={stuck ? "fixed" : "dynamic"}
                 gravityScale={0.3} // Reduce gravity effect
-                scale={scale} // Apply the scale for growth animation
+                scale={stuck ? scale : scale} // Apply the scale for growth animation
                 collisionGroups={0xFFFFFFFF} // Collide with everything
+                name={id}
+                userData={{ isFireball: true, stuckState: stuck }}
             >
                 {/* Use a slightly larger collider than the visible sphere for better hit detection */}
-                <BallCollider args={[radius * 1.5]} sensor={false} />
+                <BallCollider args={[radius * 1.5]} sensor={stuck} /> {/* Make it a sensor only when stuck */}
                 
-                {/* Inner core */}
-                <mesh castShadow receiveShadow>
-                    <sphereGeometry args={[radius * 0.7, 16, 16]} />
-                    <primitive object={innerMaterial} />
-                </mesh>
-                
-                {/* Outer glow */}
-                <mesh castShadow>
-                    <sphereGeometry args={[radius, 16, 16]} />
-                    <primitive object={outerMaterial} />
-                </mesh>
-                
-                {/* Light is now managed by the light pool instead of individual lights */}
-                {/* Each sphere now has a bright emissive material to simulate glow when no light is attached */}
+                <group ref={groupRef}>
+                    {/* Inner core */}
+                    <mesh castShadow receiveShadow>
+                        <sphereGeometry args={[radius * 0.7, 16, 16]} />
+                        <primitive object={innerMaterial} />
+                    </mesh>
+                    
+                    {/* Outer glow */}
+                    <mesh castShadow>
+                        <sphereGeometry args={[radius, 16, 16]} />
+                        <primitive object={outerMaterial} />
+                    </mesh>
+                </group>
             </RigidBody>
             
             {/* Add fire particles - scale with the fireball */}
-            <group position={finalPosition} scale={scale}>
-                <FireballParticles position={[0, 0, 0]} color={color} />
-            </group>
+            {!stuck ? (
+                <group position={finalPosition} scale={scale}>
+                    <FireballParticles position={[0, 0, 0]} color={color} />
+                </group>
+            ) : (
+                <group position={finalPosition} scale={scale * 1.2}>
+                    <mesh>
+                        <sphereGeometry args={[radius * 1.8, 16, 16]} />
+                        <meshBasicMaterial 
+                            color={color} 
+                            transparent={true} 
+                            opacity={0.15} 
+                            blending={THREE.AdditiveBlending}
+                        />
+                    </mesh>
+                    <FireballParticles position={[0, 0, 0]} color={color} />
+                </group>
+            )}
         </>
     )
 }
@@ -1375,6 +1730,8 @@ declare global {
         __playMercShot?: () => void;
         __playJackalopeHitSound?: () => void;
         __playMercHitSound?: () => void;
+        __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
+        __disableStabilizationFor?: Record<string, boolean>;
     }
 }
 
