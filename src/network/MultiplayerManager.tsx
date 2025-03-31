@@ -154,41 +154,35 @@ export const useMultiplayer = (
   localPlayerRef: React.MutableRefObject<any>,
   connectionManager: ConnectionManager
 ) => {
-  const [remotePlayers, setRemotePlayers] = useState<Record<string, RemotePlayerData>>({});
+  // State
   const [isConnected, setIsConnected] = useState(false);
   const [playerId, setPlayerId] = useState<string | null>(null);
+  const [remotePlayers, setRemotePlayers] = useState<Record<string, RemotePlayerData>>({});
   const [debugMode, setDebugMode] = useState(false);
   
-  // Add state prediction buffer
-  const stateBuffer = useRef<PredictedState[]>([]);
-  const lastServerUpdateTime = useRef<number>(0);
-  const serverTimeOffset = useRef<number>(0);
+  // Refs for optimization
+  const remotePlayerRefs = useRef<Record<string, RemotePlayerMethods>>({});
+  const remotePlayersRef = useRef<Record<string, RemotePlayerData>>({});
+  const lastSentPosition = useRef<[number, number, number] | null>(null);
   const sequenceNumber = useRef<number>(0);
-  
-  // Add reconciliation tracking variables
+  const pendingCorrection = useRef<boolean>(false);
+  const correctionData = useRef<{ position: THREE.Vector3, smoothingFactor: number, timestamp: number } | null>(null);
+  const reconciliationMetrics = useRef({ totalCorrections: 0, averageError: 0, lastError: 0, lastCorrection: 0, active: false });
+  const stateBuffer = useRef<PredictedState[]>([]);
+  const lastCorrectionTime = useRef<number>(0);
+  const lastServerUpdateTime = useRef<number>(0);
+  const nextSequence = useRef<number>(0);
+  const snapshotInterval = useRef<number>(100); // ms
+  const lastSnapshotTime = useRef<number>(0);
   const accumulatedError = useRef<number>(0);
   const errorCount = useRef<number>(0);
-  const lastCorrectionTime = useRef<number>(0);
-  const pendingCorrection = useRef<boolean>(false);
-  const correctionData = useRef<{
-    position: THREE.Vector3;
-    smoothingFactor: number;
-    timestamp: number;
-  } | null>(null);
-
-  // New snapshot system state
+  const playerUpdateThrottleRef = useRef<Record<string, { lastUpdate: number }>>({});
+  const lastUpdateTime = useRef<number>(0);
+  const serverTimeOffset = useRef<number>(0);
   const snapshots = useRef<GameSnapshot[]>([]);
-  const snapshotInterval = useRef<number>(100); // ms between snapshots
-  const lastSnapshotTime = useRef<number>(0);
   const maxSnapshots = useRef<number>(60); // Keep at most 60 snapshots (6 seconds at 10 per second)
-
-  const remotePlayerRefs = useRef<Record<string, RemotePlayerData>>({});
-  const updateMethodsRef = useRef<Record<string, RemotePlayerMethods>>({});
-  const { camera } = useThree();
   
-  // Add refs for optimization
-  const lastSentPosition = useRef<[number, number, number] | null>(null);
-  const nextSequence = useRef<number>(0);
+  const { camera } = useThree();
   
   // Get server time with offset
   const getServerTime = () => {
@@ -197,55 +191,44 @@ export const useMultiplayer = (
   
   // Create a new game snapshot
   const createGameSnapshot = () => {
-    if (!isConnected || !localPlayerRef.current || !playerId) return null;
-    
-    // Get current player states
-    const players: Record<string, PlayerSnapshot> = {};
-    
-    // Add local player
-    if (localPlayerRef.current.rigidBody) {
+    const snapshot: GameSnapshot = {
+      timestamp: getServerTime(),
+      sequence: sequenceNumber.current,
+      players: {},
+      events: []
+    };
+
+    // Add local player if available
+    if (localPlayerRef.current && localPlayerRef.current.rigidBody) {
       const position = localPlayerRef.current.rigidBody.translation();
       const positionArray: [number, number, number] = [position.x, position.y, position.z];
-      const rotationArray: [number, number, number, number] = camera.quaternion.toArray() as [number, number, number, number];
+      // Get rotation from camera quaternion
+      const rotation = camera.quaternion;
+      const rotationArray: [number, number, number, number] = [rotation.x, rotation.y, rotation.z, rotation.w];
       
-      players[playerId] = {
-        id: playerId,
+      snapshot.players[playerId || 'local'] = {
+        id: playerId || 'local',
         position: positionArray,
         rotation: rotationArray,
         health: 100, // Assuming default health
         playerType: 'merc'
       };
     }
-    
-    // Add remote players
-    Object.entries(remotePlayerRefs.current).forEach(([id, data]) => {
+
+    // Add remote players - use the remotePlayersRef which has the correct data format
+    Object.entries(remotePlayersRef.current).forEach(([id, data]) => {
       if (data && data.position) {
-        players[id] = {
+        snapshot.players[id] = {
           id,
           position: objectToArrayPosition(data.position),
           rotation: [0, data.rotation, 0, 1], // Convert simple rotation to quaternion
           health: 100, // Assuming default health
-          playerType: 'merc'
+          playerType: data.playerType || 'merc'
         };
       }
     });
-    
-    // Create the snapshot
-    const snapshot: GameSnapshot = {
-      timestamp: getServerTime(),
-      sequence: sequenceNumber.current,
-      players,
-      events: [] // No events in this basic snapshot
-    };
-    
-    // Add to snapshot buffer
-    snapshots.current.push(snapshot);
-    
-    // Limit buffer size
-    if (snapshots.current.length > maxSnapshots.current) {
-      snapshots.current.shift();
-    }
-    
+
+    // Update last snapshot time
     lastSnapshotTime.current = Date.now();
     
     return snapshot;
@@ -946,20 +929,21 @@ export const useMultiplayer = (
   const updatePlayerRef = (id: string, methods: RemotePlayerMethods) => {
     // Store methods in a separate structure, not as part of RemotePlayerData
     if (!remotePlayerRefs.current[id]) {
-      remotePlayerRefs.current[id] = {
-        playerId: id,
-        position: { x: 0, y: 0, z: 0 },
-        rotation: 0,
-        lastUpdate: Date.now()
-      };
+      remotePlayerRefs.current[id] = methods;
+      
+      if (remotePlayers[id]) {
+        // Update the player's position using the ref methods
+        const player = remotePlayers[id];
+        if (player && player.position) {
+          methods.updateTransform(
+            [player.position.x, player.position.y, player.position.z],
+            [0, 0, 0, 1] // Default quaternion
+          );
+        }
+      }
+    } else {
+      remotePlayerRefs.current[id] = methods;
     }
-    
-    // Store the update method in a separate ref map
-    if (!updateMethodsRef.current) {
-      updateMethodsRef.current = {};
-    }
-    
-    updateMethodsRef.current[id] = methods;
   };
   
   // Apply correction during each frame and handle snapshot interpolation
@@ -978,30 +962,13 @@ export const useMultiplayer = (
     }
   });
   
-  // For reconciliation metrics
-  const [reconciliationMetrics, setReconciliationMetrics] = useState({
-    totalCorrections: 0,
-    averageError: 0,
-    lastError: 0,
-    lastCorrection: 0,
-    active: debugMode
-  });
-  
   // Update metrics when corrections happen
   const updateReconciliationMetrics = (error: number) => {
-    setReconciliationMetrics(prev => {
-      const totalCorrections = prev.totalCorrections + 1;
-      const totalError = prev.averageError * prev.totalCorrections + error;
-      const averageError = totalError / totalCorrections;
-      
-      return {
-        totalCorrections,
-        averageError,
-        lastError: error,
-        lastCorrection: Date.now(),
-        active: debugMode
-      };
-    });
+    reconciliationMetrics.current.totalCorrections++;
+    reconciliationMetrics.current.averageError = (reconciliationMetrics.current.averageError * reconciliationMetrics.current.totalCorrections + error) / reconciliationMetrics.current.totalCorrections;
+    reconciliationMetrics.current.lastError = error;
+    reconciliationMetrics.current.lastCorrection = Date.now();
+    reconciliationMetrics.current.active = debugMode;
   };
   
   // Function to get a snapshot at a specific time
@@ -1425,7 +1392,7 @@ export const useMultiplayer = (
     setDebugMode,
     applyCorrection,
     pendingReconciliation: pendingCorrection,
-    reconciliationMetrics,
+    reconciliationMetrics: reconciliationMetrics.current,
     ReconciliationDebugOverlay,
     // Add snapshot system exports
     getSnapshotAtTime,

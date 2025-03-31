@@ -534,8 +534,20 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
     }
     
     // Track attached projectiles with a ref
-    const [attachedProjectiles, setAttachedProjectiles] = useState<{id: string, position: THREE.Vector3}[]>([]);
-    const attachedProjectilesRef = useRef<{id: string, position: THREE.Vector3}[]>([]);
+    const [attachedProjectiles, setAttachedProjectiles] = useState<{
+      id: string, 
+      position: THREE.Vector3,
+      offset: THREE.Vector3,
+      originalId: string,
+      attachTime: number
+    }[]>([]);
+    const attachedProjectilesRef = useRef<{
+      id: string, 
+      position: THREE.Vector3,
+      offset: THREE.Vector3,
+      originalId: string,
+      attachTime: number
+    }[]>([]);
     const rigidBodyRef = useRef<any>(null);
     
     // Keep ref in sync with state
@@ -574,41 +586,81 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
           attachedProjectilesCount: attachedProjectilesRef.current.length
         });
         
-        // Check if we already have this projectile to prevent duplicates
-        if (attachedProjectilesRef.current.some(p => p.id === projectileData.id)) {
-          console.log(`Projectile ${projectileData.id} already attached to jackalope ${playerId}`);
-          return true;
-        }
-        
-        // Generate a new unique ID to prevent React key conflicts
-        const uniqueId = `attached_${projectileData.id}_${Date.now()}`;
-        
-        // IMPROVED: Play hit sound immediately for better feedback
-        if (window.__playJackalopeHitSound) {
-          window.__playJackalopeHitSound();
-        }
-        
-        // Add the new projectile with the unique ID
-        setAttachedProjectiles(prev => {
-          console.log(`Adding projectile to jackalope ${playerId}, current count: ${prev.length}`);
-          
-          // Check for max projectiles
-          const MAX_PROJECTILES = 8;
-          let newList = [...prev, {
-            id: uniqueId, // Use the new unique ID instead of the original
-            position: projectileData.position
-          }];
-          
-          // If we exceed the maximum, remove the oldest ones
-          if (newList.length > MAX_PROJECTILES) {
-            newList = newList.slice(-MAX_PROJECTILES);
-          }
-          
-          console.log(`Updated attached projectiles for jackalope ${playerId}, new count: ${newList.length}`);
-          return newList;
+        // Enhanced duplicate detection
+        const originalId = projectileData.id;
+        const isDuplicate = attachedProjectilesRef.current.some(p => {
+          // Check for exact ID match or if it contains the original ID (for cases like "attached_originalID_timestamp")
+          return p.id === originalId || p.id.includes(originalId);
         });
         
-        return true;
+        if (isDuplicate) {
+          console.log(`Projectile ${projectileData.id} already attached to jackalope ${playerId} - ignoring duplicate`);
+          return true; // Return success to avoid fallback behavior
+        }
+        
+        try {
+          // Calculate fixed offset from jackalope center
+          const jackalopePos = new THREE.Vector3(position?.x || 0, position?.y || 0, position?.z || 0);
+          const offset = new THREE.Vector3().subVectors(projectileData.position, jackalopePos);
+          
+          // Normalize and scale to a fixed length
+          const direction = offset.clone().normalize();
+          
+          // IMPROVED OFFSET CALCULATION: Use a consistent distance but maintain direction
+          // This prevents spheres from appearing inside the jackalope model
+          const fixedRadius = 1.8; // Fixed radius from jackalope center
+          const fixedOffset = direction.multiplyScalar(fixedRadius);
+          
+          // Log attachment details for debugging
+          console.log(`Attaching projectile ${projectileData.id} with offset:`, {
+            direction: direction.toArray(),
+            fixedOffset: fixedOffset.toArray(),
+            distance: fixedOffset.length()
+          });
+          
+          // Generate a new unique ID to prevent React key conflicts
+          const uniqueId = `attached_${projectileData.id}_${Date.now()}`;
+          
+          // IMPROVED: Play hit sound immediately for better feedback
+          if (window.__playJackalopeHitSound) {
+            window.__playJackalopeHitSound();
+          }
+          
+          // Add the new projectile with the unique ID
+          setAttachedProjectiles(prev => {
+            console.log(`Adding projectile to jackalope ${playerId}, current count: ${prev.length}`);
+            
+            // Check for max projectiles
+            const MAX_PROJECTILES = 8;
+            
+            // Create new projectile entry with improved positioning
+            const newProjectile = {
+              id: uniqueId, // Use the new unique ID instead of the original
+              position: projectileData.position,
+              offset: fixedOffset, // Store the fixed offset
+              originalId: projectileData.id, // Store the original ID for reference
+              attachTime: Date.now() // Track when it was attached for potential cleanup
+            };
+            
+            // Create new list with new projectile at the end
+            let newList = [...prev, newProjectile];
+            
+            // If we exceed the maximum, remove the oldest ones
+            if (newList.length > MAX_PROJECTILES) {
+              console.log(`Maximum projectiles (${MAX_PROJECTILES}) exceeded, removing oldest`);
+              newList = newList.slice(-MAX_PROJECTILES);
+            }
+            
+            console.log(`Updated attached projectiles for jackalope ${playerId}, new count: ${newList.length}`);
+            return newList;
+          });
+          
+          // Return success immediately so sphere can be disabled
+          return true;
+        } catch (error) {
+          console.error(`Error attaching projectile to jackalope ${playerId}:`, error);
+          return false;
+        }
       };
       
       // Log available attachment handlers for debugging
@@ -628,38 +680,44 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
     
     // Render the attached projectiles more efficiently
     const renderedProjectiles = useMemo(() => {
-      return attachedProjectiles.map(projectile => (
-        <group 
-          key={projectile.id} 
-          position={[
-            projectile.position.x - (position?.x || 0), 
-            projectile.position.y - (position?.y || 0) - 0.3, 
-            projectile.position.z - (position?.z || 0)
-          ]}
-          name={`attached-projectile-${projectile.id}`}
-        >
-          <mesh>
-            <sphereGeometry args={[0.2, 16, 16]} />
-            <meshStandardMaterial 
-              emissive="#ff4500" 
-              emissiveIntensity={3} 
-              toneMapped={false}
-            />
-          </mesh>
-          <mesh>
-            <sphereGeometry args={[0.3, 16, 16]} />
-            <meshStandardMaterial 
-              color="#ff7f00"
-              transparent={true}
-              opacity={0.6}
-              emissive="#ff7f00"
-              emissiveIntensity={1.5}
-            />
-          </mesh>
-          {/* Disable point light for performance - use emissive materials instead */}
-        </group>
-      ));
-    }, [attachedProjectiles, position]);
+      // Add debug logging to help diagnose issues
+      if (attachedProjectiles.length > 0) {
+        console.log(`Rendering ${attachedProjectiles.length} projectiles for jackalope ${playerId}`, 
+          attachedProjectiles.map(p => ({id: p.id, offset: p.offset.toArray()}))
+        );
+      }
+
+      return attachedProjectiles.map(projectile => {
+        // Use the pre-calculated fixed offset for stability
+        return (
+          <group 
+            key={projectile.id} 
+            position={[projectile.offset.x, projectile.offset.y, projectile.offset.z]}
+            name={`attached-projectile-${projectile.id}`}
+          >
+            <mesh>
+              <sphereGeometry args={[0.2, 16, 16]} />
+              <meshStandardMaterial 
+                emissive="#ff4500" 
+                emissiveIntensity={3} 
+                toneMapped={false}
+              />
+            </mesh>
+            <mesh>
+              <sphereGeometry args={[0.3, 16, 16]} />
+              <meshStandardMaterial 
+                color="#ff7f00"
+                transparent={true}
+                opacity={0.6}
+                emissive="#ff7f00"
+                emissiveIntensity={1.5}
+              />
+            </mesh>
+            {/* Disable point light for performance - use emissive materials instead */}
+          </group>
+        );
+      });
+    }, [attachedProjectiles, playerId]);
     
     return (
       <>
@@ -813,4 +871,4 @@ declare global {
   interface Window {
     __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
   }
-} 
+}
