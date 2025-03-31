@@ -364,6 +364,15 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 position.current.z
             )
             
+            // Apply additional height adjustment for sprint leaning
+            let heightOffset = 0;
+            if (animation === 'run') {
+                // When leaning at 45 degrees while sprinting, the model lifts up
+                // Add extra downward offset to compensate - this keeps feet on ground
+                heightOffset = 0.5; // Adjust this value as needed based on testing
+                jackalopeModelRef.current.position.y -= heightOffset;
+            }
+            
             // BUGFIX: Apply animation-specific offset to maintain consistent pivot
             // When running/sprinting, adjust the Z position to counter the pivot shift
             if (animation === 'run') {
@@ -372,9 +381,6 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 const sprintOffset = -0.3; // This value may need adjustment based on testing
                 jackalopeModelRef.current.position.z += sprintOffset;
             }
-            
-            // Add PI rotation to make model face the correct direction
-            jackalopeModelRef.current.rotation.y = rotation.current + Math.PI;
             
             // Apply forward leaning based on animation state
             // Walking: 22.5 degrees forward lean
@@ -407,7 +413,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                     `[JACKALOPE ROTATION] Rotation: (${THREE.MathUtils.radToDeg(jackalopeModelRef.current.rotation.x).toFixed(1)}°, ` +
                     `${THREE.MathUtils.radToDeg(jackalopeModelRef.current.rotation.y).toFixed(1)}°, ` +
                     `${THREE.MathUtils.radToDeg(jackalopeModelRef.current.rotation.z).toFixed(1)}°) | ` +
-                    `Animation: ${animation}`
+                    `Animation: ${animation} | Height Offset: ${heightOffset.toFixed(2)}`
                 );
             }
             
