@@ -374,7 +374,42 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             }
             
             // Add PI rotation to make model face the correct direction
-            jackalopeModelRef.current.rotation.y = rotation.current + Math.PI
+            jackalopeModelRef.current.rotation.y = rotation.current + Math.PI;
+            
+            // Apply forward leaning based on animation state
+            // Walking: 22.5 degrees forward lean
+            // Running: 45 degrees forward lean
+            // Idle: No lean (0 degrees)
+            const walkLean = 22.5 * (Math.PI / 180); // Convert 22.5 degrees to radians
+            const sprintLean = 45 * (Math.PI / 180); // Convert 45 degrees to radians
+            
+            // Set the lean amount based on animation state
+            const leanAmount = animation === 'walk' ? walkLean : (animation === 'run' ? sprintLean : 0);
+            
+            // SIMPLER APPROACH - Using Euler angles in the correct order
+            // This avoids quaternion composition issues
+            
+            // First apply Y rotation to match character orientation
+            jackalopeModelRef.current.rotation.set(0, rotation.current + Math.PI, 0);
+            
+            // Then apply X rotation for forward lean
+            if (animation === 'walk' || animation === 'run') {
+                // Apply lean directly on the x-axis (forward tilt) after y rotation
+                jackalopeModelRef.current.rotateX(leanAmount);
+            } else if (jackalopeModelRef.current.rotation.x > 0.01) {
+                // Gradually return to upright when idle
+                jackalopeModelRef.current.rotation.x = Math.max(0, jackalopeModelRef.current.rotation.x - (0.1 * delta));
+            }
+            
+            // Debug - occasionally log rotation to verify leaning is correct
+            if (Math.random() < 0.005) {
+                console.log(
+                    `[JACKALOPE ROTATION] Rotation: (${THREE.MathUtils.radToDeg(jackalopeModelRef.current.rotation.x).toFixed(1)}°, ` +
+                    `${THREE.MathUtils.radToDeg(jackalopeModelRef.current.rotation.y).toFixed(1)}°, ` +
+                    `${THREE.MathUtils.radToDeg(jackalopeModelRef.current.rotation.z).toFixed(1)}°) | ` +
+                    `Animation: ${animation}`
+                );
+            }
             
             // Debug - occasionally log position to verify model is where it should be
             if (Math.random() < 0.01) {
