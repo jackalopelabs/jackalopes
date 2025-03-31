@@ -504,11 +504,27 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       });
     }
     
+    // First ensure running sound is stopped if we're not running
+    // This ensures walking never tries to play while running is still playing
+    if (!shouldPlayRunning && runningSoundRef.current?.isPlaying) {
+      console.log(`%c🛑 ${playerId}: Stopping RUNNING sound first`, 'background: #900; color: white; font-weight: bold');
+      runningSoundRef.current.stop();
+    }
+    
+    // Then ensure walking sound is stopped if we're running or not walking
+    // This ensures running never tries to play while walking is still playing
+    if (!shouldPlayWalking && walkingSoundRef.current?.isPlaying) {
+      console.log(`%c🛑 ${playerId}: Stopping WALKING sound first`, 'background: #900; color: white; font-weight: bold');
+      walkingSoundRef.current.stop();
+    }
+    
+    // Finally play the appropriate sound after ensuring others are stopped
+    
     // 1. Handle walking sound
     if (walkingSoundRef.current && walkingAudioLoaded) {
       if (shouldPlayWalking) {
-        // Should play walking sound
-        if (!walkingSoundRef.current.isPlaying) {
+        // Should play walking sound - but double check running is stopped
+        if (!walkingSoundRef.current.isPlaying && !runningSoundRef.current?.isPlaying) {
           console.log(`%c🚶 ${playerId}: Starting WALKING sound`, 'background: #060; color: white; font-weight: bold');
           try {
             walkingSoundRef.current.play();
@@ -516,32 +532,20 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
             console.error(`Error playing walking sound: ${e}`);
           }
         }
-      } else {
-        // Should NOT play walking sound
-        if (walkingSoundRef.current.isPlaying) {
-          console.log(`%c🛑 ${playerId}: Stopping WALKING sound`, 'background: #900; color: white; font-weight: bold');
-          walkingSoundRef.current.stop();
-        }
       }
     }
     
     // 2. Handle running sound
     if (runningSoundRef.current && runningAudioLoaded) {
       if (shouldPlayRunning) {
-        // Should play running sound
-        if (!runningSoundRef.current.isPlaying) {
+        // Should play running sound - but double check walking is stopped
+        if (!runningSoundRef.current.isPlaying && !walkingSoundRef.current?.isPlaying) {
           console.log(`%c🏃 ${playerId}: Starting RUNNING sound`, 'background: #600; color: white; font-weight: bold');
           try {
             runningSoundRef.current.play();
           } catch (e) {
             console.error(`Error playing running sound: ${e}`);
           }
-        }
-      } else {
-        // Should NOT play running sound
-        if (runningSoundRef.current.isPlaying) {
-          console.log(`%c🛑 ${playerId}: Stopping RUNNING sound`, 'background: #900; color: white; font-weight: bold');
-          runningSoundRef.current.stop();
         }
       }
     }

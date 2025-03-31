@@ -178,22 +178,36 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       isRunning: isRunning === true ? "TRUE" : (isRunning === false ? "FALSE" : "undefined"),
     });
     
+    // Add hysteresis to prevent rapid toggling between states
+    const now = Date.now();
+    const timeSinceLastChange = now - lastAnimationChangeTime.current;
+    const MIN_STATE_CHANGE_INTERVAL = 500; // Require 500ms between state changes
+    
+    // If it's too soon for another state change, ignore this update
+    if (timeSinceLastChange < MIN_STATE_CHANGE_INTERVAL) {
+      console.log(`${playerId}: Ignoring movement state change - too frequent (${timeSinceLastChange}ms)`);
+      return;
+    }
+    
     // Don't let walking and running both be true at the same time
     if (isMoving === true && isRunning === true) {
       // Running takes precedence
       console.log(`${playerId}: Both moving and running flags are true - setting to RUNNING`);
       setLocalIsMoving(true);
       setLocalIsRunning(true);
+      lastAnimationChangeTime.current = now;
     } else if (isMoving === true && isRunning !== true) {
       // Walking only - make sure isRunning is explicitly FALSE
       console.log(`${playerId}: Moving=true, Running!=true - setting to WALKING`);
       setLocalIsMoving(true);
       setLocalIsRunning(false);
+      lastAnimationChangeTime.current = now;
     } else if (isMoving === false) {
       // Not moving - stop all movement
       console.log(`${playerId}: Moving=false - setting to STOPPED`);
       setLocalIsMoving(false);
       setLocalIsRunning(false);
+      lastAnimationChangeTime.current = now;
     }
   }, [isMoving, isRunning, playerId]);
   
@@ -288,29 +302,40 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
         // Calculate speed for determining running vs walking
         const speed = distance / timeDelta;
         
+        // Add state transition debouncing
+        const MIN_STATE_CHANGE_TIME = 300; // ms
+        const timeSinceLastStateChange = now - lastAnimationChangeTime.current;
+        const canChangeState = timeSinceLastStateChange > MIN_STATE_CHANGE_TIME;
+        
         // If player moved more than a threshold, set state to moving
         // Using a higher threshold (0.03) to avoid micro-movements
         if (distance > 0.03) {
-          if (!localIsMoving) {
+          if (!localIsMoving && canChangeState) {
             setLocalIsMoving(true);
             currentAnimation.current = "walk";
+            lastAnimationChangeTime.current = now;
             console.log(`Remote player ${playerId} started moving: ${distance.toFixed(4)} at speed ${speed.toFixed(2)}`);
           }
           
-          // Check if player is running based on speed
-          if (speed > 0.4 && !localIsRunning) {
+          // Check if player is running based on speed with higher threshold
+          // Increase running threshold to 8.0 to match what's mentioned in SPATIALAUDIO.md
+          if (speed > 8.0 && !localIsRunning && canChangeState) {
             setLocalIsRunning(true);
+            lastAnimationChangeTime.current = now;
             console.log(`Remote player ${playerId} is now running at speed ${speed.toFixed(2)}`);
-          } else if (speed <= 0.3 && localIsRunning) {
+          } else if (speed < 6.0 && localIsRunning && canChangeState) {
+            // Use a lower threshold for turning off running (hysteresis)
             setLocalIsRunning(false);
+            lastAnimationChangeTime.current = now;
             console.log(`Remote player ${playerId} is now walking at speed ${speed.toFixed(2)}`);
           }
         } else {
           // If player has stopped moving for a while, set state to idle
-          if (localIsMoving) {
+          if (localIsMoving && canChangeState) {
             setLocalIsMoving(false);
             setLocalIsRunning(false);
             currentAnimation.current = "idle";
+            lastAnimationChangeTime.current = now;
             console.log(`Remote player ${playerId} stopped moving: ${distance.toFixed(4)}`);
           }
         }
