@@ -37,6 +37,9 @@ declare global {
             // Add other global game properties as needed
         };
         __playMercShot?: () => void; // Add weapon sound function
+        playerPositionTracker?: {
+            updatePosition: (newPos: THREE.Vector3) => void;
+        };
     }
 }
 
@@ -1183,6 +1186,21 @@ export function App() {
                         for (let i = 0; i < MAX_HISTORY; i++) {
                             positionHistoryRef.current.push(lastValidPosition.current.clone());
                         }
+                        
+                        // Expose the updater function globally for direct updates from jackalope
+                        if (!window.playerPositionTracker) {
+                            window.playerPositionTracker = {
+                                updatePosition: (newPos: THREE.Vector3) => {
+                                    if (playerPosition.current && newPos) {
+                                        // Direct update from the jackalope with minimal smoothing
+                                        const isJackalope = window.jackalopesGame?.playerType === 'jackalope';
+                                        const smoothingFactor = isJackalope ? 0.5 : 0.25; // Faster updates for jackalope
+                                        playerPosition.current.lerp(newPos, smoothingFactor);
+                                    }
+                                }
+                            };
+                        }
+                        
                         return;
                     }
                     

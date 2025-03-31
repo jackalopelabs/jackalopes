@@ -11,6 +11,20 @@ import { Component, Entity, EntityType } from './ecs'
 import { ConnectionManager } from '../network/ConnectionManager'
 import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel component
 
+// Add type declaration for window.playerPositionTracker
+declare global {
+    interface Window {
+        jackalopesGame?: {
+            playerType?: string;
+            flashlightOn?: boolean;
+            levaPanelState?: string;
+        };
+        playerPositionTracker?: {
+            updatePosition: (position: THREE.Vector3) => void;
+        };
+    }
+}
+
 // Animation system
 const ANIMATION_SMOOTHING = 0.08;
 
@@ -94,15 +108,88 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         characterController.current.setSlideEnabled(true)
         characterController.current.enableSnapToGround(0.5)
         
-        // Set initial position from props
+        // Set initial position from props - ensure we start higher above ground to avoid clipping
         if (props.position && Array.isArray(props.position)) {
-            position.current.set(props.position[0], props.position[1], props.position[2])
+            position.current.set(props.position[0], props.position[1] + 2.0, props.position[2])
+        } else {
+            // Default position if none provided - ensure we're high enough above ground
+            position.current.y = 3.0 
+        }
+        
+        // Set initial rigid body position if it exists
+        if (jackalopeRef.current?.rigidBody) {
+            jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current)
+        }
+        
+        // Also initialize the model position directly
+        if (jackalopeModelRef.current && thirdPersonView) {
+            jackalopeModelRef.current.position.copy(position.current)
+            jackalopeModelRef.current.position.y -= 0.65 // Apply the height offset
         }
         
         return () => {
             world.removeCharacterController(characterController.current)
         }
     }, [])
+    
+    // Ensure rigid body is properly positioned once it's available
+    useEffect(() => {
+        const checkAndSetPosition = () => {
+            if (jackalopeRef.current?.rigidBody) {
+                jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current)
+            }
+        }
+        
+        // Try to set position immediately
+        checkAndSetPosition()
+        
+        // And also try after a short delay to ensure everything is loaded
+        // Use multiple attempts with increasing delays for better reliability
+        const timers = [100, 300, 500, 1000, 2000].map(delay => 
+            setTimeout(checkAndSetPosition, delay)
+        );
+        
+        return () => timers.forEach(timer => clearTimeout(timer));
+    }, [])
+    
+    // Add a resilient initialization effect for the 3D model
+    useEffect(() => {
+        // Only run for third person view
+        if (!thirdPersonView || !visible) return;
+        
+        const initializeModel = () => {
+            if (jackalopeModelRef.current) {
+                console.log("[JACKALOPE] Ensuring model initialization");
+                
+                // Force the model to be at the correct position
+                jackalopeModelRef.current.position.set(
+                    position.current.x,
+                    position.current.y - 0.65,
+                    position.current.z
+                );
+                
+                // Make sure rotation is set
+                jackalopeModelRef.current.rotation.y = rotation.current + Math.PI;
+                
+                // Force visibility of all meshes
+                jackalopeModelRef.current.traverse((child) => {
+                    if (child.type === 'Mesh') {
+                        (child as THREE.Mesh).visible = true;
+                    }
+                });
+                
+                // Make sure the model itself is visible
+                jackalopeModelRef.current.visible = true;
+            }
+        };
+        
+        // Run initialization multiple times with increasing delays
+        const timers = [50, 200, 500, 1000, 2000].map(delay => 
+            setTimeout(initializeModel, delay)
+        );
+        
+        return () => timers.forEach(timer => clearTimeout(timer));
+    }, [thirdPersonView, visible]);
     
     // Main update - directly updates both the visual model and physics
     useFrame((state, delta) => {
@@ -234,8 +321,30 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         position.current.y += safeMovement.y
         position.current.z += safeMovement.z
         
+        // Prevent falling below ground level (y=0)
+        if (position.current.y < 1.0) {
+            position.current.y = 1.0
+            
+            // If we hit the ground or fall below it, ensure we bounce back up slightly
+            // This helps prevent the jackalope from disappearing under the ground
+            velocity.current.y = 0.5; // Small upward bounce
+            console.log("[JACKALOPE] Preventing fall through ground - applying safety bounce");
+        }
+        
         // Sync the physics body to our position
         rigidBody.setNextKinematicTranslation(position.current)
+        
+        // Add failsafe - if model is too low or appears to have fallen through the floor, reset position
+        if (visible && thirdPersonView && jackalopeModelRef.current) {
+            const modelY = jackalopeModelRef.current.position.y;
+            if (modelY < -10 || modelY > 1000) {
+                console.log(`[JACKALOPE] Model position out of bounds (y=${modelY.toFixed(2)}), resetting position`);
+                position.current.y = 3.0;
+                velocity.current.set(0, 0, 0);
+                jackalopeModelRef.current.position.y = position.current.y - 0.65;
+                rigidBody.setNextKinematicTranslation(position.current);
+            }
+        }
         
         // Smoothly rotate the model to face the movement direction
         const rotDiff = Math.atan2(
@@ -266,6 +375,14 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             
             // Add PI rotation to make model face the correct direction
             jackalopeModelRef.current.rotation.y = rotation.current + Math.PI
+            
+            // Debug - occasionally log position to verify model is where it should be
+            if (Math.random() < 0.01) {
+                console.log(
+                    `[JACKALOPE MODEL] Position: (${jackalopeModelRef.current.position.x.toFixed(2)}, ${jackalopeModelRef.current.position.y.toFixed(2)}, ${jackalopeModelRef.current.position.z.toFixed(2)}) | ` +
+                    `Physics: (${position.current.x.toFixed(2)}, ${position.current.y.toFixed(2)}, ${position.current.z.toFixed(2)})`
+                );
+            }
         }
         
         // 2. First-person model
@@ -307,6 +424,22 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         if (Math.random() < 0.01) {
             console.log(`[JACKALOPE] Pos: (${position.current.x.toFixed(2)}, ${position.current.y.toFixed(2)}, ${position.current.z.toFixed(2)}) | Vel: (${velocity.current.x.toFixed(2)}, ${velocity.current.y.toFixed(2)}, ${velocity.current.z.toFixed(2)}) | Anim: ${animation}`)
         }
+        
+        // Update the position for camera tracking immediately on each movement
+        if (onMove) {
+            onMove(position.current);
+        }
+
+        // Ensure the model is always visible by directly setting its visibility
+        if (jackalopeModelRef.current) {
+            // Force visibility of all child objects
+            jackalopeModelRef.current.traverse((child) => {
+                if (child.type === 'Mesh') {
+                    const mesh = child as THREE.Mesh;
+                    mesh.visible = true;
+                }
+            });
+        }
     })
     
     // Expose methods to parent through ref
@@ -322,6 +455,53 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         }
     }))
     
+    // Create a direct update function for the camera
+    const updateCameraPosition = useCallback(() => {
+        if (position.current && thirdPersonView) {
+            // Check if we have a global position tracker (set up in App.tsx)
+            if (window.playerPositionTracker && typeof window.playerPositionTracker.updatePosition === 'function') {
+                // Directly update the camera tracking position
+                window.playerPositionTracker.updatePosition(position.current.clone());
+            }
+        }
+    }, [thirdPersonView]);
+
+    // Call this function on every frame as a high priority
+    useFrame(() => {
+        // Update camera position on every frame for more immediate response
+        if (thirdPersonView) {
+            updateCameraPosition();
+        }
+    }, -10); // High priority to run early
+
+    useEffect(() => {
+        // Announce player type for camera control
+        if (thirdPersonView) {
+            try {
+                // Set a global property that the ThirdPersonCameraControls component checks
+                if (window.jackalopesGame) {
+                    window.jackalopesGame.playerType = 'jackalope';
+                    console.log('[JACKALOPE] Set global player type to jackalope for camera system');
+                }
+                
+                // Force camera update a few times to ensure proper initialization
+                const updateTimes = [0, 100, 300, 600, 1000];
+                updateTimes.forEach(time => {
+                    setTimeout(() => {
+                        updateCameraPosition();
+                        // Also dispatch an event to force camera update
+                        const event = new CustomEvent('cameraUpdateNeeded', {
+                            detail: { position: position.current.clone() }
+                        });
+                        window.dispatchEvent(event);
+                    }, time);
+                });
+            } catch (err) {
+                console.warn('[JACKALOPE] Could not set global player type:', err);
+            }
+        }
+    }, [thirdPersonView, updateCameraPosition]);
+
     return (
         <>
             {/* Physics body - for collision only */}
@@ -333,6 +513,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         mass={1}
                         type="kinematicPosition"
                         enabledRotations={[false, false, false]}
+                        position={[position.current.x, position.current.y, position.current.z]}
                     >
                         <object3D name="jackalope" />
                         <CapsuleCollider args={[1.0, 0.5]} position={[0, -0.65, 0]} />
@@ -366,9 +547,14 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 </group>
             )}
             
-            {/* Third person model - manipulated directly in useFrame */}
+            {/* Third person model - create with initial position to avoid flashing */}
             {visible && thirdPersonView && (
-                <group ref={jackalopeModelRef} scale={[2, 2, 2]}>
+                <group 
+                    ref={jackalopeModelRef} 
+                    scale={[2, 2, 2]}
+                    position={[position.current.x, position.current.y - 0.65, position.current.z]}
+                    rotation={[0, rotation.current + Math.PI, 0]}
+                >
                     <JackalopeModel
                         animation={animation}
                         visible={visible}
