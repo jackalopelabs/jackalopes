@@ -1521,10 +1521,10 @@ export const MultiplayerManager: React.FC<{
       console.log("- IsConnected:", isConnected);
       console.log("- Remote players:", Object.keys(remotePlayers).length);
       console.log("- Server URL:", connectionManager.getServerUrl());
-      console.log("- Socket state:", connectionManager.socket?.readyState || "NO_SOCKET");
+      console.log("- Socket state:", connectionManager.isReadyToSend() ? "READY" : "NOT_READY");
       
       // Try to reestablish connection if needed
-      if (!isConnected && connectionManager.socket?.readyState !== WebSocket.OPEN) {
+      if (!isConnected && !connectionManager.isReadyToSend()) {
         console.log("Attempting to reconnect...");
         connectionManager.connect();
       }
