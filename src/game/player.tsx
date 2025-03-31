@@ -690,12 +690,22 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
             lastStateTime.current = Date.now();
             
             const position = characterRigidBody.translation();
-            const rotation = characterRigidBody.rotation(); 
+            // Get rotation from camera for player direction instead of rigid body
+            // This better represents the direction the player is facing
+            const cameraDirection = camera.getWorldDirection(new THREE.Vector3());
+            const cameraYaw = Math.atan2(cameraDirection.x, cameraDirection.z);
+            const rotationQuat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), cameraYaw);
+            
+            // Debug rotation information occasionally
+            if (Math.random() < 0.005) {
+                console.log(`Sending player rotation: Yaw=${cameraYaw.toFixed(2)}, Quat=[${rotationQuat.x.toFixed(2)}, ${rotationQuat.y.toFixed(2)}, ${rotationQuat.z.toFixed(2)}, ${rotationQuat.w.toFixed(2)}]`);
+            }
+            
             const velocity = characterRigidBody.linvel();
             
             connectionManager.sendPlayerUpdate({
                 position: [position.x, position.y, position.z],
-                rotation: [rotation.x, rotation.y, rotation.z, rotation.w],
+                rotation: [rotationQuat.x, rotationQuat.y, rotationQuat.z, rotationQuat.w],
                 velocity: [velocity.x, velocity.y, velocity.z],
                 sequence: Date.now(),
                 playerType: playerType // Use the playerType prop when sending updates

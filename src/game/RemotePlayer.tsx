@@ -348,9 +348,14 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       meshRef.current.position.set(position.x, position.y, position.z);
     }
     
-    // Safely update rotation with error checking
+    // Safely update rotation with error checking - apply to mesh ref
     if (rotation !== undefined && rotation !== null) {
       meshRef.current.rotation.set(0, rotation, 0);
+      
+      // Debug rotation occasionally
+      if (Math.random() < 0.01) {
+        console.log(`Remote player ${playerId} rotation updated: ${rotation.toFixed(2)}`);
+      }
     }
   });
 
@@ -371,7 +376,7 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       <>
         <MercModel 
           position={position ? [position.x, position.y - 1.6, position.z] : [0, -1.6, 0]} 
-          rotation={[0, rotation || 0, 0]}
+          rotation={[0, (rotation || 0) + Math.PI, 0]}
           animation={localIsMoving ? "walk" : "idle"}
           scale={[5, 5, 5]}
         />

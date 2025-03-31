@@ -2075,6 +2075,16 @@ const quaternionToAngle = (quat: [number, number, number, number]): number => {
   // Extract yaw (y-axis rotation) from quaternion
   // This is a simplified conversion assuming we only care about y-rotation
   const q = new THREE.Quaternion(quat[0], quat[1], quat[2], quat[3]);
-  const euler = new THREE.Euler().setFromQuaternion(q);
+  
+  // Normalize the quaternion to prevent issues with accumulated error
+  q.normalize();
+  
+  const euler = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+  
+  // Debug occasional logging to verify rotation
+  if (Math.random() < 0.01) {
+    console.log(`Quaternion (${quat[0].toFixed(2)}, ${quat[1].toFixed(2)}, ${quat[2].toFixed(2)}, ${quat[3].toFixed(2)}) converted to Euler Y: ${euler.y.toFixed(2)}`);
+  }
+  
   return euler.y;
 }; 
