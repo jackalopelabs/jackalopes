@@ -588,12 +588,12 @@ export const useMultiplayer = (
             isMoving = true;
             
             // Determine running state based on speed with clearer threshold
-            // Running when speed > 8.0 units/second
-            if (speed > 8.0) {
+            // Running when speed > 4.0 units/second
+            if (speed > 4.0) {
               isRunning = true;
             } 
-            // Walking when speed is between 0.2 and 8.0
-            else if (speed > 0.2 && speed <= 8.0) {
+            // Walking when speed is between 0.2 and 4.0
+            else if (speed > 0.2 && speed <= 4.0) {
               isRunning = false;
             }
             // For other cases, maintain previous running state with consistency checks
@@ -1662,12 +1662,12 @@ export const MultiplayerManager: React.FC<{
             isMoving = true;
             
             // Determine running state based on speed with clearer threshold
-            // Running when speed > 8.0 units/second
-            if (speed > 8.0) {
+            // Running when speed > 4.0 units/second
+            if (speed > 4.0) {
               isRunning = true;
             } 
-            // Walking when speed is between 0.2 and 8.0
-            else if (speed > 0.2 && speed <= 8.0) {
+            // Walking when speed is between 0.2 and 4.0
+            else if (speed > 0.2 && speed <= 4.0) {
               isRunning = false;
             }
             // For other cases, maintain previous running state with consistency checks
