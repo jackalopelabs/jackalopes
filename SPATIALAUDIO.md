@@ -20,6 +20,7 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Fix gun sounds not playing consistently across browsers
 - [x] Fix movement speed detection to properly distinguish walking and running
 - [x] Fix running sound playing when player is walking
+- [x] Significantly increase movement speed threshold for running (8.0 units/sec)
 - [ ] Add audio occlusion/obstruction for more realistic spatial audio
 - [ ] Optimize audio performance with culling based on distance
 
@@ -46,6 +47,7 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Add cross-browser shot event support via localStorage
 - [x] Add redundant shot detection methods for reliability
 - [x] Fix movement speed detection for better walking vs running classification
+- [x] Double the running speed threshold to 8.0 units/second
 - [ ] Implement latency compensation
 
 ### 4. Audio Event System ✅
@@ -69,6 +71,7 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Add global debug functions for manual audio testing
 - [x] Fix persistence of running sounds after player stops moving
 - [x] Add strict state validation to ensure sound states match movement
+- [x] Add colored console logs to help identify sound state issues
 - [ ] Test with multiple browsers simultaneously
 - [ ] Measure performance impact
 - [ ] Optimize buffer usage and audio loading
@@ -92,4 +95,6 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Completely rewrote movement state detection logic with stricter conditions
 - [x] Fixed running sound playing during walking with rigid state management
 - [x] Increased movement speed threshold to better distinguish walking/running
-- [x] Added explicit boolean checks to prevent ambiguous state conditions 
+- [x] Added explicit boolean checks to prevent ambiguous state conditions
+- [x] Doubled the running speed threshold from 4.0 to 8.0 units/second
+- [x] Added colored console logs for easier debugging of sound states 

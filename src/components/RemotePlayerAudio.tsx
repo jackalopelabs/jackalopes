@@ -496,7 +496,7 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
     
     // Log on state changes to help diagnose issues
     if (prevState.isWalking !== isWalking || prevState.isRunning !== isRunning) {
-      console.log(`${playerId} movement state changed:`, {
+      console.log(`%c🎧 ${playerId} movement state changed:`, 'background: #333; color: #ff0; font-weight: bold', {
         isWalking, 
         isRunning, 
         shouldPlayWalking,
@@ -509,7 +509,7 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       if (shouldPlayWalking) {
         // Should play walking sound
         if (!walkingSoundRef.current.isPlaying) {
-          console.log(`${playerId}: Starting WALKING sound`);
+          console.log(`%c🚶 ${playerId}: Starting WALKING sound`, 'background: #060; color: white; font-weight: bold');
           try {
             walkingSoundRef.current.play();
           } catch (e) {
@@ -519,7 +519,7 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       } else {
         // Should NOT play walking sound
         if (walkingSoundRef.current.isPlaying) {
-          console.log(`${playerId}: Stopping WALKING sound`);
+          console.log(`%c🛑 ${playerId}: Stopping WALKING sound`, 'background: #900; color: white; font-weight: bold');
           walkingSoundRef.current.stop();
         }
       }
@@ -530,7 +530,7 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       if (shouldPlayRunning) {
         // Should play running sound
         if (!runningSoundRef.current.isPlaying) {
-          console.log(`${playerId}: Starting RUNNING sound`);
+          console.log(`%c🏃 ${playerId}: Starting RUNNING sound`, 'background: #600; color: white; font-weight: bold');
           try {
             runningSoundRef.current.play();
           } catch (e) {
@@ -540,7 +540,7 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       } else {
         // Should NOT play running sound
         if (runningSoundRef.current.isPlaying) {
-          console.log(`${playerId}: Stopping RUNNING sound`);
+          console.log(`%c🛑 ${playerId}: Stopping RUNNING sound`, 'background: #900; color: white; font-weight: bold');
           runningSoundRef.current.stop();
         }
       }
