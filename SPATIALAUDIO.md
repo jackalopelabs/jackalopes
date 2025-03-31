@@ -21,6 +21,8 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Fix movement speed detection to properly distinguish walking and running
 - [x] Fix running sound playing when player is walking
 - [x] Significantly increase movement speed threshold for running (8.0 units/sec)
+- [x] Added colored console logs for easier debugging of sound states 
+- [x] Fix remote players flashing between merc and jackalope character types when moving
 - [ ] Add audio occlusion/obstruction for more realistic spatial audio
 - [ ] Optimize audio performance with culling based on distance
 

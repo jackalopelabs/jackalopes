@@ -540,14 +540,50 @@ export const useMultiplayer = (
       const now = Date.now();
       
       setRemotePlayers(prev => {
+        // If player doesn't exist yet, create them
+        if (!prev[data.id]) {
+          console.log(`Adding player ${data.id} from update - wasn't in our list`);
+          
+          // For new players, get the playerType from the data
+          const newPlayerType = data.playerType || data.state?.playerType || 'merc';
+          
+          // Convert position and rotation
+          const position = data.position 
+            ? arrayToObjectPosition(data.position) 
+            : { x: 0, y: 1, z: 0 };
+            
+          const rotation = data.rotation 
+            ? quaternionToAngle(data.rotation) 
+            : 0;
+          
+          return {
+            ...prev,
+            [data.id]: {
+              playerId: data.id,
+              position,
+              rotation,
+              lastUpdate: now,
+              playerType: newPlayerType,
+              isMoving: false,
+              isRunning: false,
+              isShooting: false
+            }
+          };
+        }
+        
+        // For existing players, always use their existing playerType
+        // This prevents flashing between character types
+        const existingPlayer = prev[data.id];
+        const existingPlayerType = existingPlayer.playerType || 'merc';
+        
         // Convert position and rotation
         const position = data.position 
           ? arrayToObjectPosition(data.position) 
-          : { x: 0, y: 1, z: 0 };
+          : existingPlayer.position;
           
         const rotation = data.rotation 
           ? quaternionToAngle(data.rotation) 
-          : 0;
+          : existingPlayer.rotation;
 
         // Detect movement by calculating position change
         let isMoving = false;
@@ -555,8 +591,9 @@ export const useMultiplayer = (
         let timeDelta = 0.016; // Default to 60fps (~16ms)
         let speed = 0;
         
-        if (prev[data.id] && prev[data.id].position) {
-          const prevPos = prev[data.id].position;
+        // Calculate movement only if we have position data
+        if (data.position && existingPlayer.position) {
+          const prevPos = existingPlayer.position;
           const distance = Math.sqrt(
             Math.pow(position.x - prevPos.x, 2) + 
             Math.pow(position.y - prevPos.y, 2) + 
@@ -564,13 +601,13 @@ export const useMultiplayer = (
           );
           
           // Get the current moving state
-          const wasMoving = prev[data.id].isMoving || false;
-          const wasRunning = prev[data.id].isRunning || false;
+          const wasMoving = existingPlayer.isMoving || false;
+          const wasRunning = existingPlayer.isRunning || false;
           
           // Calculate speed if we have a previous update time
-          if (prev[data.id].lastUpdate) {
+          if (existingPlayer.lastUpdate) {
             // Calculate time delta in seconds (max 1s to avoid giant jumps)
-            timeDelta = Math.min((now - prev[data.id].lastUpdate) / 1000, 1);
+            timeDelta = Math.min((now - existingPlayer.lastUpdate) / 1000, 1);
             if (timeDelta > 0) {
               speed = distance / timeDelta;
             }
@@ -608,39 +645,23 @@ export const useMultiplayer = (
           }
           
           // Log movement state changes with clear indicators
-          if ((prev[data.id].isMoving !== isMoving || prev[data.id].isRunning !== isRunning) && Math.random() < 0.3) {
+          if ((existingPlayer.isMoving !== isMoving || existingPlayer.isRunning !== isRunning) && Math.random() < 0.3) {
             console.log(`💨 Player ${data.id} movement: ${isMoving ? (isRunning ? '🏃 RUNNING' : '🚶 WALKING') : '🧍 STOPPED'} (dist: ${distance.toFixed(3)}, speed: ${speed.toFixed(2)})`);
           }
         }
         
-        // If we don't have this player yet, add them
-        if (!prev[data.id]) {
-          console.log(`Adding player ${data.id} from update - wasn't in our list`);
-          return {
-            ...prev,
-            [data.id]: {
-              playerId: data.id,
-              position,
-              rotation,
-              lastUpdate: now,
-              playerType: data.state?.playerType || data.playerType || 'merc',
-              isMoving: false,
-              isRunning: false
-            }
-          };
-        }
-        
-        // Update existing player
+        // Update existing player but NEVER change the playerType
         return {
           ...prev,
           [data.id]: {
-            ...prev[data.id],
+            ...existingPlayer,
             position,
             rotation,
             lastUpdate: now,
             isMoving,
             isRunning,
-            playerType: data.state?.playerType || data.playerType || prev[data.id].playerType || 'merc'
+            // Explicitly preserve the existing player type
+            playerType: existingPlayerType
           }
         };
       });
@@ -1614,14 +1635,50 @@ export const MultiplayerManager: React.FC<{
       const now = Date.now();
       
       setRemotePlayers(prev => {
+        // If player doesn't exist yet, create them
+        if (!prev[data.id]) {
+          console.log(`Adding player ${data.id} from update - wasn't in our list`);
+          
+          // For new players, get the playerType from the data
+          const newPlayerType = data.playerType || data.state?.playerType || 'merc';
+          
+          // Convert position and rotation
+          const position = data.position 
+            ? arrayToObjectPosition(data.position) 
+            : { x: 0, y: 1, z: 0 };
+            
+          const rotation = data.rotation 
+            ? quaternionToAngle(data.rotation) 
+            : 0;
+          
+          return {
+            ...prev,
+            [data.id]: {
+              playerId: data.id,
+              position,
+              rotation,
+              lastUpdate: now,
+              playerType: newPlayerType,
+              isMoving: false,
+              isRunning: false,
+              isShooting: false
+            }
+          };
+        }
+        
+        // For existing players, always use their existing playerType
+        // This prevents flashing between character types
+        const existingPlayer = prev[data.id];
+        const existingPlayerType = existingPlayer.playerType || 'merc';
+        
         // Convert position and rotation
         const position = data.position 
           ? arrayToObjectPosition(data.position) 
-          : { x: 0, y: 1, z: 0 };
+          : existingPlayer.position;
           
         const rotation = data.rotation 
           ? quaternionToAngle(data.rotation) 
-          : 0;
+          : existingPlayer.rotation;
 
         // Detect movement by calculating position change
         let isMoving = false;
@@ -1629,8 +1686,9 @@ export const MultiplayerManager: React.FC<{
         let timeDelta = 0.016; // Default to 60fps (~16ms)
         let speed = 0;
         
-        if (prev[data.id] && prev[data.id].position) {
-          const prevPos = prev[data.id].position;
+        // Calculate movement only if we have position data
+        if (data.position && existingPlayer.position) {
+          const prevPos = existingPlayer.position;
           const distance = Math.sqrt(
             Math.pow(position.x - prevPos.x, 2) + 
             Math.pow(position.y - prevPos.y, 2) + 
@@ -1638,13 +1696,13 @@ export const MultiplayerManager: React.FC<{
           );
           
           // Get the current moving state
-          const wasMoving = prev[data.id].isMoving || false;
-          const wasRunning = prev[data.id].isRunning || false;
+          const wasMoving = existingPlayer.isMoving || false;
+          const wasRunning = existingPlayer.isRunning || false;
           
           // Calculate speed if we have a previous update time
-          if (prev[data.id].lastUpdate) {
+          if (existingPlayer.lastUpdate) {
             // Calculate time delta in seconds (max 1s to avoid giant jumps)
-            timeDelta = Math.min((now - prev[data.id].lastUpdate) / 1000, 1);
+            timeDelta = Math.min((now - existingPlayer.lastUpdate) / 1000, 1);
             if (timeDelta > 0) {
               speed = distance / timeDelta;
             }
@@ -1682,39 +1740,23 @@ export const MultiplayerManager: React.FC<{
           }
           
           // Log movement state changes with clear indicators
-          if ((prev[data.id].isMoving !== isMoving || prev[data.id].isRunning !== isRunning) && Math.random() < 0.3) {
+          if ((existingPlayer.isMoving !== isMoving || existingPlayer.isRunning !== isRunning) && Math.random() < 0.3) {
             console.log(`💨 Player ${data.id} movement: ${isMoving ? (isRunning ? '🏃 RUNNING' : '🚶 WALKING') : '🧍 STOPPED'} (dist: ${distance.toFixed(3)}, speed: ${speed.toFixed(2)})`);
           }
         }
         
-        // If we don't have this player yet, add them
-        if (!prev[data.id]) {
-          console.log(`Adding player ${data.id} from update - wasn't in our list`);
-          return {
-            ...prev,
-            [data.id]: {
-              playerId: data.id,
-              position,
-              rotation,
-              lastUpdate: now,
-              playerType: data.state?.playerType || data.playerType || 'merc',
-              isMoving: false,
-              isRunning: false
-            }
-          };
-        }
-        
-        // Update existing player
+        // Update existing player but NEVER change the playerType
         return {
           ...prev,
           [data.id]: {
-            ...prev[data.id],
+            ...existingPlayer,
             position,
             rotation,
             lastUpdate: now,
             isMoving,
             isRunning,
-            playerType: data.state?.playerType || data.playerType || prev[data.id].playerType || 'merc'
+            // Explicitly preserve the existing player type
+            playerType: existingPlayerType
           }
         };
       });
@@ -1772,6 +1814,16 @@ export const MultiplayerManager: React.FC<{
     
     // When component unmounts
     return () => {
+      console.log('Cleaning up multiplayer connection...');
+      // Ensure we disconnect properly when component unmounts
+      connectionManager.disconnect();
+      // Remove specific message handler
+      connectionManager.off('message_received', (message: any) => {});
+      // Reset states on unmount
+      setIsConnected(false);
+      setPlayerId(null);
+      setRemotePlayers({});
+      // Remove all event handlers
       connectionManager.off('player_joined', handlePlayerJoined);
       connectionManager.off('player_left', handlePlayerLeft);
       connectionManager.off('player_update', handlePlayerUpdate);
