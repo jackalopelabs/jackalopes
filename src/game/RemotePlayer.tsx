@@ -144,6 +144,9 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   const lastMoveTimestamp = useRef<number>(Date.now());
   const currentAnimation = useRef("idle"); // Default to idle
   
+  // Add reference for smooth rotation
+  const currentRotation = useRef<number>(rotation || 0);
+  
   const MIN_ANIMATION_CHANGE_INTERVAL = 200; // ms
   
   // Log initialization
@@ -260,7 +263,7 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   }, [localIsMoving, localIsRunning, playerId]);
   
   // Apply any pending animation changes
-  useFrame(() => {
+  useFrame((_, delta) => {
     // Check if there's a pending animation change and enough time has passed
     if (pendingAnimationChange.current !== null) {
       const now = Date.now();
@@ -348,13 +351,29 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       meshRef.current.position.set(position.x, position.y, position.z);
     }
     
-    // Safely update rotation with error checking - apply to mesh ref
+    // Smoothly interpolate rotation with error checking
     if (rotation !== undefined && rotation !== null) {
-      meshRef.current.rotation.set(0, rotation, 0);
+      // Calculate the shortest path for rotation
+      let targetRotation = rotation;
+      let currentRot = currentRotation.current;
+      
+      // Find the shortest path to rotate (clockwise or counterclockwise)
+      let deltaRotation = targetRotation - currentRot;
+      
+      // Normalize to -PI to PI range
+      while (deltaRotation > Math.PI) deltaRotation -= Math.PI * 2;
+      while (deltaRotation < -Math.PI) deltaRotation += Math.PI * 2;
+      
+      // Smoothly interpolate the rotation (adjust the 2.5 factor to change rotation speed)
+      const smoothFactor = Math.min(1, delta * 2.5);
+      currentRotation.current = currentRot + deltaRotation * smoothFactor;
+      
+      // Apply the smooth rotation to the mesh
+      meshRef.current.rotation.set(0, currentRotation.current, 0);
       
       // Debug rotation occasionally
       if (Math.random() < 0.01) {
-        console.log(`Remote player ${playerId} rotation updated: ${rotation.toFixed(2)}`);
+        console.log(`Remote player ${playerId} rotation updated: ${currentRotation.current.toFixed(2)}`);
       }
     }
   });
@@ -376,7 +395,7 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       <>
         <MercModel 
           position={position ? [position.x, position.y - 1.6, position.z] : [0, -1.6, 0]} 
-          rotation={[0, (rotation || 0) + Math.PI, 0]}
+          rotation={[0, rotation || 0, 0]}
           animation={localIsMoving ? "walk" : "idle"}
           scale={[5, 5, 5]}
         />
