@@ -152,47 +152,94 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
     // Configure spatial audio for better distance effects
     const configureSpatialAudio = (audio: THREE.PositionalAudio) => {
       audio.setDistanceModel('exponential');
-      audio.setRolloffFactor(2); // Increase rolloff for more dramatic distance effect
-      audio.setRefDistance(5); // Can be heard clearly within this distance
-      audio.setMaxDistance(50); // Will be barely audible beyond this distance
+      audio.setRolloffFactor(1.8); // Slightly reduced rolloff for better audibility
+      audio.setRefDistance(7); // Can be heard clearly within this distance
+      audio.setMaxDistance(60); // Will be barely audible beyond this distance
     };
     
     // Configure all audio objects
     [walkingSound, runningSound, shotSound].forEach(configureSpatialAudio);
     
     // Load walking sound
+    console.log(`Loading walking sound for remote player ${playerId}`);
     audioLoader.load(Sounds.Footsteps.MercWalking.path, 
       (buffer) => {
+        console.log(`Walking sound loaded successfully for player ${playerId}`);
         walkingSound.setBuffer(buffer);
         walkingSound.setLoop(true);
-        walkingSound.setVolume(audioSettings.walkingVolume * audioSettings.masterVolume * 0.7); // Slightly quieter than local sounds
+        walkingSound.setVolume(audioSettings.walkingVolume * audioSettings.masterVolume * 0.9); // Increase volume for walking
         setWalkingAudioLoaded(true);
+        
+        // Test play walking sound once to make sure it's loaded
+        setTimeout(() => {
+          try {
+            const testVolume = walkingSound.getVolume();
+            walkingSound.setVolume(0.1); // Low volume for test
+            walkingSound.play();
+            setTimeout(() => {
+              walkingSound.stop();
+              walkingSound.setVolume(testVolume);
+            }, 300);
+          } catch (error) {
+            console.error(`Error testing walking sound: ${error}`);
+          }
+        }, 1500);
       },
       undefined,
       (error) => console.error(`Error loading remote player walking sound: ${error}`)
     );
     
     // Load running sound
+    console.log(`Loading running sound for remote player ${playerId}`);
     audioLoader.load(Sounds.Footsteps.MercRunning.path,
       (buffer) => {
+        console.log(`Running sound loaded successfully for player ${playerId}`);
         runningSound.setBuffer(buffer);
         runningSound.setLoop(true);
-        runningSound.setVolume(audioSettings.runningVolume * audioSettings.masterVolume * 0.7);
+        runningSound.setVolume(audioSettings.runningVolume * audioSettings.masterVolume * 0.8);
         setRunningAudioLoaded(true);
       },
       undefined,
       (error) => console.error(`Error loading remote player running sound: ${error}`)
     );
     
-    // Load shot sound
+    // Load shot sound with priority - we need this to work properly
+    console.log(`Loading shot sound for remote player ${playerId}`);
     audioLoader.load(Sounds.Weapons.MercShot.path,
       (buffer) => {
+        console.log(`Shot sound loaded successfully for player ${playerId}, duration:`, buffer.duration);
         shotSound.setBuffer(buffer);
         shotSound.setLoop(false); // Shot sound should only play once
-        shotSound.setVolume(0.3 * audioSettings.masterVolume); // Weapon sounds are louder
+        shotSound.setVolume(0.6 * audioSettings.masterVolume); // INCREASED weapon volume for better feedback
+        
+        // Configure shot sound specifically - more audible
+        shotSound.setRefDistance(15); // Can be heard clearly from further away
+        shotSound.setRolloffFactor(1.2); // Less dramatic rolloff for gunshots
+        shotSound.setMaxDistance(120); // Gunshots can be heard from very far
+        
         setShotAudioLoaded(true);
+        
+        // Test play the shot sound once to ensure it's working
+        setTimeout(() => {
+          try {
+            console.log(`Testing shot sound for player ${playerId}`);
+            const testVolume = shotSound.getVolume();
+            shotSound.setVolume(0.1); // Low volume for test
+            shotSound.play();
+            // Restore original volume after test
+            setTimeout(() => {
+              shotSound.setVolume(testVolume);
+            }, 200);
+          } catch (error) {
+            console.error(`Error testing shot sound: ${error}`);
+          }
+        }, 2000);
       },
-      undefined,
+      (progress) => {
+        if (progress.loaded === progress.total) {
+          console.log(`Shot sound loading complete for player ${playerId}`);
+        }
+      },
       (error) => console.error(`Error loading remote player shot sound: ${error}`)
     );
     
@@ -213,20 +260,49 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
   // Add handler for shot events
   useEffect(() => {
     const handleRemoteShot = (event: CustomEvent<{playerId: string, position: {x: number, y: number, z: number}}>) => {
+      // Log all shot events to debug
+      console.log(`Shot event received for player ${event.detail.playerId}, my player: ${playerId}`);
+      
       // Only play shot sound if it's for this player
-      if (event.detail.playerId !== playerId) return;
+      if (event.detail.playerId !== playerId) {
+        return;
+      }
+      
+      console.log(`Processing shot for my player ${playerId}`);
       
       // Update shot fired time
       shotFiredTimeRef.current = Date.now();
       
       // Play the shot sound
       if (shotSoundRef.current && shotAudioLoaded && audioSettings.remoteSoundsEnabled) {
-        shotSoundRef.current.play();
+        console.log(`Playing shot sound for remote player ${playerId}`);
+        
+        // Ensure shot sound is correctly initialized
+        if (shotSoundRef.current.source) {
+          // If there's already a sound playing, stop it
+          try {
+            shotSoundRef.current.stop();
+          } catch (e) {
+            // Ignore errors when stopping
+          }
+        }
+        
+        // Start playback
+        try {
+          shotSoundRef.current.play();
+        } catch (e) {
+          console.error(`Error playing shot sound for ${playerId}:`, e);
+        }
+      } else {
+        console.warn(`Cannot play shot sound for ${playerId}: loaded=${shotAudioLoaded}, enabled=${audioSettings.remoteSoundsEnabled}`);
       }
     };
     
     // Register event listener
     window.addEventListener('remoteShotFired', handleRemoteShot as EventListener);
+    
+    // Log registration
+    console.log(`Registered shot event listener for player ${playerId}`);
     
     // Clean up
     return () => {
@@ -255,47 +331,98 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
     audioGroupRef.current.position.copy(pos);
     
     // Log once in a while
-    if (Math.random() < 0.001) {
+    if (Math.random() < 0.005) {
       console.log(`Remote player ${playerId} audio position:`, pos);
       console.log('Remote player state:', { isWalking, isRunning, isShooting });
+      
+      if (walkingSoundRef.current) {
+        console.log(`Walking sound playing: ${walkingSoundRef.current.isPlaying}, loaded: ${walkingAudioLoaded}`);
+      }
+      if (runningSoundRef.current) {
+        console.log(`Running sound playing: ${runningSoundRef.current.isPlaying}, loaded: ${runningAudioLoaded}`);
+      }
     }
     
     // Handle sound state changes
     const prevState = prevStateRef.current;
     
-    // Handle walking sound
+    // Handle walking sound - ONLY play walking when isWalking is true AND isRunning is false
     if (walkingSoundRef.current && walkingAudioLoaded) {
       if (isWalking && !isRunning) {
         // Start walking sound if it's not playing
         if (!walkingSoundRef.current.isPlaying) {
-          walkingSoundRef.current.play();
+          console.log(`Starting walking sound for remote player ${playerId}`);
+          try {
+            walkingSoundRef.current.play();
+          } catch (e) {
+            console.error(`Error playing walking sound: ${e}`);
+            // Try to reinitialize the sound
+            if (walkingSoundRef.current.source === null || walkingSoundRef.current.source === undefined) {
+              console.log('Walking sound source is null, trying to reinitialize');
+              walkingSoundRef.current.setVolume(audioSettings.walkingVolume * audioSettings.masterVolume * 0.9);
+              walkingSoundRef.current.play();
+            }
+          }
         }
-      } else if ((!isWalking || isRunning) && walkingSoundRef.current.isPlaying) {
-        // Stop walking sound
+      } else if (walkingSoundRef.current.isPlaying) {
+        // Stop walking sound if not walking or if running
         walkingSoundRef.current.stop();
       }
     }
     
-    // Handle running sound
+    // Handle running sound - ONLY play running when isRunning is true
     if (runningSoundRef.current && runningAudioLoaded) {
       if (isRunning) {
         // Start running sound if it's not playing
         if (!runningSoundRef.current.isPlaying) {
-          runningSoundRef.current.play();
+          console.log(`Starting running sound for remote player ${playerId}`);
+          try {
+            runningSoundRef.current.play();
+          } catch (e) {
+            console.error(`Error playing running sound: ${e}`);
+            // Try to reinitialize the sound
+            if (runningSoundRef.current.source === null || runningSoundRef.current.source === undefined) {
+              console.log('Running sound source is null, trying to reinitialize');
+              runningSoundRef.current.setVolume(audioSettings.runningVolume * audioSettings.masterVolume * 0.8);
+              runningSoundRef.current.play();
+            }
+          }
         }
-      } else if (!isRunning && runningSoundRef.current.isPlaying) {
-        // Stop running sound
+      } else if (runningSoundRef.current.isPlaying) {
+        // Stop running sound when not running
         runningSoundRef.current.stop();
       }
     }
     
-    // Handle shooting - check if the shooting state has changed to true
-    if (isShooting && !prevState.isShooting) {
+    // Handle shooting - check if the shooting state has changed to true OR if isShooting is true (direct prop)
+    // This way we can handle both event-based and prop-based shooting triggers
+    if ((isShooting && !prevState.isShooting) || isShooting) {
       // Only play if the shot sound is loaded and enough time has passed since last shot
       const now = Date.now();
-      if (shotSoundRef.current && shotAudioLoaded && now - shotFiredTimeRef.current > 200) {
+      if (shotSoundRef.current && shotAudioLoaded && now - shotFiredTimeRef.current > 300) {
+        console.log(`Playing gunshot for remote player ${playerId} based on isShooting prop`);
         shotFiredTimeRef.current = now;
-        shotSoundRef.current.play();
+        
+        // Make sure we're not already playing
+        if (shotSoundRef.current.isPlaying) {
+          try {
+            shotSoundRef.current.stop();
+          } catch (e) {
+            // Ignore stop errors
+          }
+        }
+        
+        try {
+          shotSoundRef.current.play();
+        } catch (e) {
+          console.error(`Error playing shot from prop: ${e}`);
+          // Try to reinitialize
+          if (shotSoundRef.current.source === null || shotSoundRef.current.source === undefined) {
+            console.log('Shot sound source is null, trying to reinitialize');
+            shotSoundRef.current.setVolume(0.6 * audioSettings.masterVolume);
+            shotSoundRef.current.play();
+          }
+        }
       }
     }
     

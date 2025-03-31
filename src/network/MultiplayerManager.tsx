@@ -1114,14 +1114,17 @@ export const useMultiplayer = (
         return;
       }
       
-      console.log(`Remote shot received from ${shotData.id}`);
+      console.log(`Remote shot received from ${shotData.id} at position:`, shotData.origin);
       
       // Set shooting state for the remote player
       setRemotePlayers(prev => {
         // If we don't have this player, ignore the shot
         if (!prev[shotData.id]) {
+          console.warn(`Shot received from unknown player: ${shotData.id}`);
           return prev;
         }
+        
+        console.log(`Updating remote player ${shotData.id} to shooting state`);
         
         // Create a copy with updated shooting state
         return {
@@ -1135,17 +1138,69 @@ export const useMultiplayer = (
         };
       });
       
+      // Add a shot ID to ensure each shot event is unique
+      const shotId = `${shotData.id}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      
       // Dispatch a custom event that RemotePlayerAudio will listen for
-      window.dispatchEvent(new CustomEvent('remoteShotFired', {
+      const event = new CustomEvent('remoteShotFired', {
         detail: {
           playerId: shotData.id,
+          shotId: shotId,
+          timestamp: Date.now(),
           position: {
             x: shotData.origin[0],
             y: shotData.origin[1],
             z: shotData.origin[2]
           }
         }
-      }));
+      });
+      
+      console.log('Dispatching remoteShotFired event:', event.detail);
+      
+      // Store the processed shot IDs in a global set to prevent duplicate processing
+      if (!window.__processedShots) {
+        window.__processedShots = new Set();
+      }
+      
+      // Only dispatch if we haven't processed this shot already
+      if (!window.__processedShots.has(shotId)) {
+        window.__processedShots.add(shotId);
+        
+        // Dispatch the event to trigger audio
+        window.dispatchEvent(event);
+        
+        // Clean up old shot IDs (keep last 100)
+        if (window.__processedShots.size > 100) {
+          const oldestShots = Array.from(window.__processedShots).slice(0, 50);
+          oldestShots.forEach(id => window.__processedShots?.delete(id));
+        }
+        
+        // Store the broadcast function for debugging
+        window.__shotBroadcast = (shot: any) => {
+          const testEvent = new CustomEvent('remoteShotFired', {
+            detail: shot
+          });
+          window.dispatchEvent(testEvent);
+          return 'Shot event dispatched';
+        };
+        
+        // Also store a test shot function for debugging
+        window.__sendTestShot = () => {
+          const testShot = {
+            playerId: shotData.id,
+            shotId: `test-${Date.now()}`,
+            timestamp: Date.now(),
+            position: {
+              x: shotData.origin[0],
+              y: shotData.origin[1],
+              z: shotData.origin[2]
+            }
+          };
+          window.__shotBroadcast?.(testShot);
+          console.log('Test shot dispatched:', testShot);
+          return 'Test shot dispatched';
+        };
+      }
       
       // Reset shooting state after a short delay
       setTimeout(() => {
@@ -1164,7 +1219,7 @@ export const useMultiplayer = (
             }
           };
         });
-      }, 200); // Short delay to ensure the animation and sound can play
+      }, 300); // Extended delay to ensure the animation and sound can play
     } catch (error) {
       console.error('Error handling remote shot:', error);
     }
@@ -1822,7 +1877,7 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
     processedShots.current = window.__processedShots;
     
     // Listen for shots from the connection manager
-    connectionManager.on('player_shoot', handleShot);
+    connectionManager.on('shot', handleShot);
     
     // Also listen for shots from localStorage (cross-browser testing)
     window.addEventListener('storage', handleStorageEvent);
@@ -1862,7 +1917,7 @@ export const useRemoteShots = (connectionManager: ConnectionManager) => {
     // Clean up on unmount
     return () => {
       console.log('Cleaning up remote shots listener');
-      connectionManager.off('player_shoot', handleShot);
+      connectionManager.off('shot', handleShot);
       window.removeEventListener('storage', handleStorageEvent);
       
       // Clean up global functions but preserve processed shots

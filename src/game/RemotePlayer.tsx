@@ -139,6 +139,7 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   
   const meshRef = useRef<THREE.Mesh>(null);
   const lastPosition = useRef<THREE.Vector3 | null>(null);
+  const lastMoveTimestamp = useRef<number>(Date.now());
   const [localIsMoving, setLocalIsMoving] = useState(false);
   const [localIsRunning, setLocalIsRunning] = useState(false);
   const currentAnimation = useRef("idle"); // Default to idle
@@ -164,6 +165,8 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       const now = Date.now();
       const timeSinceLastChange = now - lastAnimationChangeTime.current;
       
+      console.log(`RemotePlayer ${playerId} movement state update: isMoving=${isMoving}, isRunning=${isRunning}`);
+      
       // Apply rate limiting to prevent animation flicker
       if (timeSinceLastChange < MIN_ANIMATION_CHANGE_INTERVAL) {
         // Too soon for another animation change, store it as pending
@@ -181,8 +184,14 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
     // Update running state
     if (isRunning !== undefined) {
       setLocalIsRunning(isRunning);
+      console.log(`RemotePlayer ${playerId} running state set to ${isRunning}`);
     }
   }, [isMoving, isRunning, playerId]);
+  
+  // Add debug output to monitor state changes
+  useEffect(() => {
+    console.log(`RemotePlayer ${playerId} state updated: localIsMoving=${localIsMoving}, localIsRunning=${localIsRunning}`);
+  }, [localIsMoving, localIsRunning, playerId]);
   
   // Apply any pending animation changes
   useFrame(() => {
@@ -220,6 +229,12 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       // Only check for movement when isMoving is undefined (fallback to local detection)
       if (lastPosition.current && isMoving === undefined) {
         const distance = lastPosition.current.distanceTo(currentPos);
+        const now = Date.now();
+        const timeDelta = Math.min((now - lastMoveTimestamp.current) / 1000, 1);
+        lastMoveTimestamp.current = now;
+        
+        // Calculate speed for determining running vs walking
+        const speed = distance / timeDelta;
         
         // If player moved more than a threshold, set state to moving
         // Using a higher threshold (0.03) to avoid micro-movements
@@ -227,16 +242,16 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
           if (!localIsMoving) {
             setLocalIsMoving(true);
             currentAnimation.current = "walk";
-            console.log(`Remote player ${playerId} started moving: ${distance.toFixed(4)}`);
+            console.log(`Remote player ${playerId} started moving: ${distance.toFixed(4)} at speed ${speed.toFixed(2)}`);
           }
           
           // Check if player is running based on speed
-          const timeDelta = 1/60; // Assume 60fps
-          const speed = distance / timeDelta;
-          if (speed > 0.2 && !localIsRunning) {
+          if (speed > 0.4 && !localIsRunning) {
             setLocalIsRunning(true);
-          } else if (speed <= 0.2 && localIsRunning) {
+            console.log(`Remote player ${playerId} is now running at speed ${speed.toFixed(2)}`);
+          } else if (speed <= 0.3 && localIsRunning) {
             setLocalIsRunning(false);
+            console.log(`Remote player ${playerId} is now walking at speed ${speed.toFixed(2)}`);
           }
         } else {
           // If player has stopped moving for a while, set state to idle
