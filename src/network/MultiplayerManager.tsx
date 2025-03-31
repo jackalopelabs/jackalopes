@@ -2130,7 +2130,25 @@ const quaternionToAngle = (quat: [number, number, number, number]): number => {
   
   // Normalize the quaternion to prevent issues with accumulated error
   q.normalize();
+
+  // Special case handling for rotations near 180 degrees
+  // This detects quaternions that represent a Y-rotation close to PI (180 degrees)
+  // which can cause flipping due to numerical precision issues
+  // If this is a nearly-pure Y rotation with w near zero, handle specially
+  if (Math.abs(q.w) < 0.1 && Math.abs(q.y) > 0.9) {
+    // For these special cases, we use the sign of y to determine direction
+    // This prevents flipping between positive and negative representations of the same angle
+    const angle = Math.PI * Math.sign(q.y);
+    
+    // Debug occasional logging
+    if (Math.random() < 0.01) {
+      console.log(`Special case quaternion handling: (${quat[0].toFixed(2)}, ${quat[1].toFixed(2)}, ${quat[2].toFixed(2)}, ${quat[3].toFixed(2)}) => ${angle.toFixed(2)}`);
+    }
+    
+    return angle;
+  }
   
+  // Normal case - extract Euler Y angle
   const euler = new THREE.Euler().setFromQuaternion(q, 'YXZ');
   
   // Debug occasional logging to verify rotation

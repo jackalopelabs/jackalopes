@@ -23,6 +23,7 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Significantly increase movement speed threshold for running (8.0 units/sec)
 - [x] Added colored console logs for easier debugging of sound states 
 - [x] Fix remote players flashing between merc and jackalope character types when moving
+- [x] Fix rotation flipping in remote jackalopes (models briefly turning backwards every few seconds)
 - [ ] Add audio occlusion/obstruction for more realistic spatial audio
 - [ ] Optimize audio performance with culling based on distance
 

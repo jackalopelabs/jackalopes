@@ -394,23 +394,52 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       let targetRotation = rotation;
       let currentRot = currentRotation.current;
       
+      // Special case for rotations near PI/-PI boundary to prevent flipping
+      // If both angles are close to PI (or -PI) but on opposite sides, adjust one of them
+      if (Math.abs(Math.abs(targetRotation) - Math.PI) < 0.1 && 
+          Math.abs(Math.abs(currentRot) - Math.PI) < 0.1 &&
+          Math.sign(targetRotation) !== Math.sign(currentRot)) {
+        // Force target rotation to have the same sign as current rotation
+        // This prevents oscillation across the -PI/PI boundary
+        targetRotation = Math.PI * Math.sign(currentRot);
+        
+        // Debug logging for this special case
+        if (Math.random() < 0.05) {
+          log.player(`Special rotation handling for ${playerId}: near-PI boundary detected, forcing stable direction`);
+        }
+      }
+      
       // Find the shortest path to rotate (clockwise or counterclockwise)
       let deltaRotation = targetRotation - currentRot;
       
-      // Normalize to -PI to PI range
+      // Normalize to -PI to PI range for shortest path rotation
       while (deltaRotation > Math.PI) deltaRotation -= Math.PI * 2;
       while (deltaRotation < -Math.PI) deltaRotation += Math.PI * 2;
       
-      // Smoothly interpolate the rotation (adjust the 2.5 factor to change rotation speed)
-      const smoothFactor = Math.min(1, delta * 2.5);
+      // Use a more stable, slower interpolation factor for near-PI rotations
+      // and a faster one for normal rotations
+      let smoothFactor;
+      if (Math.abs(Math.abs(targetRotation) - Math.PI) < 0.5) {
+        // Very slow interpolation for the unstable near-PI region
+        smoothFactor = Math.min(1, delta * 1.0); // 2.5 -> 1.0 for more stability
+      } else {
+        // Normal interpolation elsewhere
+        smoothFactor = Math.min(1, delta * 2.5);
+      }
+      
+      // Apply interpolation
       currentRotation.current = currentRot + deltaRotation * smoothFactor;
+      
+      // Re-normalize the result to ensure it stays in -PI to PI range
+      while (currentRotation.current > Math.PI) currentRotation.current -= Math.PI * 2;
+      while (currentRotation.current < -Math.PI) currentRotation.current += Math.PI * 2;
       
       // Apply the smooth rotation to the mesh
       meshRef.current.rotation.set(0, currentRotation.current, 0);
       
       // Debug rotation occasionally
       if (isDebugEnabled(DEBUG_LEVELS.VERBOSE) && Math.random() < 0.01) {
-        log.player(`Remote player ${playerId} rotation updated: ${currentRotation.current.toFixed(2)}`);
+        log.player(`Remote player ${playerId} rotation updated: ${currentRotation.current.toFixed(2)} (target: ${targetRotation.toFixed(2)})`);
       }
     }
   });

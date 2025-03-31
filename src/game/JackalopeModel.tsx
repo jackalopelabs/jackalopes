@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react'
-import { useGLTF } from '@react-three/drei'
+import { useGLTF, useAnimations } from '@react-three/drei'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 
@@ -33,7 +33,59 @@ export const JackalopeModel = ({
   const isInitialized = useRef(false);
   
   // Try loading the model with error handling
-  const { scene } = useGLTF(JackalopeModelPath);
+  const { scene, animations } = useGLTF(JackalopeModelPath);
+  const { actions } = useAnimations(animations, group);
+  const [prevAnimation, setPrevAnimation] = useState(animation);
+  const lastRotationY = useRef(rotation instanceof THREE.Euler ? rotation.y : (rotation[1] || 0));
+  
+  // Copy scene so we don't mess with the cached one
+  const modelScene = scene.clone();
+  
+  // Add frame handler for stable rotation, especially near PI
+  useFrame(() => {
+    if (group.current) {
+      // Get a clean reference to the Y rotation component
+      const targetRotationY = rotation instanceof THREE.Euler ? rotation.y : (typeof rotation[1] === 'number' ? rotation[1] : 0);
+      const currentRotationY = lastRotationY.current;
+      
+      // Special case for rotations near PI/-PI boundary to prevent flipping
+      // If both angles are close to PI (or -PI) but on opposite sides, adjust to prevent flipping
+      if (Math.abs(Math.abs(targetRotationY) - Math.PI) < 0.1 && 
+          Math.abs(Math.abs(currentRotationY) - Math.PI) < 0.1 &&
+          Math.sign(targetRotationY) !== Math.sign(currentRotationY)) {
+        // Continue using the previous rotation to avoid the flip
+        // This is fine because we're very close to the same absolute angle anyway
+        group.current.rotation.y = currentRotationY;
+        
+        // Log this special case occasionally
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE) && Math.random() < 0.05) {
+          log.player(`[JACKALOPE MODEL] Special rotation case: preventing flip near PI boundary`);
+        }
+      } else {
+        // Smoothly interpolate rotation for normal cases
+        let deltaRotation = targetRotationY - currentRotationY;
+        
+        // Normalize to -PI to PI range for shortest path rotation
+        while (deltaRotation > Math.PI) deltaRotation -= Math.PI * 2;
+        while (deltaRotation < -Math.PI) deltaRotation += Math.PI * 2;
+        
+        // Apply smoother interpolation for stability
+        const smoothFactor = 0.15; // Lower value = more smoothing
+        const newRotationY = currentRotationY + deltaRotation * smoothFactor;
+        
+        // Apply rotation
+        group.current.rotation.y = newRotationY;
+        
+        // Remember last rotation
+        lastRotationY.current = newRotationY;
+        
+        // Debug logging occasionally
+        if (isDebugEnabled(DEBUG_LEVELS.VERBOSE) && Math.random() < 0.005) {
+          log.player(`[JACKALOPE MODEL] Rotation updated: current=${newRotationY.toFixed(2)}, target=${targetRotationY.toFixed(2)}`);
+        }
+      }
+    }
+  });
   
   // Apply pivot correction to center the model rotation
   useEffect(() => {
@@ -210,7 +262,7 @@ export const JackalopeModel = ({
     >
       {/* Center the model's pivot point by placing it in an offset group */}
       <group position={[0, -0.33, animation === 'run' ? 0.0 : 0.2]}>
-        <primitive object={scene} />
+        <primitive object={modelScene} />
       </group>
     </group>
   )
