@@ -193,7 +193,7 @@ export const JackalopeModel = ({
       scale={scale}
     >
       {/* Center the model's pivot point by placing it in an offset group */}
-      <group position={[0, -0.33, animation === 'run' ? 0.0 : 0.2]}>
+      <group position={[0, -0.0015, animation === 'run' ? 0.0 : 0.2]}>
         <primitive object={scene} />
       </group>
     </group>

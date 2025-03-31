@@ -335,7 +335,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         enabledRotations={[false, false, false]}
                     >
                         <object3D name="jackalope" />
-                        <CapsuleCollider args={[1.0, 0.5]} position={[0, -0.65, 0]} />
+                        <CapsuleCollider args={[1.0, 0.5]} position={[0, 0, 0]} />
                     </RigidBody>
                 </Component>
             </Entity>

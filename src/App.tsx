@@ -2800,7 +2800,7 @@ export function App() {
                             ) : (
                                 <Jackalope
                                     ref={playerRef}
-                                    position={[0, 7, 10]} // Increased height to start well above the ground
+                                    position={[0, 10, 10]} // Increased height to start well above the ground
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}
@@ -2847,7 +2847,7 @@ export function App() {
                             ) : (
                                 <Jackalope
                                     ref={playerRef}
-                                    position={[0, 7, 10]} // Increased height to start well above the ground
+                                    position={[0, 10, 10]} // Increased height to start well above the ground
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}

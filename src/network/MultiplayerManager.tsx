@@ -473,9 +473,14 @@ export const useMultiplayer = (
         }
         
         // Convert position and rotation to the format expected by RemotePlayer
+        let defaultY = 1;
+        if (playerType === 'jackalope') {
+          defaultY = 10; // Higher spawn for jackaloples
+        }
+        
         const position = data.state?.position 
           ? arrayToObjectPosition(data.state.position) 
-          : { x: 0, y: 1, z: 0 };
+          : { x: 0, y: defaultY, z: 0 };
           
         const rotation = data.state?.rotation 
           ? quaternionToAngle(data.state.rotation) 
@@ -1262,9 +1267,14 @@ export const MultiplayerManager: React.FC<{
         }
         
         // Convert position and rotation to the format expected by RemotePlayer
+        let defaultY = 1;
+        if (playerType === 'jackalope') {
+          defaultY = 10; // Higher spawn for jackaloples
+        }
+        
         const position = data.state?.position 
           ? arrayToObjectPosition(data.state.position) 
-          : { x: 0, y: 1, z: 0 };
+          : { x: 0, y: defaultY, z: 0 };
           
         const rotation = data.state?.rotation 
           ? quaternionToAngle(data.state.rotation) 
