@@ -140,17 +140,37 @@ export const Environment = {
   }
 };
 
+// Helper function to determine the best audio format for the browser
+const getAudioPath = (oggPath: string, mp3Path: string): string => {
+  // Check if running in Safari or iOS WebKit
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent) || 
+                   /iPad|iPhone|iPod/.test(navigator.userAgent);
+  return isSafari ? mp3Path : oggPath;
+};
+
 // Sound Assets
 export const Sounds = {
   // Footstep sounds
   Footsteps: {
     // Use correct paths without a leading slash
-    MercWalking: 'src/assets/audio/merc-walking.ogg',
-    MercRunning: 'src/assets/audio/merc-running.ogg',
+    MercWalking: {
+      ogg: 'src/assets/audio/merc-walking.ogg',
+      mp3: 'src/assets/audio/merc-walking.mp3',
+      get path() { return getAudioPath(this.ogg, this.mp3); }
+    },
+    MercRunning: {
+      ogg: 'src/assets/audio/merc-running.ogg',
+      mp3: 'src/assets/audio/merc-running.mp3',
+      get path() { return getAudioPath(this.ogg, this.mp3); }
+    },
   },
   // Weapon sounds
   Weapons: {
-    MercShot: 'src/assets/audio/merc-shot.ogg',
+    MercShot: {
+      ogg: 'src/assets/audio/merc-shot.ogg',
+      mp3: 'src/assets/audio/merc-shot.mp3',
+      get path() { return getAudioPath(this.ogg, this.mp3); }
+    },
   }
 };
 

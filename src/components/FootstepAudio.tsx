@@ -76,8 +76,8 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
     if (!audioGroupRef.current) return;
     
     console.log('Setting up footstep audio system');
-    console.log('Walking audio file path:', Sounds.Footsteps.MercWalking);
-    console.log('Running audio file path:', Sounds.Footsteps.MercRunning);
+    console.log('Walking audio file path:', Sounds.Footsteps.MercWalking.path);
+    console.log('Running audio file path:', Sounds.Footsteps.MercRunning.path);
     
     // Create audio listener if not already present on camera
     let listener: THREE.AudioListener;
@@ -140,8 +140,8 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
     };
     
     // Load walking sound
-    console.log('Loading walking sound from:', Sounds.Footsteps.MercWalking);
-    audioLoader.load(Sounds.Footsteps.MercWalking, 
+    console.log('Loading walking sound from:', Sounds.Footsteps.MercWalking.path);
+    audioLoader.load(Sounds.Footsteps.MercWalking.path, 
       (buffer) => {
         console.log('Walking sound buffer loaded successfully, size:', buffer.duration);
         walkingSound.setBuffer(buffer);
@@ -160,7 +160,7 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
         console.error('Error loading walking sound:', error);
         console.log('Trying alternative loading method for walking sound');
         tryAlternativeAudioLoading(
-          Sounds.Footsteps.MercWalking,
+          Sounds.Footsteps.MercWalking.path,
           (buffer) => {
             walkingSound.setBuffer(buffer);
             walkingSound.setRefDistance(2);
@@ -179,8 +179,8 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
     );
     
     // Load running sound
-    console.log('Loading running sound from:', Sounds.Footsteps.MercRunning);
-    audioLoader.load(Sounds.Footsteps.MercRunning, 
+    console.log('Loading running sound from:', Sounds.Footsteps.MercRunning.path);
+    audioLoader.load(Sounds.Footsteps.MercRunning.path, 
       (buffer) => {
         console.log('Running sound buffer loaded successfully, size:', buffer.duration);
         runningSound.setBuffer(buffer);
@@ -199,7 +199,7 @@ export const FootstepAudio: React.FC<FootstepAudioProps> = ({ playerRef, isWalki
         console.error('Error loading running sound:', error);
         console.log('Trying alternative loading method for running sound');
         tryAlternativeAudioLoading(
-          Sounds.Footsteps.MercRunning,
+          Sounds.Footsteps.MercRunning.path,
           (buffer) => {
             runningSound.setBuffer(buffer);
             runningSound.setRefDistance(3);

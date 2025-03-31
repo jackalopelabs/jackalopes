@@ -31,7 +31,7 @@ export const WeaponSoundEffects = () => {
   // Set up audio system on component mount
   useEffect(() => {
     console.log('Setting up weapon sound effects system with Web Audio API');
-    console.log('Merc shot sound file path:', Sounds.Weapons.MercShot);
+    console.log('Merc shot sound file path:', Sounds.Weapons.MercShot.path);
     
     // Fallback using HTML5 Audio for browsers with Web Audio API issues
     const createAudioElementFallback = () => {
@@ -42,7 +42,7 @@ export const WeaponSoundEffects = () => {
       const POOL_SIZE = 8;
       
       for (let i = 0; i < POOL_SIZE; i++) {
-        const audio = new Audio(Sounds.Weapons.MercShot);
+        const audio = new Audio(Sounds.Weapons.MercShot.path);
         audio.volume = WeaponSoundSettings.volume; // Use global volume setting
         audio.preload = 'auto';
         audioPool.push(audio);
@@ -56,7 +56,7 @@ export const WeaponSoundEffects = () => {
         // Test play
         setTimeout(() => {
           console.log('Testing HTML5 Audio fallback...');
-          const testAudio = new Audio(Sounds.Weapons.MercShot);
+          const testAudio = new Audio(Sounds.Weapons.MercShot.path);
           testAudio.volume = WeaponSoundSettings.volume * 0.5; // Half of current volume for test
           testAudio.play();
         }, 1000);
@@ -74,7 +74,7 @@ export const WeaponSoundEffects = () => {
         
         // If all are playing, create a new one
         if (!audio) {
-          audio = new Audio(Sounds.Weapons.MercShot);
+          audio = new Audio(Sounds.Weapons.MercShot.path);
           audio.volume = WeaponSoundSettings.volume; // Use global volume setting
         }
         
@@ -97,7 +97,7 @@ export const WeaponSoundEffects = () => {
     audioContextRef.current = audioContext;
     
     // Load the sound file
-    fetch(Sounds.Weapons.MercShot)
+    fetch(Sounds.Weapons.MercShot.path)
       .then(response => {
         console.log('Shot sound file fetch response:', response.status, response.statusText);
         if (!response.ok) {
