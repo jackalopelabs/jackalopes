@@ -1451,8 +1451,8 @@ export function App() {
         fog: folder({
             fogEnabled: true,
             fogColor: '#030812', // Darker blue color for night sky
-            fogNear: { value: 50, min: 0, max: 100, step: 1 },
-            fogFar: { value: 250, min: 0, max: 500, step: 5 } // Increased render distance
+            fogNear: { value: 0, min: 0, max: 100, step: 1 },
+            fogFar: { value: 140, min: 0, max: 500, step: 5 } // Increased render distance
         }, { collapsed: true }),
         lighting: folder({
             ambientIntensity: { value: 0.05, min: 0, max: 2, step: 0.1 },
