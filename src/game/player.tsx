@@ -639,7 +639,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
 
         const translation = characterRigidBody.translation()
         onMove?.(translation as THREE.Vector3)
-        const cameraPosition = _cameraPosition.set(translation.x, translation.y + 1, translation.z)
+        const cameraPosition = _cameraPosition.set(translation.x, translation.y + 2.42, translation.z)
         const cameraEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ')
         
         // Different sensitivities for horizontal and vertical aiming
@@ -1090,7 +1090,7 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                     ref={fpsCameraRef}
                     makeDefault
                     fov={normalFov}
-                    position={[0, 0.75, 0]}
+                    position={[0, 0.975, 0]}
                 >
                     {/* Only render FPS arms if player type is merc */}
                     {playerType === 'merc' && (
