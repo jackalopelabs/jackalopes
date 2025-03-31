@@ -16,10 +16,11 @@ import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils';
 
 interface RemotePlayerAudioProps {
   playerId: string;
-  position: THREE.Vector3 | { x: number, y: number, z: number };
+  position: { x: number, y: number, z: number } | THREE.Vector3;
   isWalking?: boolean;
   isRunning?: boolean;
   isShooting?: boolean;
+  playerType?: 'merc' | 'jackalope'; // Add player type to adjust volume based on character
 }
 
 // Audio settings interface - same as in FootstepAudio for consistency
@@ -43,7 +44,8 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
   position, 
   isWalking = false, 
   isRunning = false,
-  isShooting = false 
+  isShooting = false,
+  playerType = 'merc' // Default to merc if not specified
 }) => {
   // Get camera to use its audio listener
   const { camera } = useThree();
@@ -69,6 +71,9 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
     remoteSoundsEnabled: true
   });
 
+  // Calculate volume modifier based on player type (reduce jackalope volume by 75%)
+  const volumeModifier = playerType === 'jackalope' ? 0.25 : 1.0;
+
   // Store the current movement state to detect changes
   const prevStateRef = useRef({ isWalking, isRunning, isShooting });
   
@@ -86,18 +91,30 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
           : audioSettings.remoteSoundsEnabled
       });
       
-      // Apply volume settings immediately
+      // Apply volume settings immediately - now with player type consideration
       if (walkingSoundRef.current) {
-        walkingSoundRef.current.setVolume(event.detail.walkingVolume * event.detail.masterVolume * 0.7); // Slightly quieter than local sounds
+        walkingSoundRef.current.setVolume(
+          event.detail.walkingVolume * 
+          event.detail.masterVolume * 
+          0.7 * // Base remote player volume adjustment
+          volumeModifier // Apply player type volume modifier
+        );
       }
       
       if (runningSoundRef.current) {
-        runningSoundRef.current.setVolume(event.detail.runningVolume * event.detail.masterVolume * 0.7);
+        runningSoundRef.current.setVolume(
+          event.detail.runningVolume * 
+          event.detail.masterVolume * 
+          0.7 * // Base remote player volume adjustment
+          volumeModifier // Apply player type volume modifier
+        );
       }
       
       if (shotSoundRef.current) {
         // Weapon sounds should be louder but still use master volume
-        shotSoundRef.current.setVolume(0.3 * event.detail.masterVolume);
+        // Don't reduce jackalope shot volume as much - only by 25% instead of 75%
+        const shotVolumeModifier = playerType === 'jackalope' ? 0.75 : 1.0;
+        shotSoundRef.current.setVolume(0.3 * event.detail.masterVolume * shotVolumeModifier);
       }
     };
     
@@ -126,7 +143,7 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
       window.removeEventListener('audioSettingsChanged', handleAudioSettingsChanged as EventListener);
       window.removeEventListener('remoteSoundsToggled', handleRemoteSoundsToggle as EventListener);
     };
-  }, []);
+  }, [volumeModifier, playerType]);
   
   // Set up audio system on component mount
   useEffect(() => {
@@ -192,14 +209,19 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
         }
         walkingSound.setBuffer(buffer);
         walkingSound.setLoop(true);
-        walkingSound.setVolume(audioSettings.walkingVolume * audioSettings.masterVolume * 0.9); // Increase volume for walking
+        walkingSound.setVolume(
+          audioSettings.walkingVolume * 
+          audioSettings.masterVolume * 
+          0.9 * // Remote volume base adjustment 
+          volumeModifier // Player type adjustment (0.25 for jackalope)
+        );
         setWalkingAudioLoaded(true);
         
         // Test play walking sound once to make sure it's loaded
         setTimeout(() => {
           try {
             const testVolume = walkingSound.getVolume();
-            walkingSound.setVolume(0.1); // Low volume for test
+            walkingSound.setVolume(0.1 * volumeModifier); // Low volume for test
             walkingSound.play();
             setTimeout(() => {
               walkingSound.stop();
@@ -232,7 +254,12 @@ export const RemotePlayerAudio: React.FC<RemotePlayerAudioProps> = ({
         }
         runningSound.setBuffer(buffer);
         runningSound.setLoop(true);
-        runningSound.setVolume(audioSettings.runningVolume * audioSettings.masterVolume * 0.8);
+        runningSound.setVolume(
+          audioSettings.runningVolume * 
+          audioSettings.masterVolume * 
+          0.8 * // Remote volume base adjustment
+          volumeModifier // Player type adjustment (0.25 for jackalope)
+        );
         setRunningAudioLoaded(true);
       },
       undefined,

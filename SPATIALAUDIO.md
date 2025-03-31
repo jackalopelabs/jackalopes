@@ -24,6 +24,7 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Added colored console logs for easier debugging of sound states 
 - [x] Fix remote players flashing between merc and jackalope character types when moving
 - [x] Fix rotation flipping in remote jackalopes (models briefly turning backwards every few seconds)
+- [x] Reduce jackalope footstep volume by 75% to balance sound levels
 - [ ] Add audio occlusion/obstruction for more realistic spatial audio
 - [ ] Optimize audio performance with culling based on distance
 

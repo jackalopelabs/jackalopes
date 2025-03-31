@@ -556,6 +556,8 @@ export const useMultiplayer = (
             ? quaternionToAngle(data.rotation) 
             : 0;
           
+          console.log(`Creating new remote player with type: ${newPlayerType}`);
+          
           return {
             ...prev,
             [data.id]: {
@@ -571,10 +573,17 @@ export const useMultiplayer = (
           };
         }
         
-        // For existing players, always use their existing playerType
+        // For existing players, ALWAYS use their existing playerType
         // This prevents flashing between character types
         const existingPlayer = prev[data.id];
-        const existingPlayerType = existingPlayer.playerType || 'merc';
+        const existingPlayerType = existingPlayer.playerType;
+        
+        // Log if there's an attempt to change player type
+        if ((data.playerType || data.state?.playerType) && 
+            data.playerType !== existingPlayerType && 
+            data.state?.playerType !== existingPlayerType) {
+          console.log(`⚠️ Ignoring player type change for ${data.id}: Network wants to change from ${existingPlayerType} to ${data.playerType || data.state?.playerType}`);
+        }
         
         // Convert position and rotation
         const position = data.position 
@@ -1650,6 +1659,8 @@ export const MultiplayerManager: React.FC<{
           const rotation = data.rotation 
             ? quaternionToAngle(data.rotation) 
             : 0;
+          
+          console.log(`Creating new remote player with type: ${newPlayerType}`);
           
           return {
             ...prev,

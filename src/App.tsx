@@ -3084,6 +3084,89 @@ export function App() {
 
             {/* Add AudioToggleButton for easy audio control */}
             <AudioToggleButton position="bottom-right" showRemoteToggle={enableMultiplayer} />
+
+            {/* Debug character force overlay */}
+            {debugSettings && (
+              <div style={{
+                position: 'fixed',
+                top: '130px',
+                right: '10px',
+                background: 'rgba(0,0,0,0.7)',
+                color: 'white',
+                padding: '5px',
+                borderRadius: '5px',
+                zIndex: 1000,
+                fontSize: '12px'
+              }}>
+                <div>Character: {playerCharacterInfo?.type}</div>
+                <button 
+                  onClick={() => {
+                    if (connectionManager) {
+                      // Force Jackalope
+                      const newInfo = connectionManager.forceCharacterType('jackalope');
+                      setPlayerCharacterInfo(newInfo);
+                      // Save to localStorage for persistence
+                      localStorage.setItem('jackalopes_force_character', 'jackalope');
+                      console.log('Forced character to JACKALOPE');
+                    }
+                  }}
+                  style={{
+                    margin: '3px',
+                    background: playerCharacterInfo?.type === 'jackalope' ? '#4CAF50' : '#555',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '3px',
+                    padding: '3px 5px'
+                  }}
+                >
+                  Force Jackalope
+                </button>
+                <button 
+                  onClick={() => {
+                    if (connectionManager) {
+                      // Force Merc
+                      const newInfo = connectionManager.forceCharacterType('merc');
+                      setPlayerCharacterInfo(newInfo);
+                      // Save to localStorage for persistence
+                      localStorage.setItem('jackalopes_force_character', 'merc');
+                      console.log('Forced character to MERC');
+                    }
+                  }}
+                  style={{
+                    margin: '3px',
+                    background: playerCharacterInfo?.type === 'merc' ? '#4CAF50' : '#555',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '3px',
+                    padding: '3px 5px'
+                  }}
+                >
+                  Force Merc
+                </button>
+                <button 
+                  onClick={() => {
+                    // Clear localStorage overrides
+                    localStorage.removeItem('jackalopes_force_character');
+                    // Force a refresh of character type
+                    if (connectionManager) {
+                      const newInfo = connectionManager.resetAndCorrectCharacterType();
+                      setPlayerCharacterInfo(newInfo);
+                      console.log('Reset to default character assignment');
+                    }
+                  }}
+                  style={{
+                    margin: '3px',
+                    background: '#FF5722',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '3px',
+                    padding: '3px 5px'
+                  }}
+                >
+                  Reset
+                </button>
+              </div>
+            )}
         </>
     );
 }

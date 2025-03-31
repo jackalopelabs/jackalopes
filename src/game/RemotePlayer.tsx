@@ -324,6 +324,33 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       // Create current position vector for comparison
       const currentPos = new THREE.Vector3(position.x, position.y, position.z);
       
+      // IMPROVED POSITION INTERPOLATION
+      // Get current mesh position
+      const meshPos = meshRef.current.position;
+      
+      // Calculate the distance to the target position
+      const distanceToTarget = meshPos.distanceTo(currentPos);
+      
+      // Determine interpolation speed based on distance
+      // Faster interpolation when further away to catch up quickly
+      let moveSpeed;
+      if (distanceToTarget > 5) {
+        // Very far behind - snap to position
+        moveSpeed = 1.0;
+      } else if (distanceToTarget > 2) {
+        // Far behind - catch up quickly
+        moveSpeed = Math.min(1, delta * 15);
+      } else if (distanceToTarget > 0.5) {
+        // Medium distance - moderate catch-up
+        moveSpeed = Math.min(1, delta * 8);
+      } else {
+        // Close - smooth movement
+        moveSpeed = Math.min(1, delta * 6);
+      }
+      
+      // Apply interpolation - faster than before to reduce lag
+      meshPos.lerp(currentPos, moveSpeed);
+      
       // Only check for movement when isMoving is undefined (fallback to local detection)
       if (lastPosition.current && isMoving === undefined) {
         const distance = lastPosition.current.distanceTo(currentPos);
@@ -381,11 +408,8 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
         }
       }
       
-      // Update last position
+      // Update last position - but use the target position to track actual movement
       lastPosition.current.copy(currentPos);
-      
-      // Update mesh position
-      meshRef.current.position.set(position.x, position.y, position.z);
     }
     
     // Smoothly interpolate rotation with error checking
@@ -416,15 +440,15 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       while (deltaRotation > Math.PI) deltaRotation -= Math.PI * 2;
       while (deltaRotation < -Math.PI) deltaRotation += Math.PI * 2;
       
-      // Use a more stable, slower interpolation factor for near-PI rotations
-      // and a faster one for normal rotations
+      // IMPROVED ROTATION SPEED
+      // Much faster rotation interpolation to reduce lag
       let smoothFactor;
       if (Math.abs(Math.abs(targetRotation) - Math.PI) < 0.5) {
-        // Very slow interpolation for the unstable near-PI region
-        smoothFactor = Math.min(1, delta * 1.0); // 2.5 -> 1.0 for more stability
+        // Significant boost for the unstable near-PI region
+        smoothFactor = Math.min(1, delta * 8.0); // 4x faster than before
       } else {
-        // Normal interpolation elsewhere
-        smoothFactor = Math.min(1, delta * 2.5);
+        // Much faster normal interpolation elsewhere
+        smoothFactor = Math.min(1, delta * 12.0); // 3x faster than before
       }
       
       // Apply interpolation
@@ -436,11 +460,6 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       
       // Apply the smooth rotation to the mesh
       meshRef.current.rotation.set(0, currentRotation.current, 0);
-      
-      // Debug rotation occasionally
-      if (isDebugEnabled(DEBUG_LEVELS.VERBOSE) && Math.random() < 0.01) {
-        log.player(`Remote player ${playerId} rotation updated: ${currentRotation.current.toFixed(2)} (target: ${targetRotation.toFixed(2)})`);
-      }
     }
   });
 
@@ -452,6 +471,7 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       isWalking={walkingOnly}
       isRunning={running}
       isShooting={isShooting}
+      playerType={playerType}
     />
   );
 
@@ -487,8 +507,8 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   // For jackalope type, use the new JackalopeModel
   if (playerType === 'jackalope') {
     // Debug output occasionally to help diagnose position issues
-    if (Date.now() % 5000 < 20) {
-      log.player(`Remote jackalope position: (${position?.x.toFixed(2)}, ${position?.y.toFixed(2)}, ${position?.z.toFixed(2)})`);
+    if (Date.now() % 10000 < 20) {
+      log.player(`Remote jackalope position: (${position?.x.toFixed(2)}, ${position?.y.toFixed(2)}, ${position?.z.toFixed(2)}), rotation: ${rotation?.toFixed(2)}`);
     }
     
     return (

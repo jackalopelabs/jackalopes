@@ -539,7 +539,8 @@ export class ConnectionManager extends EventEmitter {
     }
     
     // Use explicitly provided playerType or default to this.playerType
-    const typeToSend = updateData.playerType || this.playerType;
+    // IMPROVEMENT: Ensure we always send a valid player type, never undefined
+    const typeToSend = updateData.playerType || this.playerType || this.getAssignedPlayerType();
     
     if (!this.offlineMode) { 
       // For online mode, send to server
@@ -1018,13 +1019,36 @@ export class ConnectionManager extends EventEmitter {
       // Ignore localStorage errors
     }
     
+    // IMPROVEMENT: Check for any override in localStorage
+    try {
+      const forcedType = localStorage.getItem('jackalopes_force_character');
+      if (forcedType && (forcedType === 'merc' || forcedType === 'jackalope')) {
+        console.error(`⭐ Using forced character type from localStorage: ${forcedType}`);
+        const isJackalope = forcedType === 'jackalope';
+        return { 
+          type: forcedType, 
+          thirdPerson: isJackalope 
+        };
+      }
+    } catch (e) {
+      // Ignore localStorage errors
+    }
+    
     // Even indexes (0, 2, 4...) = Jackalope in third-person
     // Odd indexes (1, 3, 5...) = Merc in first-person
     if (index % 2 === 0) {
       console.error(`⭐ Player #${index} (player ${index + 1}) assigned as JACKALOPE in 3rd-person view`);
+      
+      // IMPROVEMENT: Persist this type to the instance
+      this.playerType = 'jackalope';
+      
       return { type: 'jackalope' as const, thirdPerson: true };
     } else {
       console.error(`⭐ Player #${index} (player ${index + 1}) assigned as MERC in 1st-person view`);
+      
+      // IMPROVEMENT: Persist this type to the instance
+      this.playerType = 'merc';
+      
       return { type: 'merc' as const, thirdPerson: false };
     }
   }
