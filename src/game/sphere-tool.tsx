@@ -15,7 +15,7 @@ const FIRE_COLORS = [
     '#FF9800', // Orange
 ]
 
-const SHOOT_FORCE = 90 // Significantly increased shoot force
+const SHOOT_FORCE = 120 // Increased from 90 for more reliable collisions
 const SPHERE_OFFSET = {
     x: 0.12,  // Slightly to the right
     y: -0.27, // Lower below crosshair
@@ -399,6 +399,7 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     const [scale, setScale] = useState(1)
     const startTime = useRef(Date.now())
     const isGrowing = useRef(true)
+    const collisionCounter = useRef(0) // Track number of collisions for debugging
     
     // Track stuck state for parent component
     const stuckRef = useRef(stuck)
@@ -602,27 +603,145 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     // Handle collision events 
     const handleCollision = (payload: CollisionEnterPayload) => {
         // Skip if already stuck or can't collide yet or no rigid body reference
-        if (stuck || !canCollide || !rigidBodyRef.current) return
+        if (stuck || !canCollide || !rigidBodyRef.current) return;
         
         // Don't process collisions with entities that lack a rigid body
-        if (!payload.other.rigidBody) return
+        if (!payload.other.rigidBody) return;
+        
+        try {
+            // Increment collision counter for debugging
+            collisionCounter.current += 1;
+            
+            // Get collision details
+            const targetObject = payload.other.rigidBodyObject;
+            const targetName = targetObject?.name?.toLowerCase() || '';
+            
+            // Log basic collision details
+            console.log(`COLLISION DETAILS for ${id} at position:`, finalPosition);
+            
+            // Try to get parent information safely without using the parent() method
+            let parentName = '';
+            let parentUserData = null;
+            try {
+                // Access the parent through the object3D hierarchy if possible
+                if (targetObject?.parent) {
+                    parentName = targetObject.parent.name?.toLowerCase() || '';
+                    parentUserData = targetObject.parent.userData;
+                }
+            } catch (err) {
+                console.log('Error accessing parent info:', err);
+            }
+            
+            // Get userData if available to check for player type
+            const targetUserData = targetObject?.userData;
+            const isJackalopeByUserData = targetUserData?.isJackalope === true || parentUserData?.isJackalope === true;
+            const isMercByUserData = targetUserData?.isMerc === true || parentUserData?.isMerc === true;
+            
+            // Enhanced collision detection with more thorough checks
+            // Check for jackalope in all the possible ways it could be named
+            const jackalopeNamePatterns = ['jackalope', 'remote-jackalope', 'jackalope-player'];
+            const mercNamePatterns = ['merc', 'remote-merc', 'merc-player'];
+            
+            const isJackalopeCollision = 
+                isJackalopeByUserData || 
+                jackalopeNamePatterns.some(pattern => targetName.includes(pattern)) ||
+                jackalopeNamePatterns.some(pattern => parentName.includes(pattern));
                 
-        // Get current position
-        const position = rigidBodyRef.current.translation()
-        setFinalPosition([position.x, position.y, position.z])
+            const isMercCollision = 
+                isMercByUserData || 
+                mercNamePatterns.some(pattern => targetName.includes(pattern)) ||
+                mercNamePatterns.some(pattern => parentName.includes(pattern));
+                
+            const isPlayerCollision = 
+                isJackalopeCollision || 
+                isMercCollision || 
+                targetName.includes('player') || 
+                parentName.includes('player');
+            
+            // Log detailed collision information
+            console.log('COLLISION DETECTED', {
+                collisionNumber: collisionCounter.current,
+                targetName,
+                parentName,
+                targetUserData,
+                parentUserData,
+                isJackalopeByUserData,
+                isMercByUserData,
+                isJackalopeCollision,
+                isMercCollision, 
+                isPlayerCollision,
+                targetType: payload.other.rigidBodyObject?.type,
+                sphereId: id
+            });
+            
+            // Get current position
+            const position = rigidBodyRef.current.translation();
+            setFinalPosition([position.x, position.y, position.z]);
+            
+            // Stick to the surface by making it fixed
+            rigidBodyRef.current.setBodyType(1, true); // 1 for Fixed, true to wake the body
+            
+            // Disable all movement
+            rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
+            rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
+            
+            // Mark as stuck but DON'T remove from light pool until later
+            setStuck(true);
+            
+            // Register this collision time to start light fade timer
+            collisionTimeRef.current = Date.now();
+            
+            // Add visual/audio feedback for player hit
+            if (isPlayerCollision) {
+                if (isJackalopeCollision) {
+                    console.log('SHOT HIT A JACKALOPE!', {
+                        targetName,
+                        parentName,
+                        jackalopeId: targetUserData?.playerId || parentUserData?.playerId || 'unknown'
+                    });
+                    
+                    // Apply a dramatic hit effect
+                    applyJackalopeHitEffect();
+                    
+                    // Play jackalope hit sound if available
+                    if (window.__playJackalopeHitSound) {
+                        window.__playJackalopeHitSound();
+                    }
+                } else if (isMercCollision) {
+                    console.log('Shot hit a merc!', targetName);
+                    
+                    // Play merc hit sound if available
+                    if (window.__playMercHitSound) {
+                        window.__playMercHitSound();
+                    }
+                } else {
+                    console.log('Shot hit a generic player!', targetName);
+                }
+            }
+        } catch (error) {
+            console.error('Error in handleCollision:', error);
+        }
+    }
+    
+    // Function to apply dramatic hit effect when hitting a jackalope
+    const applyJackalopeHitEffect = () => {
+        // Make the glow effect stronger by increasing the material intensity
+        if (outerMaterialRef.current) {
+            // Increase the emissive intensity to make the hit more visually apparent
+            outerMaterialRef.current.emissiveIntensity *= 2.0;
+            // Add a red tint to indicate a hit
+            outerMaterialRef.current.emissive.setRGB(1.0, 0.3, 0.1);
+        }
         
-        // Stick to the surface by making it fixed
-        rigidBodyRef.current.setBodyType(1, true) // 1 for Fixed, true to wake the body
+        if (innerMaterialRef.current) {
+            // Also increase the inner core brightness
+            innerMaterialRef.current.emissiveIntensity *= 2.0;
+            // Add a red tint to indicate a hit
+            innerMaterialRef.current.emissive.setRGB(1.0, 0.4, 0.2);
+        }
         
-        // Disable all movement
-        rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true)
-        rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true)
-        
-        // Mark as stuck but DON'T remove from light pool until later
-        setStuck(true)
-        
-        // Register this collision time to start light fade timer
-        collisionTimeRef.current = Date.now();
+        // Make the hit more visually apparent by scaling up the fireball
+        setScale(scale * 1.25);
     }
     
     // Auto-destroy after 5 seconds
@@ -678,9 +797,10 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 type={stuck ? "fixed" : "dynamic"}
                 gravityScale={0.3} // Reduce gravity effect
                 scale={scale} // Apply the scale for growth animation
+                collisionGroups={0xFFFFFFFF} // Collide with everything
             >
-                {/* Custom ball collider that updates with scale */}
-                <BallCollider args={[radius]} />
+                {/* Use a slightly larger collider than the visible sphere for better hit detection */}
+                <BallCollider args={[radius * 1.5]} sensor={false} />
                 
                 {/* Inner core */}
                 <mesh castShadow receiveShadow>
@@ -1253,6 +1373,8 @@ declare global {
         __processedShots?: Set<string>;
         __sendTestShot?: () => void;
         __playMercShot?: () => void;
+        __playJackalopeHitSound?: () => void;
+        __playMercHitSound?: () => void;
     }
 }
 

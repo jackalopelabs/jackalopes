@@ -15,9 +15,10 @@ import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel c
 declare global {
     interface Window {
         jackalopesGame?: {
-            playerType?: string;
+            playerType?: 'merc' | 'jackalope';
             flashlightOn?: boolean;
-            levaPanelState?: string;
+            levaPanelState?: 'open' | 'closed';
+            debugLevel?: number;
         };
         playerPositionTracker?: {
             updatePosition: (position: THREE.Vector3) => void;
@@ -555,6 +556,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         type="kinematicPosition"
                         enabledRotations={[false, false, false]}
                         position={[position.current.x, position.current.y, position.current.z]}
+                        name="jackalope-player"
                     >
                         <object3D name="jackalope" />
                         <CapsuleCollider args={[1.0, 0.5]} position={[0, -0.65, 0]} />

@@ -256,7 +256,8 @@ export const JackalopeModel = ({
   return (
     <group 
       ref={group} 
-      visible={visible} 
+      visible={visible}
+      name="jackalope"
       rotation={finalRotation}
       scale={scale}
     >

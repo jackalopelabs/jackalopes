@@ -7,6 +7,7 @@ import { MercModel } from './MercModel'; // Import MercModel for remote players
 import { JackalopeModel } from './JackalopeModel'; // Import the new JackalopeModel
 import { RemotePlayerAudio } from '../components/RemotePlayerAudio'; // Import RemotePlayerAudio component
 import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils'; // Import new debug utilities
+import { RigidBody, CapsuleCollider, BallCollider, CuboidCollider } from '@react-three/rapier'; // Import Rapier physics components
 
 // Define the RemotePlayerData interface locally to match MultiplayerManager
 interface RemotePlayerData {
@@ -479,12 +480,33 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   if (playerType === 'merc') {
     return (
       <>
-        <MercModel 
-          position={position ? [position.x, position.y - 1.6, position.z] : [0, -1.6, 0]} 
+        <RigidBody 
+          type="fixed" 
+          position={position ? [position.x, position.y - 1.6, position.z] : [0, -1.6, 0]}
           rotation={[0, rotation || 0, 0]}
-          animation={localIsMoving ? "walk" : "idle"}
-          scale={[5, 5, 5]}
-        />
+          colliders={false}
+          name={`remote-merc-${playerId}`}
+          userData={{ isMerc: true, playerId }}
+          friction={1}
+          sensor={false}
+          includeInvisible={true}
+          ccd={true} // Add continuous collision detection
+          collisionGroups={0xFFFFFFFF} // Collide with everything
+        >
+          {/* Use multiple colliders for better hit detection */}
+          <CapsuleCollider args={[1.5, 0.8]} position={[0, 1.5, 0]} sensor={false} />
+          
+          {/* Add a box collider to ensure hits register */}
+          <CuboidCollider args={[0.8, 1.5, 0.8]} position={[0, 1.5, 0]} sensor={false} />
+          
+          {/* Add a collider for the head area */}
+          <BallCollider args={[0.6]} position={[0, 2.5, 0]} sensor={false} />
+          
+          <MercModel 
+            animation={localIsMoving ? "walk" : "idle"}
+            scale={[5, 5, 5]}
+          />
+        </RigidBody>
         {/* Player ID tag - positioned higher for the taller merc model */}
         <Html position={[position?.x || 0, (position?.y || 0) + 6, position?.z || 0]} center>
           <div style={{ 
@@ -513,12 +535,33 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
     
     return (
       <>
-        <JackalopeModel 
-          position={position ? [position.x, position.y + 0.3, position.z] : [0, 0.3, 0]} 
+        <RigidBody 
+          type="fixed" 
+          position={position ? [position.x, position.y + 0.3, position.z] : [0, 0.3, 0]}
           rotation={[0, (rotation || 0) + Math.PI, 0]}
-          animation={localIsMoving ? "walk" : "idle"}
-          scale={[2, 2, 2]}
-        />
+          colliders={false}
+          name={`remote-jackalope-${playerId}`}
+          userData={{ isJackalope: true, playerId }}
+          friction={1}
+          sensor={false}
+          includeInvisible={true}
+          ccd={true} // Add continuous collision detection
+          collisionGroups={0xFFFFFFFF} // Collide with everything
+        >
+          {/* Use multiple colliders for better hit detection */}
+          <CapsuleCollider args={[1.0, 0.8]} position={[0, 0.6, 0]} sensor={false} />
+          
+          {/* Add a box collider to ensure hits register */}
+          <CuboidCollider args={[0.8, 0.8, 0.8]} position={[0, 0.6, 0]} sensor={false} />
+          
+          {/* Add a collider for the head area */}
+          <BallCollider args={[0.5]} position={[0, 1.2, 0]} sensor={false} />
+          
+          <JackalopeModel 
+            animation={localIsMoving ? "walk" : "idle"}
+            scale={[2, 2, 2]}
+          />
+        </RigidBody>
         {/* Player ID tag */}
         <Html position={[position?.x || 0, (position?.y || 0) + 2.5, position?.z || 0]} center>
           <div style={{ 
@@ -559,7 +602,12 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
 
   return (
     <>
-      <mesh ref={meshRef} position={[position.x, position.y, position.z]} rotation={[0, rotation, 0]}>
+      <mesh 
+        ref={meshRef} 
+        position={[position.x, position.y, position.z]} 
+        rotation={[0, rotation, 0]}
+        name={`remote-player-${playerId}`}
+      >
         {/* Body */}
         <boxGeometry args={[0.5, 1, 0.25]} />
         <meshStandardMaterial color={color} />
