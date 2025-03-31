@@ -138,27 +138,79 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   console.log(`🎮 RemotePlayer ${playerId} rendering with playerType: ${playerType || 'undefined'}`);
   
   const meshRef = useRef<THREE.Mesh>(null);
+  const lastAnimationChangeTime = useRef<number>(Date.now());
+  const pendingAnimationChange = useRef<string | null>(null);
   const lastPosition = useRef<THREE.Vector3 | null>(null);
   const lastMoveTimestamp = useRef<number>(Date.now());
-  const [localIsMoving, setLocalIsMoving] = useState(false);
-  const [localIsRunning, setLocalIsRunning] = useState(false);
   const currentAnimation = useRef("idle"); // Default to idle
   
-  // Add refs for animation debouncing
-  const lastAnimationChangeTime = useRef(0);
-  const pendingAnimationChange = useRef<string | null>(null);
-  const MIN_ANIMATION_CHANGE_INTERVAL = 800; // minimum 800ms between animation changes
+  const MIN_ANIMATION_CHANGE_INTERVAL = 200; // ms
   
-  // Log a one-time warning if we get invalid data
+  // Log initialization
   useEffect(() => {
-    if (!position) {
-      console.warn('RemotePlayer received invalid position', { playerId, position });
-    }
-    if (rotation === undefined || rotation === null) {
-      console.warn('RemotePlayer received invalid rotation', { playerId, rotation });
-    }
+    console.log(`RemotePlayer ${playerId} initialized.`);
+    
+    return () => {
+      console.log(`RemotePlayer ${playerId} unmounted.`);
+    };
   }, [playerId]);
-
+  
+  // Get local state for animation scheduling
+  const [localIsMoving, setLocalIsMoving] = useState(isMoving || false);
+  const [localIsRunning, setLocalIsRunning] = useState(isRunning || false);
+  
+  // Log every state update to debug movement sound issues
+  useEffect(() => {
+    console.log(`RemotePlayer ${playerId} received props update:`, { 
+      isMoving, 
+      isRunning, 
+      isShooting,
+      localIsMoving,
+      localIsRunning
+    });
+  }, [isMoving, isRunning, isShooting, localIsMoving, localIsRunning, playerId]);
+  
+  // Force re-check movement state when props change
+  useEffect(() => {
+    // Debug the incoming props more clearly
+    console.log(`RemotePlayer ${playerId} movement props received:`, {
+      isMoving: isMoving === true ? "TRUE" : (isMoving === false ? "FALSE" : "undefined"),
+      isRunning: isRunning === true ? "TRUE" : (isRunning === false ? "FALSE" : "undefined"),
+    });
+    
+    // Don't let walking and running both be true at the same time
+    if (isMoving === true && isRunning === true) {
+      // Running takes precedence
+      console.log(`${playerId}: Both moving and running flags are true - setting to RUNNING`);
+      setLocalIsMoving(true);
+      setLocalIsRunning(true);
+    } else if (isMoving === true && isRunning !== true) {
+      // Walking only - make sure isRunning is explicitly FALSE
+      console.log(`${playerId}: Moving=true, Running!=true - setting to WALKING`);
+      setLocalIsMoving(true);
+      setLocalIsRunning(false);
+    } else if (isMoving === false) {
+      // Not moving - stop all movement
+      console.log(`${playerId}: Moving=false - setting to STOPPED`);
+      setLocalIsMoving(false);
+      setLocalIsRunning(false);
+    }
+  }, [isMoving, isRunning, playerId]);
+  
+  // Calculate local walking and running state properly
+  const walkingOnly = localIsMoving && !localIsRunning;
+  const running = localIsRunning;
+  
+  // Log changes in the calculated audio states
+  useEffect(() => {
+    console.log(`${playerId} audio states calculated:`, {
+      walkingOnly,
+      running,
+      shouldPlayWalkSound: walkingOnly,
+      shouldPlayRunSound: running,
+    });
+  }, [walkingOnly, running, playerId]);
+  
   // Update local isMoving state when the prop changes, with rate limiting
   useEffect(() => {
     if (isMoving !== undefined) {
@@ -277,13 +329,13 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
     }
   });
 
-  // Common component for all player types
+  // Common component for all player types with explicit states
   const audioComponent = (
     <RemotePlayerAudio
       playerId={playerId}
       position={position} 
-      isWalking={localIsMoving && !localIsRunning}
-      isRunning={localIsRunning}
+      isWalking={walkingOnly}
+      isRunning={running}
       isShooting={isShooting}
     />
   );

@@ -14,6 +14,12 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Fix remote player gunshots not being heard
 - [x] Enhance sound propagation with improved volume and distance settings
 - [x] Add debugging tools for audio events
+- [x] Fix issue where walking played both walking AND running sounds
+- [x] Fix persisting sound after player stops moving
+- [x] Fix walking sounds being incorrectly overridden by running sounds 
+- [x] Fix gun sounds not playing consistently across browsers
+- [x] Fix movement speed detection to properly distinguish walking and running
+- [x] Fix running sound playing when player is walking
 - [ ] Add audio occlusion/obstruction for more realistic spatial audio
 - [ ] Optimize audio performance with culling based on distance
 
@@ -37,6 +43,9 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Add timestamp for proper synchronization
 - [x] Improve remote player state detection (walking vs running)
 - [x] Add unique IDs for shot events to prevent duplicates
+- [x] Add cross-browser shot event support via localStorage
+- [x] Add redundant shot detection methods for reliability
+- [x] Fix movement speed detection for better walking vs running classification
 - [ ] Implement latency compensation
 
 ### 4. Audio Event System ✅
@@ -46,6 +55,8 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Fix gun shot events to properly trigger audio
 - [x] Improve error handling for audio playback
 - [x] Add fallback mechanisms for audio that fails to play
+- [x] Add retry mechanism for critical audio events
+- [x] Add manual shot trigger helpers for debugging
 - [ ] Add distance-based culling to save resources
 
 ### 5. Testing and Optimization
@@ -54,16 +65,31 @@ This document outlines the steps to implement spatial audio so players can hear 
 - [x] Test cross-browser audio (Chrome → Safari, vice versa)
 - [x] Fix walking sounds not playing with proper state detection
 - [x] Fix gunshot sounds not playing reliably
+- [x] Fix walking playing both walking and running sounds
+- [x] Add global debug functions for manual audio testing
+- [x] Fix persistence of running sounds after player stops moving
+- [x] Add strict state validation to ensure sound states match movement
 - [ ] Test with multiple browsers simultaneously
 - [ ] Measure performance impact
 - [ ] Optimize buffer usage and audio loading
 - [ ] Add audio pooling for frequently used sounds
 
-### 6. Recent Fixes (2023-07-05)
+### 6. Recent Fixes (2023-07-07)
 - [x] Fixed running sounds playing incorrectly during walking
 - [x] Fixed walking sounds not playing at all for remote players
 - [x] Fixed gunshot sounds not being heard from other players
 - [x] Increased sound volumes for better audibility at distance
 - [x] Added better debugging tools for tracking audio events
 - [x] Improved error handling for audio playback failures
-- [x] Added test playback of sounds during initialization to ensure loading 
+- [x] Added test playback of sounds during initialization to ensure loading
+- [x] Ensured only one movement sound plays at a time (running OR walking, not both)
+- [x] Added cross-browser shot event propagation via localStorage
+- [x] Added auto-retry mechanism for remote shot events
+- [x] Increased gunshot volume for better audibility
+- [x] Added dual-mechanism detection for gunshots (events + prop checking)
+- [x] Added global debugging helpers for manually triggering shot sounds
+- [x] Fixed multiple redundant state issues in RemotePlayer component
+- [x] Completely rewrote movement state detection logic with stricter conditions
+- [x] Fixed running sound playing during walking with rigid state management
+- [x] Increased movement speed threshold to better distinguish walking/running
+- [x] Added explicit boolean checks to prevent ambiguous state conditions 

@@ -577,32 +577,39 @@ export const useMultiplayer = (
           }
           
           // Apply hysteresis - use different thresholds for starting vs stopping movement
-          if (!wasMoving && distance > 0.05) {
-            // Need significant movement to start walking
-            isMoving = true;
-          } else if (wasMoving && distance < 0.02) {
-            // Need very little movement to be considered stopped
+          // IMPORTANT: Completely stopped detection
+          if (distance < 0.02) {
+            // Very little movement - considered stopped
             isMoving = false;
-            isRunning = false; // Stop running if we're stopped
-          } else {
-            // Otherwise maintain previous state
-            isMoving = wasMoving;
-          }
-          
-          // Determine running based on speed
-          if (isMoving && speed > 0.4) {
-            isRunning = true;
-          } else if (wasRunning && speed < 0.3) {
-            // Need to slow down more to stop running (hysteresis)
             isRunning = false;
-          } else {
-            // Otherwise maintain previous running state
-            isRunning = wasRunning && isMoving; // Only keep running if still moving
+          }
+          // Significant movement - determine if walking or running
+          else if (distance > 0.05 || wasMoving) {
+            isMoving = true;
+            
+            // Determine running state based on speed with clearer threshold
+            // Running when speed > 4.0 units/second
+            if (speed > 4.0) {
+              isRunning = true;
+            } 
+            // Walking when speed is between 0.2 and 4.0
+            else if (speed > 0.2 && speed <= 4.0) {
+              isRunning = false;
+            }
+            // For other cases, maintain previous running state with consistency checks
+            else {
+              isRunning = wasRunning;
+              
+              // But ensure we never have isRunning=true when speed is very low
+              if (isRunning && speed < 0.2) {
+                isRunning = false;
+              }
+            }
           }
           
-          // Log movement state changes occasionally
-          if ((prev[data.id].isMoving !== isMoving || prev[data.id].isRunning !== isRunning) && Math.random() < 0.2) {
-            console.log(`Remote player ${data.id} movement: ${isMoving ? (isRunning ? 'running' : 'walking') : 'idle'} (dist: ${distance.toFixed(3)}, speed: ${speed.toFixed(2)})`);
+          // Log movement state changes with clear indicators
+          if ((prev[data.id].isMoving !== isMoving || prev[data.id].isRunning !== isRunning) && Math.random() < 0.3) {
+            console.log(`💨 Player ${data.id} movement: ${isMoving ? (isRunning ? '🏃 RUNNING' : '🚶 WALKING') : '🧍 STOPPED'} (dist: ${distance.toFixed(3)}, speed: ${speed.toFixed(2)})`);
           }
         }
         
@@ -1141,66 +1148,82 @@ export const useMultiplayer = (
       // Add a shot ID to ensure each shot event is unique
       const shotId = `${shotData.id}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       
+      // Log shot details with timestamp
+      console.log(`Processing remote shot event: ${shotId}`, {
+        playerId: shotData.id,
+        time: new Date().toISOString(), 
+        position: shotData.origin
+      });
+      
+      // Convert the origin array to an object for better event handling
+      const position = {
+        x: shotData.origin[0], 
+        y: shotData.origin[1], 
+        z: shotData.origin[2]
+      };
+      
       // Dispatch a custom event that RemotePlayerAudio will listen for
       const event = new CustomEvent('remoteShotFired', {
         detail: {
           playerId: shotData.id,
           shotId: shotId,
           timestamp: Date.now(),
-          position: {
-            x: shotData.origin[0],
-            y: shotData.origin[1],
-            z: shotData.origin[2]
-          }
+          position
         }
       });
       
       console.log('Dispatching remoteShotFired event:', event.detail);
       
-      // Store the processed shot IDs in a global set to prevent duplicate processing
-      if (!window.__processedShots) {
-        window.__processedShots = new Set();
+      // Also store the shot data in localStorage for cross-browser testing
+      try {
+        // This allows shots to be heard across browsers during testing
+        localStorage.setItem('lastRemoteShot', JSON.stringify({
+          playerId: shotData.id,
+          shotId,
+          timestamp: Date.now(),
+          position
+        }));
+      } catch (e) {
+        // Ignore localStorage errors
       }
       
-      // Only dispatch if we haven't processed this shot already
-      if (!window.__processedShots.has(shotId)) {
-        window.__processedShots.add(shotId);
-        
-        // Dispatch the event to trigger audio
-        window.dispatchEvent(event);
-        
-        // Clean up old shot IDs (keep last 100)
-        if (window.__processedShots.size > 100) {
-          const oldestShots = Array.from(window.__processedShots).slice(0, 50);
-          oldestShots.forEach(id => window.__processedShots?.delete(id));
-        }
-        
-        // Store the broadcast function for debugging
-        window.__shotBroadcast = (shot: any) => {
-          const testEvent = new CustomEvent('remoteShotFired', {
-            detail: shot
-          });
-          window.dispatchEvent(testEvent);
-          return 'Shot event dispatched';
-        };
-        
-        // Also store a test shot function for debugging
-        window.__sendTestShot = () => {
-          const testShot = {
+      // Dispatch the event to trigger audio
+      window.dispatchEvent(event);
+      
+      // Add a retry mechanism for shot events
+      setTimeout(() => {
+        console.log(`Sending retry shot event for ${shotData.id} (${shotId})`);
+        window.dispatchEvent(new CustomEvent('remoteShotFired', {
+          detail: {
             playerId: shotData.id,
-            shotId: `test-${Date.now()}`,
+            shotId: `${shotId}-retry`,
             timestamp: Date.now(),
-            position: {
-              x: shotData.origin[0],
-              y: shotData.origin[1],
-              z: shotData.origin[2]
-            }
-          };
-          window.__shotBroadcast?.(testShot);
-          console.log('Test shot dispatched:', testShot);
-          return 'Test shot dispatched';
+            position
+          }
+        }));
+      }, 100);
+      
+      // Store the broadcast function for debugging
+      window.__shotBroadcast = (shot: any) => {
+        const testEvent = new CustomEvent('remoteShotFired', {
+          detail: shot
+        });
+        window.dispatchEvent(testEvent);
+        return 'Shot event dispatched';
+      };
+      
+      // Also store a test shot function for debugging
+      window.__sendTestShot = () => {
+        const testShot = {
+          playerId: shotData.id,
+          shotId: `test-${Date.now()}`,
+          timestamp: Date.now(),
+          position
         };
-      }
+        window.__shotBroadcast?.(testShot);
+        console.log('Test shot dispatched:', testShot);
+        return 'Test shot dispatched';
+      };
       
       // Reset shooting state after a short delay
       setTimeout(() => {
@@ -1225,8 +1248,114 @@ export const useMultiplayer = (
     }
   };
   
-  // Add listener for shot events
+  // Listen for shots from the connection manager
   connectionManager.on('shot', handleRemoteShot);
+  
+  // Also listen for shots from localStorage (cross-browser testing)
+  useEffect(() => {
+    const handleStorageEvent = (e: StorageEvent) => {
+      if (e.key === 'lastRemoteShot' && e.newValue) {
+        try {
+          const shotData = JSON.parse(e.newValue);
+          console.log('Shot detected from localStorage:', shotData);
+          
+          // Dispatch sound event
+          window.dispatchEvent(new CustomEvent('remoteShotFired', {
+            detail: shotData
+          }));
+          
+          // Also update the remote player state
+          if (shotData.playerId) {
+            setRemotePlayers(prev => {
+              if (!prev[shotData.playerId]) return prev;
+              
+              return {
+                ...prev,
+                [shotData.playerId]: {
+                  ...prev[shotData.playerId],
+                  isShooting: true
+                }
+              };
+            });
+            
+            // Reset shooting after delay
+            setTimeout(() => {
+              setRemotePlayers(prev => {
+                if (!prev[shotData.playerId]) return prev;
+                
+                return {
+                  ...prev,
+                  [shotData.playerId]: {
+                    ...prev[shotData.playerId],
+                    isShooting: false
+                  }
+                };
+              });
+            }, 300);
+          }
+        } catch (error) {
+          console.error('Error processing localStorage shot:', error);
+        }
+      }
+    };
+    
+    window.addEventListener('storage', handleStorageEvent);
+    
+    // Setup debug helper functions
+    window.__shotBroadcast = (shot: any) => {
+      window.dispatchEvent(new CustomEvent('remoteShotFired', {
+        detail: shot
+      }));
+      return 'Shot event dispatched';
+    };
+    
+    window.__sendTestShot = () => {
+      const playerId = Object.keys(remotePlayers)[0];
+      if (!playerId) {
+        console.error('No remote players available for test shot');
+        return 'No remote players available';
+      }
+      
+      const player = remotePlayers[playerId];
+      const testShot = {
+        playerId,
+        shotId: `test-${Date.now()}`,
+        timestamp: Date.now(),
+        position: player.position
+      };
+      
+      window.__shotBroadcast?.(testShot);
+      console.log('Test shot dispatched:', testShot);
+      
+      // Also update player state
+      setRemotePlayers(prev => ({
+        ...prev,
+        [playerId]: {
+          ...prev[playerId],
+          isShooting: true
+        }
+      }));
+      
+      // Reset after delay
+      setTimeout(() => {
+        setRemotePlayers(prev => ({
+          ...prev,
+          [playerId]: {
+            ...prev[playerId],
+            isShooting: false
+          }
+        }));
+      }, 300);
+      
+      return `Test shot dispatched for player ${playerId}`;
+    };
+    
+    return () => {
+      console.log('Cleaning up remote shots listener');
+      connectionManager.off('shot', handleRemoteShot);
+      window.removeEventListener('storage', handleStorageEvent);
+    };
+  }, [remotePlayers, connectionManager]);
   
   return {
     remotePlayers,
@@ -1522,32 +1651,39 @@ export const MultiplayerManager: React.FC<{
           }
           
           // Apply hysteresis - use different thresholds for starting vs stopping movement
-          if (!wasMoving && distance > 0.05) {
-            // Need significant movement to start walking
-            isMoving = true;
-          } else if (wasMoving && distance < 0.02) {
-            // Need very little movement to be considered stopped
+          // IMPORTANT: Completely stopped detection
+          if (distance < 0.02) {
+            // Very little movement - considered stopped
             isMoving = false;
-            isRunning = false; // Stop running if we're stopped
-          } else {
-            // Otherwise maintain previous state
-            isMoving = wasMoving;
-          }
-          
-          // Determine running based on speed
-          if (isMoving && speed > 0.4) {
-            isRunning = true;
-          } else if (wasRunning && speed < 0.3) {
-            // Need to slow down more to stop running (hysteresis)
             isRunning = false;
-          } else {
-            // Otherwise maintain previous running state
-            isRunning = wasRunning && isMoving; // Only keep running if still moving
+          }
+          // Significant movement - determine if walking or running
+          else if (distance > 0.05 || wasMoving) {
+            isMoving = true;
+            
+            // Determine running state based on speed with clearer threshold
+            // Running when speed > 4.0 units/second
+            if (speed > 4.0) {
+              isRunning = true;
+            } 
+            // Walking when speed is between 0.2 and 4.0
+            else if (speed > 0.2 && speed <= 4.0) {
+              isRunning = false;
+            }
+            // For other cases, maintain previous running state with consistency checks
+            else {
+              isRunning = wasRunning;
+              
+              // But ensure we never have isRunning=true when speed is very low
+              if (isRunning && speed < 0.2) {
+                isRunning = false;
+              }
+            }
           }
           
-          // Log movement state changes occasionally
-          if ((prev[data.id].isMoving !== isMoving || prev[data.id].isRunning !== isRunning) && Math.random() < 0.2) {
-            console.log(`Remote player ${data.id} movement: ${isMoving ? (isRunning ? 'running' : 'walking') : 'idle'} (dist: ${distance.toFixed(3)}, speed: ${speed.toFixed(2)})`);
+          // Log movement state changes with clear indicators
+          if ((prev[data.id].isMoving !== isMoving || prev[data.id].isRunning !== isRunning) && Math.random() < 0.3) {
+            console.log(`💨 Player ${data.id} movement: ${isMoving ? (isRunning ? '🏃 RUNNING' : '🚶 WALKING') : '🧍 STOPPED'} (dist: ${distance.toFixed(3)}, speed: ${speed.toFixed(2)})`);
           }
         }
         
