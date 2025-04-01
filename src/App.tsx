@@ -2802,7 +2802,7 @@ export function App() {
                             ) : (
                                 <Jackalope
                                     ref={playerRef}
-                                    position={[-10, 7, 10]} // Different spawn position for jackalope
+                                    position={[-100, 7, 10]} // Much farther spawn position for jackalope in multiplayer
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}

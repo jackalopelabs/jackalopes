@@ -490,7 +490,7 @@ export const useMultiplayer = (
         // Convert position and rotation to the format expected by RemotePlayer
         const position = data.state?.position 
           ? arrayToObjectPosition(data.state.position) 
-          : playerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -10, y: 7, z: 10 };
+          : playerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -100, y: 7, z: 10 };
           
         const rotation = data.state?.rotation 
           ? quaternionToAngle(data.state.rotation) 
@@ -563,7 +563,7 @@ export const useMultiplayer = (
           // Convert position and rotation
           const position = data.position 
             ? arrayToObjectPosition(data.position) 
-            : newPlayerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -10, y: 7, z: 10 };
+            : newPlayerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -100, y: 7, z: 10 };
             
           const rotation = data.rotation 
             ? quaternionToAngle(data.rotation) 
@@ -1592,7 +1592,7 @@ export const MultiplayerManager: React.FC<{
         // Convert position and rotation to the format expected by RemotePlayer
         const position = data.state?.position 
           ? arrayToObjectPosition(data.state.position) 
-          : playerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -10, y: 7, z: 10 };
+          : playerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -100, y: 7, z: 10 };
           
         const rotation = data.state?.rotation 
           ? quaternionToAngle(data.state.rotation) 
@@ -1665,7 +1665,7 @@ export const MultiplayerManager: React.FC<{
           // Convert position and rotation
           const position = data.position 
             ? arrayToObjectPosition(data.position) 
-            : newPlayerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -10, y: 7, z: 10 };
+            : newPlayerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -100, y: 7, z: 10 };
             
           const rotation = data.rotation 
             ? quaternionToAngle(data.rotation) 
