@@ -292,6 +292,39 @@ This animation system provides a more immersive multiplayer experience by making
 - [ ] Add text chat functionality
 - [ ] Create spectator mode
 - [ ] Implement match replay system
+- [x] **Jackalope Respawn Mechanic**: When a Merc's projectile hits a Jackalope, the Jackalope instantly vanishes and respawns
+
+#### Jackalope Respawn Mechanic Implementation
+
+This core gameplay feature establishes the asymmetric nature of the Merc vs. Jackalope dynamic:
+
+1. **Hit Detection**:
+   - Detect collision between Merc projectiles and Jackalope players
+   - Validate hit on server to prevent client-side exploits
+   - Broadcast hit event to all connected players
+
+2. **Vanishing Effect**:
+   - Create particle effect at Jackalope's position on hit
+   - Play audio cue for successful hit
+   - Remove Jackalope model from scene temporarily
+
+3. **Respawn Logic**:
+   - Server assigns new spawn position from designated spawn points
+   - Apply brief invulnerability period after respawn
+   - Notify all clients of respawn with new position data
+
+4. **Scoring & Feedback**:
+   - Award points to Merc player for successful hit
+   - Update UI for all players showing score change
+   - Play respawn animation at new location
+
+5. **Implementation Approach**:
+   - Use EntityStateObserver to track hit events
+   - Leverage existing projectile collision system
+   - Add specific handlers for Jackalope-hit-by-Merc events
+   - Implement client-side prediction for responsive gameplay
+
+This mechanic reinforces the game's asymmetric design, where Mercs hunt Jackalopes who must use movement and strategy to avoid being hit.
 
 ### Performance Optimization
 - [ ] Switch to binary protocol for production

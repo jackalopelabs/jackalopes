@@ -678,223 +678,65 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
             });
             
             // SPECIAL HANDLING FOR JACKALOPE COLLISIONS
-            if (isJackalopeCollision) {
-                console.log("JACKALOPE HIT - USING PARENT-CHILD SYSTEM");
+            if (isJackalopeCollision && window.__jackalopeHitHandlers) {
+                // Extract the jackalope ID from the target object
+                const jackalopeId = targetUserData?.jackalopeId || 
+                                    targetUserData?.playerId || 
+                                    parentUserData?.jackalopeId || 
+                                    parentUserData?.playerId;
                 
-                // Mark as stuck immediately to prevent multiple collision handling
-                setStuck(true);
-                stuckRef.current = true;
+                // Log that we found a Jackalope to hit
+                console.log(`Found Jackalope ${jackalopeId} to hit!`);
                 
-                try {
-                    // Get the jackalope position
-                    const jackalope = payload.other.rigidBody;
-                    const jackalopePos = jackalope.translation();
+                // Use the special hit handler provided by the jackalope
+                if (jackalopeId && window.__jackalopeHitHandlers[jackalopeId]) {
+                    console.log(`Using hit handler for jackalope ${jackalopeId}`);
                     
-                    // Get current position of the sphere
-                    const spherePos = rigidBodyRef.current.translation();
-                    
-                    // Calculate vector from jackalope to sphere
-                    const attachVector = new THREE.Vector3(
-                        spherePos.x - jackalopePos.x,
-                        spherePos.y - jackalopePos.y,
-                        spherePos.z - jackalopePos.z
-                    ).normalize();
-                    
-                    // Set attachment point on the jackalope surface
-                    // Use a fixed offset from the jackalope center
-                    const jackalopeRadius = 1.0; // Approximate collision radius
-                    const attachPoint = {
-                        x: jackalopePos.x + attachVector.x * jackalopeRadius,
-                        y: jackalopePos.y + attachVector.y * jackalopeRadius,
-                        z: jackalopePos.z + attachVector.z * jackalopeRadius
-                    };
-                    
-                    // Log the attachment point
-                    console.log("ATTACHING FIREBALL AT POINT:", attachPoint);
-                    
-                    // Get the jackalope ID from userData with improved detection
-                    // First try extracting from target object userData with detailed logging
-                    let jackalopeId = targetUserData?.jackalopeId || targetUserData?.playerId;
-                    
-                    // Enhanced extraction with detailed logging
-                    console.log("JACKALOPE ID EXTRACTION:", {
-                        targetUserData,
-                        parentUserData,
-                        "targetUserData?.jackalopeId": targetUserData?.jackalopeId,
-                        "targetUserData?.playerId": targetUserData?.playerId,
-                        "parentUserData?.jackalopeId": parentUserData?.jackalopeId,
-                        "parentUserData?.playerId": parentUserData?.playerId,
-                        "targetName": targetName,
-                        "parentName": parentName
-                    });
-                    
-                    // If not found, try parent userData
-                    if (!jackalopeId) {
-                        jackalopeId = parentUserData?.jackalopeId || parentUserData?.playerId;
-                    }
-                    
-                    // Last resort - try to extract from entity name
-                    if (!jackalopeId && targetName.includes('jackalope-')) {
-                        const nameParts = targetName.split('jackalope-');
-                        if (nameParts.length > 1) {
-                            jackalopeId = nameParts[1];
-                            console.log("Extracted jackalopeId from name:", jackalopeId);
-                        }
-                    }
-                    
-                    // Also check remote-jackalope pattern
-                    if (!jackalopeId && targetName.includes('remote-jackalope-')) {
-                        const nameParts = targetName.split('remote-jackalope-');
-                        if (nameParts.length > 1) {
-                            jackalopeId = nameParts[1];
-                            console.log("Extracted jackalopeId from remote-jackalope name:", jackalopeId);
-                        }
-                    }
-                    
-                    // Check window global registry of jackalope handlers
-                    if (window.__jackalopeAttachmentHandlers) {
-                        console.log("Available jackalope handlers:", Object.keys(window.__jackalopeAttachmentHandlers));
-                    }
-                    
-                    if (jackalopeId && window.__jackalopeAttachmentHandlers && window.__jackalopeAttachmentHandlers[jackalopeId]) {
-                        // Use the special attachment handler provided by the jackalope
-                        console.log(`Using attachment handler for jackalope ${jackalopeId}`);
+                    try {
+                        // Get shooter ID from the sphere ID if possible
+                        const sphereIdParts = id.split('-');
+                        const shooterId = sphereIdParts.length > 1 ? sphereIdParts[0] : 'unknown';
                         
-                        try {
-                            // Convert the attachment point to a Vector3
-                            const attachPosition = new THREE.Vector3(attachPoint.x, attachPoint.y, attachPoint.z);
+                        // Call the handler with the projectile ID and shooter ID
+                        const success = window.__jackalopeHitHandlers[jackalopeId](id, shooterId);
+                        
+                        if (success) {
+                            console.log(`Successfully hit jackalope ${jackalopeId} with projectile ${id}`);
                             
-                            // Call the handler with the projectile data
-                            const success = window.__jackalopeAttachmentHandlers[jackalopeId]({
-                                id,
-                                position: attachPosition
-                            });
-                            
-                            if (success) {
-                                console.log(`Successfully attached projectile ${id} to jackalope ${jackalopeId}`);
-                                
-                                try {
-                                    // COMPLETELY disable the original sphere - OPTIMIZED VERSION
-                                    console.log("Disabling original sphere");
-                                    
-                                    // First hide visuals immediately to provide instant feedback
-                                    if (groupRef.current) {
-                                        groupRef.current.visible = false;
-                                    }
-                                    
-                                    // Completely remove all colliders in one step
-                                    if (rigidBodyRef.current) {
-                                        // Set all colliders as sensors first
-                                        const numColliders = rigidBodyRef.current.numColliders();
-                                        for (let i = 0; i < numColliders; i++) {
-                                            const collider = rigidBodyRef.current.collider(i);
-                                            if (collider) {
-                                                collider.setSensor(true);
-                                            }
-                                        }
-                                        
-                                        // Optimization: disable rigid body and move in one operation
-                                        rigidBodyRef.current.setEnabled(false);
-                                        rigidBodyRef.current.setBodyType(1, false); // Set fixed type without waking
-                                        rigidBodyRef.current.setTranslation({ x: 0, y: -9999, z: 0 }, false); // Don't wake up
-                                    }
-                                    
-                                    // CRITICAL: Completely bypass stabilization
-                                    setFinalPosition([-9999, -9999, -9999]);
-                                    stuckRef.current = true;
-                                    
-                                    // Set the special flag to disable stabilization
-                                    (window as any).__disableStabilizationFor = (window as any).__disableStabilizationFor || {};
-                                    (window as any).__disableStabilizationFor[id] = true;
-                                    
-                                    // Mark as stuck
-                                    setStuck(true);
-                                    
-                                    // Play hit sound if available
-                                    if (window.__playJackalopeHitSound) {
-                                        window.__playJackalopeHitSound();
-                                    }
-                                    
-                                    // Instead of checking state again with setTimeout, just ensure cleanup happens properly
-                                    // We'll remove the need for double-checking which can cause performance issues
-                                    
-                                    // Instead of multiple console logs, just log success once
-                                    console.log("Successfully attached projectile to jackalope");
-                                } catch (error) {
-                                    console.error("Error disabling sphere:", error);
+                            // Disable the projectile
+                            try {
+                                // First hide visuals immediately to provide instant feedback
+                                if (groupRef.current) {
+                                    groupRef.current.visible = false;
                                 }
-                            } else {
-                                console.warn(`No attachment handler found for jackalope ${jackalopeId || 'unknown'}`);
-                                // Fall back to old method if no attachment handler is available
-                                fallbackToPhysicsAttachment();
+                                
+                                // Disable rigid body and move it away
+                                if (rigidBodyRef.current) {
+                                    rigidBodyRef.current.setEnabled(false);
+                                    rigidBodyRef.current.setBodyType(1, false); // Set fixed type without waking
+                                    rigidBodyRef.current.setTranslation({ x: 0, y: -9999, z: 0 }, false); // Don't wake up
+                                }
+                                
+                                // Move the sphere away and mark it as stuck
+                                setFinalPosition([-9999, -9999, -9999]);
+                                stuckRef.current = true;
+                                setStuck(true);
+                                
+                                // Mark collision time to properly clean up later
+                                collisionTimeRef.current = Date.now();
+                            } catch (error) {
+                                console.error("Error disabling projectile after jackalope hit:", error);
                             }
-                        } catch (error) {
-                            console.error("Error in attachment process:", error);
-                            fallbackToPhysicsAttachment();
-                        }
-                    } else {
-                        console.warn(`No attachment handler found for jackalope ${jackalopeId || 'unknown'}`);
-                        // Fall back to old method if no attachment handler is available
-                        fallbackToPhysicsAttachment();
-                    }
-                    
-                    // Define the fallback function that uses the old physics-based attachment
-                    function fallbackToPhysicsAttachment() {
-                        console.log("FALLING BACK TO PHYSICS-BASED ATTACHMENT");
-                        
-                        // Only proceed if rigidBodyRef is still valid
-                        if (!rigidBodyRef.current) {
-                            console.warn("Cannot attach: rigid body no longer exists");
+                            
+                            // Since we handled the hit, we can return early
                             return;
                         }
-                        
-                        // Set the attachment position
-                        const attachPosition: [number, number, number] = [attachPoint.x, attachPoint.y, attachPoint.z];
-                        
-                        // Update final position for rendering
-                        setFinalPosition(attachPosition);
-                        
-                        // Set the rigid body to fixed type
-                        rigidBodyRef.current.setBodyType(1, true);
-                        
-                        // Set the position exactly where we want it
-                        rigidBodyRef.current.setTranslation(attachPoint, true);
-                        
-                        // Stop all movement
-                        rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
-                        rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
-                        
-                        // Force the rigid body position update
-                        setTimeout(() => {
-                            if (rigidBodyRef.current) {
-                                rigidBodyRef.current.setTranslation(attachPoint, true);
-                                rigidBodyRef.current.wakeUp();
-                                
-                                // Update visuals directly as well
-                                if (groupRef.current) {
-                                    groupRef.current.position.set(attachPoint.x, attachPoint.y, attachPoint.z);
-                                }
-                                
-                                console.log("FIREBALL POSITION VERIFIED:", rigidBodyRef.current.translation());
-                            }
-                        }, 10);
-                        
-                        // Update the collider to be a sensor
-                        if (rigidBodyRef.current) {
-                            const numColliders = rigidBodyRef.current.numColliders();
-                            for (let i = 0; i < numColliders; i++) {
-                                const collider = rigidBodyRef.current.collider(i);
-                                if (collider) {
-                                    collider.setSensor(true);
-                                }
-                            }
-                        }
-                        
-                        // Apply the hit effect
-                        applyJackalopeHitEffect();
+                    } catch (error) {
+                        console.error("ERROR PROCESSING JACKALOPE HIT:", error);
                     }
-                } catch (error) {
-                    console.error("ERROR ATTACHING FIREBALL TO JACKALOPE:", error);
+                } else {
+                    // No handler found for this jackalope
+                    console.log(`No hit handler found for jackalope ${jackalopeId}`);
                 }
             } else {
                 // STANDARD COLLISION HANDLING FOR NON-JACKALOPE OBJECTS
@@ -1732,6 +1574,13 @@ declare global {
         __playMercHitSound?: () => void;
         __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
         __disableStabilizationFor?: Record<string, boolean>;
+        __jackalopeHitHandlers?: Record<string, (projectileId: string, shooterId: string) => boolean>;
+        __createExplosionEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
+        __createSpawnEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
+        __networkManager?: {
+            sendRespawnRequest: (playerId: string) => void;
+            broadcastMessage: (type: string, data: any) => void;
+        };
     }
 }
 
