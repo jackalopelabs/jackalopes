@@ -656,17 +656,6 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
                     toneMapped={false}
                   />
                 </mesh>
-                
-                {/* Flashlight beam visual helper */}
-                <mesh position={[10, 0.5, 0]} rotation={[0, 0, 0]}>
-                  <cylinderGeometry args={[0.5, 3, 15, 8]} />
-                  <meshBasicMaterial 
-                    color="#ffffcc"
-                    transparent={true}
-                    opacity={0.1}
-                    side={THREE.DoubleSide}
-                  />
-                </mesh>
               </group>
               
               {/* Separate target object for the spotlight */}
