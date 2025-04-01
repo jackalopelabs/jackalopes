@@ -1,13 +1,14 @@
-import React, { useRef, useState, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react';
+import React, { useRef, useState, useEffect, useImperativeHandle, forwardRef, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
-import { Html } from '@react-three/drei';
+import { Html, Billboard, Text, Clone, useGLTF } from '@react-three/drei';
 import { useFrame, RootState } from '@react-three/fiber';
 import { Points, BufferGeometry, NormalBufferAttributes, Material } from 'three';
-import { MercModel } from './MercModel'; // Import MercModel for remote players
-import { JackalopeModel } from './JackalopeModel'; // Import the new JackalopeModel
+import { MercModelPath, JackalopeModelPath } from '../assets'; // Import model paths instead of components
 import { RemotePlayerAudio } from '../components/RemotePlayerAudio'; // Import RemotePlayerAudio component
 import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils'; // Import new debug utilities
 import { RigidBody, CapsuleCollider, BallCollider, CuboidCollider } from '@react-three/rapier'; // Import Rapier physics components
+import { MercModel } from './MercModel';
+import { JackalopeModel } from './JackalopeModel';
 
 // Define the RemotePlayerData interface locally to match MultiplayerManager
 interface RemotePlayerData {
@@ -22,10 +23,15 @@ interface RemotePlayerData {
 
 // Interface for RemotePlayer props
 export interface RemotePlayerProps {
-  id: string;
-  initialPosition: [number, number, number];
-  initialRotation: [number, number, number, number];
-  playerType?: 'merc' | 'jackalope'; // Add player type to determine which model to show
+  playerId: string;
+  position: THREE.Vector3;
+  rotation: number;
+  playerType: 'merc' | 'jackalope';
+  isMoving?: boolean;
+  isRunning?: boolean;
+  isShooting?: boolean;
+  audioListener?: THREE.AudioListener;
+  // Add any other props needed
 }
 
 // Interface for the exposed methods
@@ -131,12 +137,15 @@ const PilotLight = () => {
 };
 
 // Remote Player Component
-export const RemotePlayer = ({ playerId, position, rotation, playerType, isMoving, isRunning, isShooting }: RemotePlayerData) => {
+export const RemotePlayer: React.FC<RemotePlayerProps> = ({ 
+  playerId, position, rotation, playerType = 'merc', isMoving, isRunning, isShooting, audioListener
+}) => {
   // Add debug logging for player type
   if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
     log.player(`RemotePlayer ${playerId} rendering with playerType: ${playerType || 'undefined'}`);
   }
   
+  const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
   const lastAnimationChangeTime = useRef<number>(Date.now());
   const pendingAnimationChange = useRef<string | null>(null);
@@ -149,18 +158,25 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
   
   const MIN_ANIMATION_CHANGE_INTERVAL = 200; // ms
   
-  // Log initialization
-  useEffect(() => {
-    if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
-      log.player(`RemotePlayer ${playerId} initialized.`);
-    }
-    
-    return () => {
-      if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
-        log.player(`RemotePlayer ${playerId} unmounted.`);
-      }
-    };
-  }, [playerId]);
+  // Inside the RemotePlayer component, add better error handling
+  // Add a state to track model loading errors
+  const [modelError, setModelError] = useState(false);
+  
+  // Determine player color based on type
+  const playerColor = useMemo(() => {
+    return playerType === 'merc' ? 'red' : 'blue';
+  }, [playerType]);
+  
+  // Create a fallback model if needed
+  const createFallbackModel = useCallback(() => {
+    const geometry = new THREE.BoxGeometry(0.5, 1.8, 0.5);
+    const material = new THREE.MeshStandardMaterial({ 
+      color: playerColor,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    return new THREE.Mesh(geometry, material);
+  }, [playerColor]);
   
   // Get local state for animation scheduling
   const [localIsMoving, setLocalIsMoving] = useState(isMoving || false);
@@ -413,54 +429,23 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       lastPosition.current.copy(currentPos);
     }
     
-    // Smoothly interpolate rotation with error checking
+    // IMPROVED ROTATION HANDLING - much more stable now
+    // We're now getting normalized rotation values from EntityStateObserver
     if (rotation !== undefined && rotation !== null) {
-      // Calculate the shortest path for rotation
-      let targetRotation = rotation;
-      let currentRot = currentRotation.current;
+      // Since rotation is now consistently a single value (yaw angle in radians),
+      // we can directly apply it to the Y axis rotation
+      const targetRotation = playerType === 'jackalope' ? rotation + Math.PI : rotation;
       
-      // Special case for rotations near PI/-PI boundary to prevent flipping
-      // If both angles are close to PI (or -PI) but on opposite sides, adjust one of them
-      if (Math.abs(Math.abs(targetRotation) - Math.PI) < 0.1 && 
-          Math.abs(Math.abs(currentRot) - Math.PI) < 0.1 &&
-          Math.sign(targetRotation) !== Math.sign(currentRot)) {
-        // Force target rotation to have the same sign as current rotation
-        // This prevents oscillation across the -PI/PI boundary
-        targetRotation = Math.PI * Math.sign(currentRot);
-        
-        // Debug logging for this special case
-        if (Math.random() < 0.05) {
-          log.player(`Special rotation handling for ${playerId}: near-PI boundary detected, forcing stable direction`);
-        }
-      }
+      // Smoothly interpolate to the target rotation
+      // Use a fast lerp for responsive rotation updates
+      const rotationSpeed = Math.min(delta * 15, 0.5); // Faster rotation, limited to 50% per frame
       
-      // Find the shortest path to rotate (clockwise or counterclockwise)
-      let deltaRotation = targetRotation - currentRot;
-      
-      // Normalize to -PI to PI range for shortest path rotation
-      while (deltaRotation > Math.PI) deltaRotation -= Math.PI * 2;
-      while (deltaRotation < -Math.PI) deltaRotation += Math.PI * 2;
-      
-      // IMPROVED ROTATION SPEED
-      // Much faster rotation interpolation to reduce lag
-      let smoothFactor;
-      if (Math.abs(Math.abs(targetRotation) - Math.PI) < 0.5) {
-        // Significant boost for the unstable near-PI region
-        smoothFactor = Math.min(1, delta * 8.0); // 4x faster than before
-      } else {
-        // Much faster normal interpolation elsewhere
-        smoothFactor = Math.min(1, delta * 12.0); // 3x faster than before
-      }
-      
-      // Apply interpolation
-      currentRotation.current = currentRot + deltaRotation * smoothFactor;
-      
-      // Re-normalize the result to ensure it stays in -PI to PI range
-      while (currentRotation.current > Math.PI) currentRotation.current -= Math.PI * 2;
-      while (currentRotation.current < -Math.PI) currentRotation.current += Math.PI * 2;
-      
-      // Apply the smooth rotation to the mesh
-      meshRef.current.rotation.set(0, currentRotation.current, 0);
+      // Set rotation directly on the mesh, now using a simpler approach
+      meshRef.current.rotation.y = THREE.MathUtils.lerp(
+        meshRef.current.rotation.y,
+        targetRotation,
+        rotationSpeed
+      );
     }
   });
 
@@ -475,6 +460,27 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
       playerType={playerType}
     />
   );
+
+  // Update the getFallbackModel function to make it more reliable
+  const getFallbackModel = (type: 'merc' | 'jackalope'): THREE.Object3D => {
+    // 1. Try to get from window.__fallbackModels
+    const color = type === 'merc' ? 'red' : 'blue';
+    if (window.__fallbackModels && window.__fallbackModels[color]) {
+      console.log(`Using global fallback model for ${type}`);
+      return window.__fallbackModels[color].clone();
+    }
+    
+    // 2. Create one on the fly if not available
+    console.log(`Creating on-demand fallback for ${type}`);
+    const geometry = new THREE.BoxGeometry(0.5, 1.8, 0.5);
+    const material = new THREE.MeshStandardMaterial({ 
+      color: type === 'merc' ? 0xff0000 : 0x0000ff,
+      roughness: 0.7,
+      metalness: 0.3
+    });
+    
+    return new THREE.Mesh(geometry, material);
+  };
 
   // For merc type, use the MercModel
   if (playerType === 'merc') {
@@ -502,9 +508,11 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
           {/* Add a collider for the head area */}
           <BallCollider args={[0.6]} position={[0, 2.5, 0]} sensor={false} />
           
+          {/* Use primitive for the model */}
           <MercModel 
-            animation={localIsMoving ? "walk" : "idle"}
-            scale={[5, 5, 5]}
+            position={[0, 0, 0]} 
+            rotation={[0, 0, 0]} 
+            scale={[1, 1, 1]} 
           />
         </RigidBody>
         {/* Player ID tag - positioned higher for the taller merc model */}
@@ -664,9 +672,11 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
           {/* Extra collider to catch projectiles */}
           <BallCollider args={[1.2]} position={[0, 0.8, 0]} sensor={false} friction={1} restitution={0.1} />
           
+          {/* Use primitive for the model */}
           <JackalopeModel 
-            animation={localIsMoving ? "walk" : "idle"}
-            scale={[2, 2, 2]}
+            position={[0, -0.9, 0]} 
+            rotation={[0, 0, 0]} 
+            scale={[0.9, 0.9, 0.9]} 
           />
           
           {/* Render all attached projectiles directly as children of the jackalope */}
@@ -711,34 +721,86 @@ export const RemotePlayer = ({ playerId, position, rotation, playerType, isMovin
     return new THREE.Color(`rgb(${r}, ${g}, ${b})`);
   }, [playerId]);
 
+  // Near the top of the component
+  useEffect(() => {
+    // Debug log when component mounts
+    console.log(`RemotePlayer ${playerId} mounted with type: ${playerType}`);
+    
+    // Check if fallback models are available
+    if (window.__fallbackModels) {
+      console.log(`Fallback models available: ${Object.keys(window.__fallbackModels).join(', ')}`);
+    } else {
+      console.warn(`No fallback models available for player ${playerId}`);
+    }
+    
+    return () => {
+      console.log(`RemotePlayer ${playerId} unmounting`);
+    };
+  }, [playerId, playerType]);
+
   return (
-    <>
-      <mesh 
-        ref={meshRef} 
-        position={[position.x, position.y, position.z]} 
-        rotation={[0, rotation, 0]}
-        name={`remote-player-${playerId}`}
+    <group 
+      ref={groupRef}
+      position={[position.x, position.y, position.z]}
+      rotation={[0, rotation, 0]}
+      name={`remote-player-${playerId}`}
+    >
+      {/* Debug visuals */}
+      {isDebugEnabled(DEBUG_LEVELS.VERBOSE) && (
+        <mesh>
+          <boxGeometry args={[0.5, 1.8, 0.5]} />
+          <meshBasicMaterial wireframe color={playerType === 'jackalope' ? "blue" : "red"} />
+        </mesh>
+      )}
+      
+      {/* The actual character model */}
+      <mesh
+        ref={meshRef}
+        position={[0, playerType === 'jackalope' ? -0.9 : 0, 0]}
+        scale={playerType === 'jackalope' ? [0.9, 0.9, 0.9] : [1, 1, 1]}
+        castShadow
+        receiveShadow
+        frustumCulled={false}
       >
-        {/* Body */}
-        <boxGeometry args={[0.5, 1, 0.25]} />
-        <meshStandardMaterial color={color} />
-        
-        {/* Head */}
-        <mesh position={[0, 0.65, 0]}>
-          <sphereGeometry args={[0.15, 16, 16]} />
-          <meshStandardMaterial color={color} />
-        </mesh>
-        
-        {/* Indicator with player ID */}
-        <mesh position={[0, 1.1, 0]}>
-          <boxGeometry args={[0.1, 0.1, 0.1]} />
-          <meshStandardMaterial color="yellow" />
-        </mesh>
+        {playerType === 'merc' ? (
+          <MercModel 
+            position={[0, 0, 0]} 
+            rotation={[0, 0, 0]} 
+            scale={[1, 1, 1]} 
+          />
+        ) : (
+          <JackalopeModel 
+            position={[0, -0.9, 0]} 
+            rotation={[0, 0, 0]} 
+            scale={[0.9, 0.9, 0.9]} 
+          />
+        )}
       </mesh>
+      
+      {/* Character nameplate */}
+      <Billboard
+        position={[0, 2.2, 0]}
+        follow={true}
+        lockX={false}
+        lockY={false}
+        lockZ={false}
+      >
+        <Text
+          fontSize={0.2}
+          color="#ffffff"
+          anchorX="center"
+          anchorY="middle"
+          outlineWidth={0.02}
+          outlineColor="#000000"
+        >
+          {playerId?.split('-')[0]} 
+          {playerType === 'jackalope' ? ' (Jackalope)' : ' (Merc)'}
+        </Text>
+      </Billboard>
       
       {/* Add spatial audio for remote fallback player */}
       {audioComponent}
-    </>
+    </group>
   );
 };
 

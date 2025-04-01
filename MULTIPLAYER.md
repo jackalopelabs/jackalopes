@@ -4,9 +4,42 @@ This document outlines the step-by-step plan for implementing multiplayer functi
 
 > **How to use this checklist**: Mark items as completed by changing `[ ]` to `[x]` as you progress through implementation.
 
+## 🚨 Quick Implementation Tactic (12-Hour Plan)
+
+Given our tight deadline, we're implementing a new entity state observer system to solve character representation and event synchronization issues. Here's our tactical plan:
+
+### 1. Core Entity System (3 hours)
+✅ **DONE:**
+- Create EntityStateObserver singleton as central source of truth
+- Implement MultiplayerSyncManager to bridge network and entity systems 
+- Add SoundManager integrated with EntityStateObserver
+
+### 2. Server Enhancements (1 hour)
+- Add player type persistence in server's client records
+- Always include player type with position updates
+- Include player type with shot events
+
+### 3. Testing (3 hours)
+- Test with multiple browsers to verify character consistency
+- Verify shot sounds reach all players
+- Test character model consistency on reconnect
+
+### 4. Fallback Options (2 hours)
+If issues persist, implement:
+- Manual type override using localStorage
+- Forced character type assignment via url query params
+- Enhanced shot event broadcasting via localStorage
+
+### 5. Documentation (2 hours)
+- Document systems and interaction with screenshots
+- Create troubleshooting guide
+- Update MULTIPLAYER.md with final status
+
+This approach ensures our characters are correctly represented between all players and that shooting events reach every player with proper visual and audio feedback.
+
 ## Current Status
 
-We have completed all three phases of the implementation plan: Frontend Prototype, WordPress Plugin, and Game Integration with WordPress Backend. The multiplayer functionality is now working with the WordPress plugin server.
+We have completed all three phases of the implementation plan: Frontend Prototype, WordPress Plugin, and Game Integration with WordPress Backend. However, we've identified critical issues with character representation and event broadcasting that need to be fixed.
 
 ### 🎉 Working Features
 - [x] Real-time player position updates visible to other players
@@ -16,6 +49,11 @@ We have completed all three phases of the implementation plan: Frontend Prototyp
 - [x] Cross-browser communication for testing and fallback
 
 These features are functional but still need optimization for smoothness and performance.
+
+### 🎮 Character & Event Synchronization Issues
+- [ ] Characters sometimes appear with the wrong model (jackalope shows as merc)
+- [ ] Remote players are unable to hear shots fired by other players
+- [ ] Jackalopes sometimes don't see mercs properly
 
 ### ✅ Phase 1: Frontend Prototype (Testing Without Backend)
 All tasks have been completed in this phase.
@@ -172,9 +210,40 @@ Next steps for multiplayer enhancements:
 4. **Admin Dashboard**: Create tools for monitoring and managing game sessions
 5. **Scalability Testing**: Test with larger numbers of simultaneous players
 
-## Phase 4: Advanced Features (Future)
+## Phase 4: Entity State Observer System (Current Sprint)
 
-After basic multiplayer is working with WordPress, we'll add more sophisticated features.
+Our solution involves creating a centralized entity state tracking system that ensures consistency between visual representation, audio events, and network communication.
+
+### Core System Creation (PRIORITY)
+- [x] Implement EntityStateObserver for tracking all entities
+- [x] Create SoundManager that hooks into EntityStateObserver
+- [x] Implement MultiplayerSyncManager to bridge network and entity states
+- [ ] Add server-side hooks to maintain consistent character types
+
+### Integration Tasks
+- [ ] Refactor RemotePlayer to respect EntityStateObserver types
+- [ ] Ensure player type is saved with player record on server
+- [ ] Add entity type validation in ConnectionManager
+
+### Testing Plan
+1. **Character Representation Test**
+   - Open two browsers simultaneously
+   - Verify first player is jackalope and second is merc
+   - Ensure they see each other with correct models
+   - Take screenshots for documentation
+
+2. **Shooting Event Test**
+   - With both browsers open, shoot from merc character
+   - Verify jackalope can see and hear shots
+   - Take video capture if possible
+
+3. **Full Multiplayer Session Test**
+   - Open three browsers simultaneously
+   - Verify character types alternate correctly (jackalope, merc, jackalope)
+   - Test shooting events from all characters
+   - Test movement audio (footsteps) for all character types
+
+## Phase 5: Optimization and Polish (Future)
 
 ### Enhanced Gameplay
 - [ ] Implement voice chat using WebRTC
@@ -188,11 +257,97 @@ After basic multiplayer is working with WordPress, we'll add more sophisticated 
 - [ ] Add bandwidth usage optimization
 - [ ] Create adaptive quality based on connection
 
+#### Character Models - Direct Geometry
+
+We've improved the character models to use direct THREE.js geometry instead of trying to load external GLB files:
+
+1. **Simplified Models**: Characters are now constructed directly with THREE.js primitives (boxes, cylinders) instead of loading GLB files. This ensures they always display properly without requiring external file downloads.
+
+2. **Color Coding**: Characters maintain their distinctive appearance with:
+   - Mercs: Red color scheme
+   - Jackalopes: Blue color scheme
+
+3. **Benefits**:
+   - Reduced download size (no external model files needed)
+   - Faster loading (no async file loading or parsing)
+   - More reliable (no download failures or parsing errors)
+   - Consistent experience for all players
+   - Reduced console errors and warnings
+   
+4. **Implementation**:
+   - `MercModel.tsx` and `JackalopeModel.tsx` use direct geometry components
+   - Removed model loading code in `ModelLoader.tsx`
+   - Kept model path constants for backward compatibility
+   - Updated error handling in connection management
+
+This change improves the multiplayer experience by ensuring player characters always display correctly, even in poor network conditions.
+
 ### Deployment in Different Environments
 - [ ] Standard WordPress setup guide
 - [ ] Specialized configuration for Roots LEMP stack
 - [ ] Docker-based deployment option
 - [ ] Serverless deployment option (where possible)
+
+## Troubleshooting Guide
+
+### Entity Type Consistency Issues
+If characters are displaying with incorrect models:
+1. Check browser console for EntityStateObserver logs
+2. Verify character types are persistent on server
+3. Try refreshing all browsers simultaneously
+
+### Audio Synchronization Issues
+If audio events aren't being heard:
+1. Check browser console for SoundManager logs
+2. Verify EntityStateObserver is receiving shot events
+3. Test with different character combinations
+
+### Connection Issues
+1. Verify WebSocket server is running
+2. Check for any CORS errors in browser console
+3. Try restarting the server
+4. Check firewall settings if on remote deployment
+
+## Server Implementation Notes
+
+The entity system additions require the following server-side changes:
+1. The server now tracks player type with the player record
+2. Each update message includes the consistent player type
+3. Shot events include player type information
+
+## Testing Environment
+
+For local testing:
+```bash
+# Start the WebSocket server
+cd jackalopes-server
+node server.js
+
+# In another terminal, start the game
+cd ..
+npm run dev
+```
+
+For production testing:
+```bash
+# The server is already running on the WordPress host
+# Just open the game URL in multiple browsers
+```
+
+## What to Expect
+
+When functioning correctly:
+1. First player should be a jackalope in third person
+2. Second player should be a merc in first person
+3. Each should see the other with correct model and animations
+4. When merc shoots, jackalope should hear the shot audio
+5. Character types should persist between page refreshes
+
+## Fallback Strategy
+
+If the entity observer system doesn't fully resolve all issues:
+1. We can implement a forced type system where player type is fixed by connection order
+2. We can manually force shot event broadcasting via localStorage for development
 
 ## Server Implementation Strategies
 
@@ -287,13 +442,3 @@ function broadcastState(state) {
   localStorage.setItem('game_state', JSON.stringify(state));
 }
 ```
-
-## Moving Forward: Integration Strategy
-
-1. Implement the WordPress-specific connection adapter
-2. Add authentication using WordPress user accounts
-3. Create environment detection for switching between development and production servers
-4. Test with larger numbers of simultaneous players
-5. Optimize performance for production use
-
-This approach allows for incremental integration while maintaining a working system at each step.

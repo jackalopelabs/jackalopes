@@ -9,9 +9,12 @@
  * 4. Let Vite optimize the assets during builds
  */
 
-// Character Models
-export const MercModelPath = 'src/assets/characters/merc.glb';
-export const JackalopeModelPath = 'src/assets/characters/jackalope.glb';
+// Update fallback model definitions
+export const FallbackModelBasePath = '/fallbacks';
+export const FallbackMercPath = `${FallbackModelBasePath}/merc-fallback.glb`;
+export const FallbackJackalopePath = `${FallbackModelBasePath}/jackalope-fallback.glb`;
+
+// Add fallback model paths as a backup strategy
 export const FpsArmsModelPath = '/fps.glb'; // FPS arms model is still in public directory
 
 // Animations embedded in models
@@ -184,6 +187,26 @@ export const checkAssetExists = async (assetPath: string): Promise<boolean> => {
     return false;
   }
 };
+
+// Function to determine the best model path to use
+export const resolveBestModelPath = (characterType: 'merc' | 'jackalope') => {
+  // Default paths
+  const defaultPath = characterType === 'merc' ? MercModelPath : JackalopeModelPath;
+  
+  // Use in-memory models when possible
+  if (window.__fallbackModels && window.__fallbackModels[characterType === 'merc' ? 'red' : 'blue']) {
+    console.log(`Using in-memory model for ${characterType}`);
+    return defaultPath; // Return default path, but code will actually use the in-memory model
+  }
+  
+  // Fall back to default path
+  return defaultPath;
+};
+
+// Character Models - using direct THREE.js geometry instead of GLB models now
+// But keeping these constants for backward compatibility with existing code
+export const MercModelPath = '#merc-direct-geometry'; // Not a real path - using direct geometry
+export const JackalopeModelPath = '#jackalope-direct-geometry'; // Not a real path - using direct geometry
 
 /**
  * Usage Example:

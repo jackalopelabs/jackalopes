@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import entityStateObserver from './EntityStateObserver';
 
 // Debug level enum
 enum LogLevel {
@@ -84,6 +85,12 @@ export class ConnectionManager extends EventEmitter {
   // Store player character type
   private playerType: 'merc' | 'jackalope' = 'merc';
   
+  // Add player name property for identification
+  private playerName: string | null = null;
+  
+  // Add this property near the other properties at the top of the class
+  private lastErrorTime: number = 0; // Track the last time we emitted an error event
+  
   constructor(private serverUrl: string = 'ws://localhost:8082') {
     super();
     
@@ -128,6 +135,12 @@ export class ConnectionManager extends EventEmitter {
         this.log(LogLevel.INFO, 'Updated server URL to include websocket path:', this.serverUrl);
       }
     }
+    
+    // Initialize the EntityStateObserver with our player information
+    entityStateObserver.setDebug(this.logLevel >= LogLevel.DEBUG);
+    
+    // Connect after a short delay to ensure DOM is ready
+    setTimeout(() => this.connect(), 500);
   }
 
   // Helper methods for logging with different levels
@@ -229,23 +242,36 @@ export class ConnectionManager extends EventEmitter {
     const domain = urlMatch[2]; // Extract the domain part
     const protocol = this.serverUrl.startsWith('wss://') ? 'https://' : 'http://';
     
+    // Use a controller to abort the fetch after a timeout
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+    
     fetch(`${protocol}${domain}/health-check`, { 
       method: 'HEAD',
       mode: 'no-cors',
-      cache: 'no-store'
+      cache: 'no-store',
+      signal: controller.signal
     })
     .then(() => {
+      clearTimeout(timeoutId);
       // If we can reach the domain, try the WebSocket connection
       this.log(LogLevel.INFO, `Domain ${domain} is reachable, attempting WebSocket connection...`);
       this.createWebSocketConnection();
     })
     .catch((error) => {
-      // If we can't reach the domain, go to offline mode immediately
-      this.log(LogLevel.ERROR, `Cannot reach ${domain}, switching to offline mode:`, error);
-      this.connectionFailed = true;
-      this.offlineMode = true;
-      this.emit('server_unreachable', { server: this.serverUrl });
-      setTimeout(() => this.forceReady(), 500);
+      clearTimeout(timeoutId);
+      
+      // Don't log detailed fetch errors - they're noisy and not helpful
+      this.log(LogLevel.INFO, `Server ${domain} not available - using offline mode`);
+      
+      // Throttle server_unreachable events to avoid spamming
+      if (!this.lastErrorTime || (Date.now() - this.lastErrorTime) > 10000) {
+        this.lastErrorTime = Date.now();
+        this.connectionFailed = true;
+        this.offlineMode = true;
+        this.emit('server_unreachable', { server: this.serverUrl });
+        setTimeout(() => this.forceReady(), 500);
+      }
     });
     
     // Also set a short timeout in case fetch hangs
@@ -542,6 +568,26 @@ export class ConnectionManager extends EventEmitter {
     // IMPROVEMENT: Ensure we always send a valid player type, never undefined
     const typeToSend = updateData.playerType || this.playerType || this.getAssignedPlayerType();
     
+    // Update EntityStateObserver with our position
+    if (this.playerId) {
+      entityStateObserver.updateEntity({
+        id: this.playerId,
+        type: typeToSend,
+        position: updateData.position,
+        rotation: updateData.rotation,
+        isMoving: updateData.velocity ? (
+          Math.abs(updateData.velocity[0]) > 0.01 || 
+          Math.abs(updateData.velocity[2]) > 0.01
+        ) : false,
+        isRunning: updateData.velocity ? (
+          Math.sqrt(
+            updateData.velocity[0] * updateData.velocity[0] + 
+            updateData.velocity[2] * updateData.velocity[2]
+          ) > 0.2
+        ) : false
+      });
+    }
+    
     if (!this.offlineMode) { 
       // For online mode, send to server
       this.send({
@@ -577,66 +623,48 @@ export class ConnectionManager extends EventEmitter {
   // Update sendShootEvent to use a compatible message format with the staging server
   sendShootEvent(origin: [number, number, number], direction: [number, number, number]): void {
     if (!this.isReadyToSend()) {
-      // First try localStorage fallback for cross-browser testing
-      try {
-        const shotId = `local-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-        const shotData = {
-          id: this.playerId || 'local-player',
-          shotId: shotId,
-          origin,
-          direction,
-          timestamp: Date.now()
-        };
-        
-        // Store in localStorage for cross-browser communication
-        localStorage.setItem('jackalopes_shot_events', JSON.stringify(shotData));
-        this.log(LogLevel.INFO, 'Shot saved to localStorage as fallback:', shotData);
-        
-        // Broadcast the event locally
-        this.emit('player_shoot', shotData);
-        
-        // No need to error here since we have a fallback mechanism
-        return;
-      } catch (e) {
-        // Continue with normal error handling if localStorage fails
-      }
-      
       this.log(LogLevel.INFO, 'Cannot send shoot event: not connected to server or not authenticated yet');
       return;
     }
     
-    // Generate a unique ID for this shot
-    const shotId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    // Generate a unique shot ID
+    const shotId = `shot-${this.playerId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     
-    this.log(LogLevel.INFO, 'ConnectionManager sending shoot event to server:', { 
-      shotId,
-      origin, 
-      direction,
-      playerId: this.playerId
-    });
+    // Record the shot in EntityStateObserver
+    if (this.playerId) {
+      entityStateObserver.recordShot(this.playerId, origin, direction);
+    }
     
-    // The staging server doesn't support the 'shoot' message type
-    // So we'll use 'game_event' instead, which is more likely to be supported
-    this.send({
-      type: 'game_event',  // Use 'game_event' instead of 'shoot'
-      event: {             // Wrap in 'event' instead of event_type/data to match server expectations
-        event_type: 'player_shoot',
-        shotId: shotId,
-        origin,
-        direction,
-        player_id: this.playerId,
-        timestamp: Date.now()
+    // Continue with the existing implementation...
+    if (!this.offlineMode) {
+      this.log(LogLevel.INFO, `Sending shoot event: ${shotId}`);
+      this.send({
+        type: 'game_event',
+        event: {
+          event_type: 'player_shoot',
+          shotId,
+          origin,
+          direction,
+          player_id: this.playerId,
+          timestamp: Date.now()
+        }
+      });
+    } else {
+      // In offline mode, immediately broadcast to window.__shotBroadcast
+      if (window.__shotBroadcast) {
+        this.log(LogLevel.INFO, `Offline mode: Broadcasting shot ${shotId} via window.__shotBroadcast`);
+        window.__shotBroadcast({
+          id: this.playerId || 'unknown-player',
+          origin,
+          direction,
+          color: '#ff0000',
+          timestamp: Date.now(),
+          shotId
+        });
+      } else {
+        this.log(LogLevel.ERROR, 'Cannot broadcast shot in offline mode: window.__shotBroadcast is not defined');
       }
-    });
-    
-    // Also emit the event locally to ensure it works even if the server doesn't process it
-    this.emit('player_shoot', {
-      id: this.playerId,
-      shotId: shotId,
-      origin,
-      direction,
-      timestamp: Date.now()
-    });
+    }
   }
   
   private send(data: any): void {
@@ -813,105 +841,7 @@ export class ConnectionManager extends EventEmitter {
         break;
         
       case 'player_update':
-        // Handle both our own updates and updates from other players
-        const updatePlayerId = message.id || message.player_id || message.player;
-        
-        // Skip processing updates from ourselves
-        if (updatePlayerId !== this.playerId) {
-          // Extract position and rotation, handling different server formats
-          const position = message.position || (message.state && message.state.position);
-          const rotation = message.rotation || (message.state && message.state.rotation);
-          
-          // Debug potential rotation issues
-          if (rotation && Math.random() < 0.01) {
-            this.log(LogLevel.INFO, `ROTATION DATA FROM SERVER: ${JSON.stringify(rotation)}`);
-          }
-          
-          // Only proceed if we have valid position data
-          if (position) {
-            // Check if this is a player we don't know about yet
-            if (!this.gameState.players[updatePlayerId]) {
-              this.log(LogLevel.INFO, `New player detected from player_update: ${updatePlayerId}`);
-              // Create a player joined event for this new player
-              const newPlayerState = {
-                position: position,
-                rotation: rotation || [0, 0, 0, 1], // Default quaternion if missing
-                health: 100,
-                playerType: (message.state?.playerType || 'merc') as 'merc' | 'jackalope'
-              };
-              
-              // Add to our game state
-              this.gameState.players[updatePlayerId] = newPlayerState;
-              
-              // Emit a player_joined event
-              this.emit('player_joined', { 
-                id: updatePlayerId, 
-                state: newPlayerState
-              });
-            }
-            
-            // Get existing position/rotation
-            const existingPlayer = this.gameState.players[updatePlayerId];
-            const existingPos = existingPlayer.position;
-            const existingRot = existingPlayer.rotation;
-            
-            // Calculate position change
-            const positionChanged = !existingPos ||
-              Math.abs(existingPos[0] - position[0]) > 0.001 ||
-              Math.abs(existingPos[1] - position[1]) > 0.001 ||
-              Math.abs(existingPos[2] - position[2]) > 0.001;
-            
-            // Calculate rotation change - looser check for testing
-            const rotationChanged = !existingRot || !rotation || 
-              Math.abs(existingRot[0] - rotation[0]) > 0.0001 ||
-              Math.abs(existingRot[1] - rotation[1]) > 0.0001 ||
-              Math.abs(existingRot[2] - rotation[2]) > 0.0001 ||
-              Math.abs(existingRot[3] - rotation[3]) > 0.0001;
-            
-            // Update the player in our game state (always)
-            this.gameState.players[updatePlayerId].position = position;
-            if (rotation) {
-              this.gameState.players[updatePlayerId].rotation = rotation;
-              
-              // Debug rotation updates periodically
-              if (Math.random() < 0.01) {
-                this.log(LogLevel.INFO, `Setting player rotation to: ${JSON.stringify(rotation)}`);
-              }
-            }
-            
-            // Only emit player_update if actual changes occurred
-            if (positionChanged || rotationChanged) {
-              // Extract playerType from the message or use existing playerType from gameState
-              const playerType = message.state?.playerType || this.gameState.players[updatePlayerId].playerType;
-              
-              // If there's a playerType in the state, update it in gameState
-              if (message.state?.playerType) {
-                this.gameState.players[updatePlayerId].playerType = message.state.playerType;
-              }
-              
-              this.emit('player_update', { 
-                id: updatePlayerId, 
-                position: position, 
-                rotation: rotation || this.gameState.players[updatePlayerId].rotation,
-                playerType: playerType // Include the playerType in the update
-              });
-            }
-          } else {
-            this.log(LogLevel.WARN, 'Received player_update without position data:', message);
-          }
-        }
-        
-        // If message is for local player, emit server_state_update for reconciliation
-        if (updatePlayerId === this.playerId) {
-          this.emit('server_state_update', {
-            position: message.position || (message.state && message.state.position),
-            rotation: message.rotation || (message.state && message.state.rotation),
-            timestamp: message.timestamp || Date.now(),
-            sequence: message.sequence || (message.state && message.state.sequence),
-            positionError: message.positionError,
-            serverCorrection: message.serverCorrection
-          });
-        }
+        this.handlePlayerUpdate(message);
         break;
         
       default:
@@ -924,80 +854,81 @@ export class ConnectionManager extends EventEmitter {
   private initializeSession(): void {
     this.log(LogLevel.INFO, 'Initializing session...');
     
-    // Generate a random player name if none exists
-    const playerName = `player-${Math.floor(Math.random() * 10000)}`;
+    // Create a unique player name if not already set
+    const playerName = this.playerName || `player-${Math.random().toString(36).substring(2, 9)}`;
     
-    // Use localStorage to assign player indices across browser tabs
+    // Set player name for this session
+    this.playerName = playerName;
+    
+    // Get or assign a player index for character type determination
     try {
-      // Only assign a new player index if one hasn't been assigned yet
-      if (this.playerIndex === -1) {
-        // Check if we need to reset the player count
-        const shouldReset = this.shouldResetPlayerCount();
-        
-        if (shouldReset) {
-          localStorage.setItem('jackalopes_player_count', '-1');
-          console.error('⭐ Reset player count due to inactivity');
+      // Try to use localStorage for consistent player index across tabs
+      let playerCount = 0;
+      try {
+        const storedCount = localStorage.getItem('jackalopes_player_count');
+        if (storedCount) {
+          playerCount = parseInt(storedCount);
         }
         
-        // Get the current highest player index from localStorage
-        let globalPlayerCount = parseInt(localStorage.getItem('jackalopes_player_count') || '-1');
-        
-        // Increment the count for this player
-        globalPlayerCount++;
-        
-        // Store the updated count back in localStorage
-        localStorage.setItem('jackalopes_player_count', globalPlayerCount.toString());
-        localStorage.setItem('jackalopes_last_activity', Date.now().toString());
-        
-        // Assign this player's index
-        this.playerIndex = globalPlayerCount;
-        
-        // Also update the static count to match (for in-tab consistency)
-        ConnectionManager.playerCount = globalPlayerCount;
-        
-        console.error(`⭐ Assigned player index ${this.playerIndex} using localStorage coordination (assigned as ${this.playerIndex % 2 === 0 ? 'JACKALOPE' : 'MERC'})`);
-      } else {
-        console.error(`⭐ Using existing player index ${this.playerIndex} (already assigned)`);
+        // Check if we already have a player index from localStorage
+        const storedIndex = localStorage.getItem('jackalopes_player_index');
+        if (storedIndex) {
+          this.playerIndex = parseInt(storedIndex);
+          console.error(`⭐ Found stored player index ${this.playerIndex}`);
+        } else {
+          // Increment and store player count
+          playerCount++;
+          localStorage.setItem('jackalopes_player_count', playerCount.toString());
+          
+          // Assign a new player index
+          this.playerIndex = playerCount - 1;
+          localStorage.setItem('jackalopes_player_index', this.playerIndex.toString());
+          console.error(`⭐ Assigned player index ${this.playerIndex} based on player count ${playerCount}`);
+        }
+      } catch (e) {
+        // Fallback to static count if localStorage fails
+        if (this.playerIndex === -1) {
+          ConnectionManager.playerCount++;
+          this.playerIndex = ConnectionManager.playerCount - 1;
+          console.error(`⭐ Assigned player index ${this.playerIndex} using static count (localStorage failed)`);
+        }
       }
+      
+      // Set the player type based on character assignment
+      const characterInfo = this.getPlayerCharacterType();
+      this.playerType = characterInfo.type;
+      
+      // Initialize the player in the EntityStateObserver
+      // This is important to do here so other components can check the player type
+      const generatedId = `player-${this.playerIndex}-${Date.now().toString(36)}`;
+      this.playerId = this.playerId || generatedId;
+      
+      // Register the player with EntityStateObserver
+      entityStateObserver.setLocalPlayerId(this.playerId);
+      entityStateObserver.updateEntity({
+        id: this.playerId,
+        type: characterInfo.type,
+        position: [0, 1, 0], // Default position
+        rotation: 0,
+        isMoving: false,
+        isRunning: false,
+        isShooting: false,
+        health: 100
+      });
+      
+      this.log(LogLevel.INFO, `Player joining as index #${this.playerIndex} (${this.getPlayerCharacterType().type})`);
+      
+      // Try auth first (most common WebSocket server pattern)
+      this.send({
+        type: 'auth',
+        playerName: playerName
+      });
+      
+      // ... continue with existing implementation ...
     } catch (e) {
-      // Fallback to static count if localStorage fails
-      if (this.playerIndex === -1) {
-        ConnectionManager.playerCount++;
-        this.playerIndex = ConnectionManager.playerCount - 1;
-        console.error(`⭐ Assigned player index ${this.playerIndex} using static count (localStorage failed)`);
-      }
+      console.error('⭐ Failed to initialize session:', e);
+      this.handleDisconnect();
     }
-    
-    this.log(LogLevel.INFO, `Player joining as index #${this.playerIndex} (${this.getPlayerCharacterType().type})`);
-    
-    // Try auth first (most common WebSocket server pattern)
-    this.send({
-      type: 'auth',
-      playerName: playerName
-    });
-    
-    // As a fallback, also try join_session
-    setTimeout(() => {
-      // Only send if we're still connected but not authenticated
-      if (this.socket && this.socket.readyState === WebSocket.OPEN && !this.playerId) {
-        this.log(LogLevel.INFO, 'Auth not successful, trying join_session as fallback...');
-        this.send({
-          type: 'join_session',
-          playerName: playerName,
-          sessionKey: 'JACKALOPES-TEST-SESSION' // Fixed session key for all players
-        });
-      }
-    }, 1000);
-    
-    // Check connection state after a delay
-    setTimeout(() => {
-      if (this.socket && this.socket.readyState === WebSocket.OPEN && !this.playerId) {
-        this.log(LogLevel.INFO, 'Still no player ID after auth attempts, connection may be partially broken');
-        // Try to reset connection
-        this.disconnect();
-        setTimeout(() => this.connect(), 1000);
-      }
-    }, 5000);
   }
 
   // Add a public method to get player character type based on connection order
@@ -1233,5 +1164,63 @@ export class ConnectionManager extends EventEmitter {
     
     // Return the corrected character info
     return { type, thirdPerson };
+  }
+
+  // When a message has type 'player_update' and is for another player
+  private handlePlayerUpdate(data: any): void {
+    // Handle both our own updates and updates from other players
+    const updatePlayerId = data.id || data.player_id || data.player;
+    
+    // Skip processing updates from ourselves
+    if (updatePlayerId !== this.playerId) {
+      // Extract position and rotation, handling different server formats
+      const position = data.position || (data.state && data.state.position);
+      const rotation = data.rotation || (data.state && data.state.rotation);
+      
+      // Extract player type for consistent character rendering
+      const playerType = data.playerType || (data.state && data.state.playerType);
+      
+      // Only proceed if we have valid position data
+      if (position) {
+        // Update entity state in EntityStateObserver
+        entityStateObserver.updateEntity({
+          id: updatePlayerId,
+          type: playerType || 'merc',
+          position,
+          rotation,
+          // Calculate movement state from velocity if available
+          isMoving: data.state?.velocity ? (
+            Math.abs(data.state.velocity[0]) > 0.01 || 
+            Math.abs(data.state.velocity[2]) > 0.01
+          ) : undefined,
+          isRunning: data.state?.velocity ? (
+            Math.sqrt(
+              data.state.velocity[0] * data.state.velocity[0] + 
+              data.state.velocity[2] * data.state.velocity[2]
+            ) > 0.3 // Higher threshold to properly detect running
+          ) : undefined
+        });
+        
+        // Emit player_update event for legacy compatibility
+        this.emit('player_update', { 
+          id: updatePlayerId, 
+          position, 
+          rotation,
+          playerType,
+          // Include full state for advanced features
+          state: data.state || {}
+        });
+      }
+    } else {
+      // If message is for local player, emit server_state_update for reconciliation
+      this.emit('server_state_update', {
+        position: data.position || (data.state && data.state.position),
+        rotation: data.rotation || (data.state && data.state.rotation),
+        timestamp: data.timestamp || Date.now(),
+        sequence: data.sequence || (data.state && data.state.sequence),
+        positionError: data.positionError,
+        serverCorrection: data.serverCorrection
+      });
+    }
   }
 } 

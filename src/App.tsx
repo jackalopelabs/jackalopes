@@ -27,6 +27,14 @@ import { HealthBar } from './components/HealthBar' // Import the HealthBar compo
 import { AudioToggleButton } from './components/AudioToggleButton' // Import the AudioToggleButton component
 import { initDebugSystem, DEBUG_LEVELS } from './utils/debugUtils';
 import { PlayerPositionTracker } from './components/PlayerPositionTracker';
+import entityStateObserver from './network/EntityStateObserver';
+import soundManager from './components/SoundManager';
+// Add import for MultiplayerSyncManager
+import MultiplayerSyncManager from './network/MultiplayerSyncManager';
+import { useGLTF } from '@react-three/drei';
+import { MercModelPath, JackalopeModelPath } from './assets';
+import { ModelLoader } from './components/ModelLoader';
+import { ModelChecker } from './components/ModelChecker';
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -1135,9 +1143,41 @@ const forceCameraReconnection = (trigger: string) => {
     setTimeout(() => window.dispatchEvent(new CustomEvent('cameraUpdateNeeded')), 800);
 };
 
+// Add this component to preload models
+const ModelPreloader = () => {
+  useEffect(() => {
+    console.log("ModelPreloader mounted - using direct THREE.js geometry now");
+    
+    // No need to create fallback models or preload GLB models
+    // Since we're using built-in geometry directly
+    
+    // Remove these lines
+    // if (window.__initializeFallbackModels) {
+    //   window.__initializeFallbackModels();
+    // }
+    
+    // Remove these lines
+    // try {
+    //   useGLTF.preload(MercModelPath);
+    //   useGLTF.preload(JackalopeModelPath);
+    //   console.log("Model preloading initiated");
+    // } catch (error) {
+    //   console.warn("Error preloading models:", error);
+    // }
+  }, []);
+  
+  return null;
+};
+
 export function App() {
     const loading = useLoadingAssets()
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
+    
+    // Initialize fallback models as early as possible
+    useEffect(() => {
+        console.log("App mounted - using direct THREE.js geometry");
+        // No fallback models needed when using direct geometry
+    }, []);
     
     // Move playerRef to App component scope
     const playerRef = useRef<any>(null);
@@ -2577,6 +2617,37 @@ export function App() {
       }
     }, [connectionManager]);
     
+    // Initialize EntityStateObserver and SoundManager
+    useEffect(() => {
+        console.log('🔄 Initializing entity tracking and sound systems');
+        
+        // Enable debug mode for development
+        entityStateObserver.setDebug(true);
+        
+        // Update sound settings based on user preferences
+        soundManager.updateSettings({
+            masterVolume: 0.8,
+            footstepsEnabled: true,
+            spatialAudioEnabled: true,
+            remoteSoundsEnabled: true
+        });
+        
+        // Clean up
+        return () => {
+            console.log('Cleaning up entity and sound systems');
+        };
+    }, []);
+    
+    // Add a frame processor component to handle sound updates
+    const SoundProcessor = () => {
+        useFrame(() => {
+            // Update sound positions based on entity positions
+            soundManager.update();
+        });
+        
+        return null;
+    };
+    
     return (
         <>
             {/* Add styles to fix Leva panel positioning and prevent UI disruption */}
@@ -2690,6 +2761,11 @@ export function App() {
                     height={directionalHeight + 10} 
                     orbitSpeed={moonOrbitSpeed} 
                 />}
+
+                {/* Add MultiplayerSyncManager when multiplayer is enabled */}
+                {enableMultiplayer && connectionManager && (
+                    <MultiplayerSyncManager connectionManager={connectionManager} />
+                )}
 
                 <Physics 
                     debug={false} 
@@ -2911,6 +2987,10 @@ export function App() {
                         />
                     </EffectComposer>
                 )}
+                
+                {/* Add the SoundProcessor component inside Canvas */}
+                <SoundProcessor />
+                <ModelPreloader />
             </Canvas>
 
             {/* Only show crosshair in first-person view */}
