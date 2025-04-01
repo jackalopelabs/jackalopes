@@ -451,8 +451,9 @@ export const useMultiplayer = (
     const handlePlayerJoined = (data: any) => {
       console.log("➕ Player joined:", data);
       
-      if (data.id === connectionManager.getPlayerId()) {
-        console.log('Ignoring join event for local player');
+      // Skip joining for undefined IDs or local player
+      if (!data.id || data.id === 'undefined' || data.id === connectionManager.getPlayerId()) {
+        console.log('Ignoring join event for local player or undefined ID');
         return;
       }
       
@@ -534,14 +535,14 @@ export const useMultiplayer = (
     };
     
     const handlePlayerUpdate = (data: any) => {
+      // Skip updates from ourselves or with undefined IDs
+      if (data.id === connectionManager.getPlayerId() || !data.id || data.id === 'undefined') {
+        return;
+      }
+      
       // Log playerType from incoming data
       if (DEBUG_LEVEL >= 2) {
         console.log(`🧩 Player update for ${data.id} with playerType: ${data.playerType || 'undefined'}, state.playerType: ${data.state?.playerType || 'undefined'}`);
-      }
-      
-      // Skip updates from ourselves
-      if (data.id === connectionManager.getPlayerId()) {
-        return;
       }
       
       // Debug logging every 60 updates
@@ -1094,6 +1095,22 @@ export const useMultiplayer = (
   useEffect(() => {
     console.log('Setting up multiplayer connection...');
     
+    // Clean up any existing test players with undefined IDs
+    setRemotePlayers(prev => {
+      const newPlayers = {...prev};
+      let found = false;
+      
+      Object.keys(newPlayers).forEach(id => {
+        if (!id || id === 'undefined') {
+          console.log('🧹 Removing test player with undefined ID');
+          delete newPlayers[id];
+          found = true;
+        }
+      });
+      
+      return found ? newPlayers : prev;
+    });
+    
     // Connection events
     connectionManager.on('connected', () => {
       console.log('Connected to multiplayer server');
@@ -1448,7 +1465,8 @@ export const RemotePlayers = React.memo(({
   
   return (
     <>
-      {Object.entries(players).map(([id, playerData]) => (
+      {Object.entries(players).filter(([id]) => id && id !== 'undefined')
+        .map(([id, playerData]) => (
         <RemotePlayer
           key={id}
           playerId={id}
@@ -1486,6 +1504,22 @@ export const MultiplayerManager: React.FC<{
   // Set up connection and event handlers
   useEffect(() => {
     console.log('Setting up multiplayer connection...');
+    
+    // Clean up any existing test players with undefined IDs
+    setRemotePlayers(prev => {
+      const newPlayers = {...prev};
+      let found = false;
+      
+      Object.keys(newPlayers).forEach(id => {
+        if (!id || id === 'undefined') {
+          console.log('🧹 Removing test player with undefined ID');
+          delete newPlayers[id];
+          found = true;
+        }
+      });
+      
+      return found ? newPlayers : prev;
+    });
     
     // Connection events
     connectionManager.on('connected', () => {
@@ -1553,8 +1587,9 @@ export const MultiplayerManager: React.FC<{
     const handlePlayerJoined = (data: any) => {
       console.log("➕ Player joined:", data);
       
-      if (data.id === connectionManager.getPlayerId()) {
-        console.log('Ignoring join event for local player');
+      // Skip joining for undefined IDs or local player
+      if (!data.id || data.id === 'undefined' || data.id === connectionManager.getPlayerId()) {
+        console.log('Ignoring join event for local player or undefined ID');
         return;
       }
       
@@ -1636,14 +1671,14 @@ export const MultiplayerManager: React.FC<{
     };
     
     const handlePlayerUpdate = (data: any) => {
+      // Skip updates from ourselves or with undefined IDs
+      if (data.id === connectionManager.getPlayerId() || !data.id || data.id === 'undefined') {
+        return;
+      }
+      
       // Log playerType from incoming data
       if (DEBUG_LEVEL >= 2) {
         console.log(`🧩 Player update for ${data.id} with playerType: ${data.playerType || 'undefined'}, state.playerType: ${data.state?.playerType || 'undefined'}`);
-      }
-      
-      // Skip updates from ourselves
-      if (data.id === connectionManager.getPlayerId()) {
-        return;
       }
       
       // Debug logging every 60 updates
