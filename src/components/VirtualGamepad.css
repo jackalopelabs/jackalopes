@@ -11,31 +11,41 @@
   touch-action: none;
 }
 
-.joystick {
-  width: min(120px, 25vw);
-  height: min(120px, 25vw);
-  background-color: rgba(0, 0, 0, 0.3);
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 50%;
-  position: relative;
+.joystick-container {
   margin: 20px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: relative;
   pointer-events: auto;
   user-select: none;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
 }
 
-.joystick-knob {
-  width: min(50px, 10vw);
-  height: min(50px, 10vw);
-  background-color: rgba(255, 255, 255, 0.7);
-  border-radius: 50%;
-  position: absolute;
-  transition: transform 0.1s ease-out;
-  box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+.joystick {
+  width: min(150px, 30vw);
+  height: min(150px, 30vw);
+  position: relative;
+  pointer-events: auto;
+  user-select: none;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Override NippleJS default styles */
+.nipple {
+  opacity: 0.8;
+}
+
+.front {
+  background-color: rgba(255, 255, 255, 0.8) !important;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.5);
+}
+
+.back {
+  background-color: rgba(0, 0, 0, 0.4) !important;
+  border: 2px solid rgba(255, 255, 255, 0.3) !important;
 }
 
 .action-buttons {
@@ -109,10 +119,13 @@
     height: min(150px, 40vh);
   }
   
-  .joystick {
+  .joystick-container {
     margin: 15px;
-    width: min(100px, 15vw);
-    height: min(100px, 15vw);
+  }
+  
+  .joystick {
+    width: min(120px, 18vw);
+    height: min(120px, 18vw);
   }
   
   .action-buttons {
