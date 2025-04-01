@@ -91,7 +91,7 @@ export class ConnectionManager extends EventEmitter {
   // Add this property near the other properties at the top of the class
   private lastErrorTime: number = 0; // Track the last time we emitted an error event
   
-  constructor(private serverUrl: string = 'ws://localhost:8082') {
+  constructor(private serverUrl: string = 'wss://staging.games.bonsai.so/websocket/') {
     super();
     
     // Don't reset the static player count here - we'll use localStorage instead
@@ -623,93 +623,140 @@ export class ConnectionManager extends EventEmitter {
   // Update sendShootEvent to use a compatible message format with the staging server
   sendShootEvent(origin: [number, number, number], direction: [number, number, number]): void {
     if (!this.isReadyToSend()) {
-      this.log(LogLevel.INFO, 'Cannot send shoot event: not connected to server or not authenticated yet');
+      this.log(LogLevel.WARN, 'Cannot send shoot event, WebSocket not ready');
       return;
     }
     
-    // Generate a unique shot ID
-    const shotId = `shot-${this.playerId}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    // Generate a unique ID for this shot based on timestamp and random number
+    const shotId = `shot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    // Record the shot in EntityStateObserver
-    if (this.playerId) {
-      entityStateObserver.recordShot(this.playerId, origin, direction);
-    }
-    
-    // Continue with the existing implementation...
-    if (!this.offlineMode) {
-      this.log(LogLevel.INFO, `Sending shoot event: ${shotId}`);
-      this.send({
-        type: 'game_event',
-        event: {
-          event_type: 'player_shoot',
-          shotId,
-          origin,
-          direction,
-          player_id: this.playerId,
-          timestamp: Date.now()
-        }
-      });
-    } else {
-      // In offline mode, immediately broadcast to window.__shotBroadcast
-      if (window.__shotBroadcast) {
-        this.log(LogLevel.INFO, `Offline mode: Broadcasting shot ${shotId} via window.__shotBroadcast`);
-        window.__shotBroadcast({
-          id: this.playerId || 'unknown-player',
-          origin,
-          direction,
-          color: '#ff0000',
-          timestamp: Date.now(),
-          shotId
-        });
-      } else {
-        this.log(LogLevel.ERROR, 'Cannot broadcast shot in offline mode: window.__shotBroadcast is not defined');
+    // Create shot data
+    const shotData = {
+      type: 'game_event',
+      event: {
+        event_type: 'player_shoot',
+        shotId,
+        origin,
+        direction,
+        player_id: this.playerId,
+        timestamp: Date.now(),
+        playerType: this.playerType // Include player type with shot
       }
+    };
+    
+    // Save this shot ID to our tracking
+    this.lastShotEvents[shotId] = Date.now();
+    
+    // Log the shot for debugging
+    this.log(LogLevel.DEBUG, 'Sending shot event:', shotId);
+    
+    // Broadcast the shot data to server
+    this.send(shotData);
+    
+    // Also broadcast via localStorage for cross-browser testing
+    // Only if we're in a testing/demo environment (localhost)
+    if (window.location.hostname === 'localhost') {
+      this.broadcastViaLocalStorage(shotData);
     }
   }
-  
+
+  // Send a respawn request for a player (usually a jackalope hit by a projectile)
+  sendRespawnRequest(playerId: string): void {
+    if (!this.isReadyToSend()) {
+      this.log(LogLevel.WARN, 'Cannot send respawn request, WebSocket not ready');
+      return;
+    }
+    
+    // Generate a unique ID for this respawn based on timestamp and random number
+    const respawnId = `respawn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Create respawn event data
+    const respawnData = {
+      type: 'game_event',
+      event: {
+        event_type: 'player_respawn',
+        respawnId,
+        player_id: playerId, // The player who needs to respawn
+        requestedBy: this.playerId, // Who requested the respawn
+        timestamp: Date.now()
+      }
+    };
+    
+    this.log(LogLevel.INFO, `Sending respawn request for player ${playerId}, ID: ${respawnId}`);
+    
+    // Send to server
+    this.send(respawnData);
+    
+    // Also broadcast via localStorage for cross-browser testing
+    if (window.location.hostname === 'localhost') {
+      this.broadcastViaLocalStorage(respawnData);
+    }
+  }
+
   private send(data: any): void {
     // Check if we're in offline mode
     if (this.offlineMode) {
-      // Just emit the message locally without sending to server
-      this.emit('message_sent', data);
+      this.log(LogLevel.INFO, 'In offline mode, using localStorage broadcast for', data.type);
+      
+      if (data.type === 'game_event' && data.event.event_type === 'player_shoot') {
+        // Handle shot events through the global handler if available
+        if (window.__shotBroadcast) {
+          window.__shotBroadcast({
+            id: this.playerId || 'unknown-player',
+            origin: data.event.origin,
+            direction: data.event.direction,
+            color: this.playerType === 'merc' ? '#ff0000' : '#4682B4', // Red for Merc, Blue for Jackalope
+            timestamp: data.event.timestamp,
+            shotId: data.event.shotId
+          });
+        }
+      }
+      
       return;
     }
     
-    // Check if socket exists and is in OPEN state
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-      try {
-        const jsonData = JSON.stringify(data);
-        this.log(LogLevel.INFO, `Sending data to server (${data.type}):`, data);
-        this.socket.send(jsonData);
-        this.emit('message_sent', data);
-      } catch (error) {
-        this.log(LogLevel.ERROR, 'Error sending data to server:', error);
-        
-        // If send failed, check if socket is still open
-        if (this.socket.readyState !== WebSocket.OPEN) {
-          this.log(LogLevel.INFO, 'Socket state changed during send, reconnecting...');
-          this.handleDisconnect();
-        }
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      this.log(LogLevel.WARN, 'Cannot send data: WebSocket is not open', this.getSocketState());
+      return;
+    }
+    
+    try {
+      if (data.type !== 'player_update' || this.logLevel >= LogLevel.VERBOSE) {
+        this.log(LogLevel.DEBUG, `Sending data to server (${data.type})`);
       }
-    } else {
-      const state = this.socket ? 
-        ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'][this.socket.readyState] : 
-        'NO_SOCKET';
-      
-      this.log(LogLevel.WARN, `Cannot send data: socket not available or not in OPEN state (${state})`, {
-        socketExists: !!this.socket,
-        socketState: state,
-        isConnected: this.isConnected
-      });
-      
-      // If socket is closed but we think we're connected, try to reconnect
-      if (this.socket && this.socket.readyState === WebSocket.CLOSED && this.isConnected) {
-        this.log(LogLevel.INFO, 'Socket is closed but connection flag is true, reconnecting...');
-        this.handleDisconnect();
-      }
+      this.socket.send(JSON.stringify(data));
+    } catch (e) {
+      this.log(LogLevel.ERROR, 'Failed to send data:', e);
     }
   }
   
+  // Utility to broadcast messages via localStorage for cross-browser testing
+  private broadcastViaLocalStorage(data: any): void {
+    try {
+      // Create a storage-friendly version of the data
+      const storageData = {
+        ...data,
+        timestamp: Date.now(),
+        sender: this.playerId
+      };
+      
+      // Use a unique key each time to ensure the storage event triggers
+      const key = `jackalopes_broadcast_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Stringify and store
+      localStorage.setItem(key, JSON.stringify(storageData));
+      
+      // Clean up after a delay (to ensure other tabs have time to process)
+      setTimeout(() => {
+        localStorage.removeItem(key);
+      }, 1000);
+      
+      this.log(LogLevel.DEBUG, `Broadcasted via localStorage: ${data.type}`, key);
+    } catch (error) {
+      this.log(LogLevel.ERROR, 'Failed to broadcast via localStorage:', error);
+    }
+  }
+
   private handleMessage(message: any): void {
     this.log(LogLevel.INFO, `Received message from server (${message.type}):`, message);
     this.emit('message_received', message);
@@ -742,6 +789,27 @@ export class ConnectionManager extends EventEmitter {
         // Server is up, but we still need to authenticate
         if (!this.playerId) {
           this.initializeSession();
+        }
+        break;
+        
+      case 'game_event':
+        // Critical handler for game events from server
+        this.log(LogLevel.INFO, '🎮 Game event received:', message);
+        
+        // Forward the event to listeners
+        if (message.event) {
+          // Add extra debugging for respawn events
+          if (message.event.event_type === 'player_respawn') {
+            this.log(LogLevel.INFO, '🔄 RESPAWN EVENT RECEIVED:', {
+              respawnPlayerId: message.event.player_id,
+              requestedBy: message.event.requestedBy,
+              spawnPosition: message.event.spawnPosition,
+              localPlayerId: this.playerId
+            });
+          }
+          
+          // Forward the event to game_event listeners
+          this.emit('game_event', message.event);
         }
         break;
         

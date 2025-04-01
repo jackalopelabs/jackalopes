@@ -10,7 +10,7 @@ export const ConnectionTest: React.FC<ConnectionTestProps> = ({ sharedConnection
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [latency, setLatency] = useState<number>(0);
   const [logs, setLogs] = useState<string[]>([]);
-  const [serverUrl, setServerUrl] = useState('ws://staging.games.bonsai.so/websocket/');
+  const [serverUrl, setServerUrl] = useState('wss://staging.games.bonsai.so/websocket/');
   const connectionManagerRef = useRef<ConnectionManager | null>(null);
   const [expanded, setExpanded] = useState(false);
 
@@ -23,7 +23,7 @@ export const ConnectionTest: React.FC<ConnectionTestProps> = ({ sharedConnection
   const setServerPreset = (preset: string) => {
     switch (preset) {
       case 'staging':
-        setServerUrl('ws://staging.games.bonsai.so/websocket/');
+        setServerUrl('wss://staging.games.bonsai.so/websocket/');
         break;
       case 'staging-secure':
         setServerUrl('wss://staging.games.bonsai.so/websocket/');

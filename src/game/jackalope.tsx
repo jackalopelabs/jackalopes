@@ -23,6 +23,7 @@ declare global {
         playerPositionTracker?: {
             updatePosition: (position: THREE.Vector3) => void;
         };
+        __createSpawnEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
     }
 }
 
@@ -83,14 +84,22 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
     const rotation = useRef(0)
     const targetRotation = useRef(0)
     
-    // Animation state
+    // Animation
+    const animations = useRef({})
     const [animation, setAnimation] = useState('idle')
+    const currentAnimation = useRef('')
     
-    // Hopping system
+    // For hopping
     const hopTimer = useRef(0)
-    const hopInterval = useRef(0.6) // Time between hops in seconds (slightly slower for a natural hop rhythm)
-    const hopHeight = useRef(4.2) // Height of automatic hops (lower for more natural movement)
+    const hopInterval = useRef(0.6)
+    const hopHeight = useRef(0.4)
     const isHopping = useRef(false)
+
+    // For respawning
+    const [isRespawning, setIsRespawning] = useState(false)
+    const [isInvulnerable, setIsInvulnerable] = useState(false)
+    const respawnEffectRef = useRef<boolean>(false)
+    const respawnTargetPosition = useRef<THREE.Vector3 | null>(null); // Store target respawn position
     
     // Core setup
     const camera = useThree((state) => state.camera)
@@ -192,11 +201,93 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         return () => timers.forEach(timer => clearTimeout(timer));
     }, [thirdPersonView, visible]);
     
+    // Listen for respawn event - only affects local player
+    useEffect(() => {
+        const handleRespawn = (event: CustomEvent) => {
+            const localPlayerId = connectionManager?.getPlayerId();
+            const propPlayerId = (props as any).playerId;
+            console.log(`[Jackalope] Received player_respawned event. Local ID: ${localPlayerId}, Prop ID: ${propPlayerId}, Event Detail:`, event.detail);
+
+            if (!localPlayerId || localPlayerId !== propPlayerId) {
+                // Only handle respawn for the correct local player
+                return;
+            }
+            
+            console.log('🐰 Jackalope received respawn event', event.detail);
+            
+            // Extract spawn position from event and store it
+            const spawnCoords = event.detail?.position || [0, 3, 0];
+            respawnTargetPosition.current = new THREE.Vector3(spawnCoords[0], spawnCoords[1], spawnCoords[2]);
+            
+            // Set respawning state (will be processed in useFrame)
+            setIsRespawning(true);
+            respawnEffectRef.current = true; // Trigger visual effect
+        };
+        
+        // Add event listener
+        window.addEventListener('player_respawned', handleRespawn as EventListener);
+        
+        return () => {
+            window.removeEventListener('player_respawned', handleRespawn as EventListener);
+        };
+    }, [connectionManager, (props as any).playerId]);
+    
     // Main update - directly updates both the visual model and physics
     useFrame((state, delta) => {
         // Early return if refs aren't ready
         if (!jackalopeRef.current?.rigidBody) return
+
+        // --- Respawn Processing (High Priority) ---
+        if (isRespawning && respawnTargetPosition.current) {
+            console.log('🐰 Applying respawn position:', respawnTargetPosition.current);
+            
+            // Apply the target position
+            position.current.copy(respawnTargetPosition.current);
+            
+            // Reset velocity immediately
+            velocity.current.set(0, 0, 0);
+            
+            // Update the physics body immediately
+            jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current);
+            jackalopeRef.current.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true); // Also reset linear velocity
+            
+            // Clear the target position and respawn state
+            respawnTargetPosition.current = null;
+            
+            // Schedule end of respawn state and start of invulnerability
+            setTimeout(() => {
+                setIsRespawning(false);
+                setIsInvulnerable(true);
+                
+                // Clear invulnerability after 3 seconds
+                setTimeout(() => {
+                    setIsInvulnerable(false);
+                }, 3000);
+            }, 100); // Short delay before invulnerability starts
+            
+            // --- EARLY RETURN AFTER RESPAWN ---
+            // Skip the rest of the movement logic for this frame
+            // to ensure the respawn position sticks.
+            return; 
+        }
+        // --- End Respawn Processing ---
+
+        // Check for respawn effect visual trigger
+        if (respawnEffectRef.current) {
+            respawnEffectRef.current = false;
+            
+            // Create spawn effect
+            if (window.__createSpawnEffect) {
+                window.__createSpawnEffect(
+                    position.current.clone(),
+                    '#4682B4', // Blue color for Jackalope
+                    20, // Particles
+                    0.5 // Radius
+                );
+            }
+        }
         
+        // --- Normal Movement Logic ---
         // Get input state
         const { forward, backward, left, right, jump, sprint } = getKeyboardControls() as any
         
@@ -605,6 +696,21 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         // The parent group will be manipulated directly in useFrame
                     />
                 </group>
+            )}
+            
+            {/* Invulnerability shield effect */}
+            {isInvulnerable && (
+                <mesh>
+                    <sphereGeometry args={[3, 32, 32]} />
+                    <meshStandardMaterial 
+                        color="#4682B4"
+                        transparent={true}
+                        opacity={0.3}
+                        emissive="#4682B4"
+                        emissiveIntensity={0.5}
+                        side={THREE.DoubleSide}
+                    />
+                </mesh>
             )}
         </>
     )

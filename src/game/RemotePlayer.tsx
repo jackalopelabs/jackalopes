@@ -9,6 +9,7 @@ import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils'; // Impo
 import { RigidBody, CapsuleCollider, BallCollider, CuboidCollider } from '@react-three/rapier'; // Import Rapier physics components
 import { MercModel } from './MercModel';
 import { JackalopeModel } from './JackalopeModel';
+import entityStateObserver from '../network/EntityStateObserver'; // Import entityStateObserver
 
 // Add window type declaration at the top of the file with all custom properties
 declare global {
@@ -631,22 +632,96 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
       return true;
     }, [playerId, position, isHit, isRespawning, isInvulnerable]);
     
-    // Expose the hit handler function to window so projectiles can call it
+    // Expose the hit handler function to window so projectiles can trigger it
     useEffect(() => {
       if (typeof window !== 'undefined') {
         if (!window.__jackalopeHitHandlers) {
           window.__jackalopeHitHandlers = {};
         }
-        
         window.__jackalopeHitHandlers[playerId] = handleJackalopeHit;
-        
-        return () => {
-          if (window.__jackalopeHitHandlers) {
-            delete window.__jackalopeHitHandlers[playerId];
-          }
-        };
       }
+      
+      return () => {
+        if (typeof window !== 'undefined' && window.__jackalopeHitHandlers) {
+          delete window.__jackalopeHitHandlers[playerId];
+        }
+      };
     }, [playerId, handleJackalopeHit]);
+    
+    // Respawn position update listener
+    useEffect(() => {
+      // Check if this player's entity is marked as respawning in the EntityStateObserver
+      const checkForRespawnEvent = () => {
+        const entity = entityStateObserver.getEntity(playerId);
+        if (entity?.isRespawning && !isRespawning && !isHit) {
+          console.log(`🔄 Detected respawn flag for jackalope ${playerId}`);
+          
+          // Process respawn
+          setIsHit(true);
+          
+          // Create explosion effect at current position
+          if (typeof window !== 'undefined' && window.__createExplosionEffect && position) {
+            window.__createExplosionEffect(
+              new THREE.Vector3(position.x, position.y, position.z),
+              '#4682B4', // Blue color for Jackalope
+              30, // More particles for a bigger effect
+              0.3 // Larger explosion radius
+            );
+          }
+          
+          // After a short delay, trigger respawn
+          setTimeout(() => {
+            setIsHit(false);
+            setIsRespawning(true);
+            
+            // For demo/testing, we'll just simulate a respawn after a delay
+            setTimeout(() => {
+              setIsRespawning(false);
+              setIsInvulnerable(true);
+              
+              // Give temporary invulnerability
+              if (invulnerableTimeoutRef.current) {
+                clearTimeout(invulnerableTimeoutRef.current);
+              }
+              
+              invulnerableTimeoutRef.current = setTimeout(() => {
+                setIsInvulnerable(false);
+                invulnerableTimeoutRef.current = null;
+              }, 3000); // 3 seconds of invulnerability
+              
+              // Create spawn effect at new position
+              if (typeof window !== 'undefined' && window.__createSpawnEffect && position) {
+                window.__createSpawnEffect(
+                  new THREE.Vector3(position.x, position.y, position.z),
+                  '#4682B4', // Blue color for Jackalope
+                  20, // Particles for spawn effect
+                  0.2 // Radius
+                );
+              }
+            }, 1500); // 1.5 seconds "dead" before respawning
+          }, 200); // Short delay to allow the hit effect to be seen 
+        }
+      };
+      
+      // Check on mount and when position changes
+      checkForRespawnEvent();
+      
+      // Create an interval to check periodically
+      const intervalId = setInterval(checkForRespawnEvent, 1000);
+      
+      return () => clearInterval(intervalId);
+    }, [playerId, position, isHit, isRespawning]);
+    
+    // Function to handle projectile attachments
+    const handleAttachProjectile = useCallback((projectileData: {id: string, position: THREE.Vector3}): boolean => {
+      // Skip if we're already hit, respawning, or invulnerable
+      if (isHit || isRespawning || isInvulnerable) return false;
+      
+      // Implement the logic to attach a projectile to the jackalope
+      // This is a placeholder and should be replaced with the actual implementation
+      console.log(`Attaching projectile ${projectileData.id} to jackalope ${playerId}`);
+      return true;
+    }, [isHit, isRespawning, isInvulnerable, playerId]);
     
     // Clean up timeout on unmount
     useEffect(() => {

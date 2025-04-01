@@ -438,10 +438,27 @@ function handleGameEvent(clientId, data) {
     event.playerName = client.playerName;
     event.timestamp = Date.now();
     
-    // If it's a shot event, include the player type to help with rendering
+    // Handle specific event types
     if (event.event_type === 'player_shoot') {
+        // If it's a shot event, include the player type to help with rendering
         event.playerType = client.playerType || 'merc';
         logMessage(`Player ${client.playerName} fired shot (${event.shotId})`);
+    } 
+    else if (event.event_type === 'player_respawn') {
+        // Handle respawn events
+        const respawnPlayerId = event.player_id;
+        const requestedBy = event.requestedBy;
+        
+        logMessage(`Player ${requestedBy} requested respawn for player ${respawnPlayerId}`);
+        
+        // Assign a fixed spawn position for the respawning player
+        // Use the standard Jackalope spawn point
+        const spawnPosition = [-10, 3, 10]; // Fixed spawn point
+        
+        // Add spawn position to the event
+        event.spawnPosition = spawnPosition;
+        
+        logMessage(`Assigned spawn position for ${respawnPlayerId}: [${spawnPosition.join(', ')}]`);
     }
     
     // Broadcast to all players in session (including sender for consistent state)

@@ -148,7 +148,7 @@ export const MultiplayerSyncManager: React.FC<MultiplayerSyncManagerProps> = ({
     
     // When a game event occurs, process it
     const handleGameEvent = (event: any) => {
-      // Only handle shooting events for now
+      // Handle different event types
       if (event.event_type === 'player_shoot' || 
           event.type === 'player_shoot') {
         
@@ -187,6 +187,38 @@ export const MultiplayerSyncManager: React.FC<MultiplayerSyncManagerProps> = ({
         } else {
           // Record the shot in EntityStateObserver
           entityStateObserver.recordShot(playerId, origin, direction);
+        }
+      }
+      // Handle player respawn events
+      else if (event.event_type === 'player_respawn') {
+        const respawnPlayerId = event.player_id;
+        
+        // Skip if it's not for an entity we're tracking
+        if (!entityStateObserver.getEntity(respawnPlayerId)) {
+          return;
+        }
+        
+        console.log('🔄 Processing player respawn event:', event);
+        
+        // Get the assigned spawn position from the event
+        const spawnPosition = event.spawnPosition || [0, 3, 0];
+        
+        // Update entity state with new position
+        entityStateObserver.updateEntity({
+          id: respawnPlayerId,
+          position: spawnPosition,
+          isRespawning: true
+        });
+        
+        // If this is for our own player, handle our local respawn
+        if (respawnPlayerId === connectionManager.getPlayerId()) {
+          console.log(`[SyncManager] Dispatching local player_respawned event for ${respawnPlayerId}`);
+          
+          // Dispatch a local event to trigger respawn effects
+          const respawnEvent = new CustomEvent('player_respawned', {
+            detail: { position: spawnPosition }
+          });
+          window.dispatchEvent(respawnEvent);
         }
       }
     };

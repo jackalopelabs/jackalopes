@@ -1,8 +1,7 @@
 import { Canvas } from './common/components/canvas'
 import { Crosshair } from './common/components/crosshair'
 import { Instructions } from './common/components/instructions'
-import { useLoadingAssets } from './common/hooks/use-loading-assets'
-import { Environment, MeshReflectorMaterial, PerspectiveCamera, OrbitControls } from '@react-three/drei'
+import { Environment, MeshReflectorMaterial, PerspectiveCamera, OrbitControls, useProgress } from '@react-three/drei'
 import { EffectComposer, Vignette, ChromaticAberration, BrightnessContrast, ToneMapping, Bloom } from '@react-three/postprocessing'
 import { BlendFunction } from 'postprocessing'
 import { useFrame, useThree } from '@react-three/fiber'
@@ -1170,7 +1169,22 @@ const ModelPreloader = () => {
 };
 
 export function App() {
-    const loading = useLoadingAssets()
+    // Replace useLoadingAssets with useProgress implementation
+    const { active } = useProgress()
+    const [loading, setLoading] = useState(true)
+    
+    // Handle loading state
+    useEffect(() => {
+        if (!active) {
+            const timeout = setTimeout(() => {
+                setLoading(false)
+            }, 500)
+            return () => clearTimeout(timeout)
+        } else {
+            setLoading(true)
+        }
+    }, [active])
+    
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
     
     // Initialize fallback models as early as possible
