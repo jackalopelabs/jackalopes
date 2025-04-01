@@ -150,6 +150,12 @@ export const WeaponSoundEffects = () => {
   
   // Modify the playShotSound function
   const playShotSound = (volume = 0.05) => {
+    // Skip if audio is muted
+    if (WeaponSoundSettings.masterMuted) {
+      console.log('Shot sound skipped - audio is muted');
+      return;
+    }
+    
     // Skip if audio is not initialized or context is not running
     if (!isAudioInitializedRef.current || !audioContextRef.current || !shotBufferRef.current) {
       console.log('Cannot play shot sound - audio not fully initialized');

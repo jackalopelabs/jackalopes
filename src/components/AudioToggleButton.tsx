@@ -27,6 +27,7 @@ export const AudioToggleButton: React.FC<AudioToggleButtonProps> = ({
         const settings = JSON.parse(savedSettings);
         // If we have saved settings, use those instead of initialState
         if (settings.muteAll !== undefined) {
+          console.log('[AudioToggleButton] Initializing from localStorage, muteAll:', settings.muteAll);
           setAudioEnabled(!settings.muteAll);
           // Also update WeaponSoundSettings directly
           WeaponSoundSettings.setMuted(settings.muteAll);
@@ -35,6 +36,23 @@ export const AudioToggleButton: React.FC<AudioToggleButtonProps> = ({
     } catch (error) {
       console.error('Error loading audio preferences:', error);
     }
+  }, []);
+
+  // Listen for changes from the AudioController
+  useEffect(() => {
+    const handleAudioSettingsChanged = (event: CustomEvent<{masterVolume: number, muteAll?: boolean}>) => {
+      console.log('[AudioToggleButton] Received audioSettingsChanged event:', event.detail);
+      const isMuted = event.detail.muteAll === true;
+      setAudioEnabled(!isMuted);
+      // Also ensure WeaponSoundSettings is updated
+      WeaponSoundSettings.setMuted(isMuted);
+    };
+    
+    window.addEventListener('audioSettingsChanged', handleAudioSettingsChanged as EventListener);
+    
+    return () => {
+      window.removeEventListener('audioSettingsChanged', handleAudioSettingsChanged as EventListener);
+    };
   }, []);
   
   // Position styles based on the position prop
@@ -55,6 +73,7 @@ export const AudioToggleButton: React.FC<AudioToggleButtonProps> = ({
   // Toggle master audio
   const toggleAudio = () => {
     const newState = !audioEnabled;
+    console.log(`[AudioToggleButton] Toggling audio to ${newState ? 'enabled' : 'disabled'}`);
     setAudioEnabled(newState);
     
     // Always update localStorage
@@ -65,24 +84,49 @@ export const AudioToggleButton: React.FC<AudioToggleButtonProps> = ({
       // Update with new state
       settings.muteAll = !newState;
       localStorage.setItem('audioSettings', JSON.stringify(settings));
+      console.log('[AudioToggleButton] Saved to localStorage, muteAll:', settings.muteAll);
     } catch (error) {
       console.error('Error saving audio preferences:', error);
     }
     
     // Update WeaponSoundSettings directly
     WeaponSoundSettings.setMuted(!newState);
+    console.log(`[AudioToggleButton] Updated WeaponSoundSettings.masterMuted: ${!newState}`);
     
     // Dispatch event that AudioController listens for
-    window.dispatchEvent(new CustomEvent('audioSettingsChanged', {
-      detail: {
-        masterVolume: newState ? 1.0 : 0.0,
-        footstepsEnabled: true,
-        walkingVolume: 0.3,
-        runningVolume: 0.4,
-        spatialAudioEnabled: true,
-        remoteSoundsEnabled: true // Always keep remote sounds enabled
+    const eventDetail = {
+      masterVolume: newState ? 1.0 : 0.0,
+      muteAll: !newState, // Add the muteAll property explicitly
+      footstepsEnabled: true,
+      walkingVolume: 0.3,
+      runningVolume: 0.4,
+      spatialAudioEnabled: true,
+      remoteSoundsEnabled: true
+    };
+    
+    window.dispatchEvent(new CustomEvent('audioSettingsChanged', { detail: eventDetail }));
+    console.log('[AudioToggleButton] Dispatched audioSettingsChanged event:', eventDetail);
+    
+    // Force update to all audio context-based components
+    if (typeof window !== 'undefined' && window.AudioContext) {
+      // Create a silent audio context to force browsers to wake up the audio system
+      try {
+        const tempContext = new AudioContext();
+        const oscillator = tempContext.createOscillator();
+        const gainNode = tempContext.createGain();
+        gainNode.gain.value = 0; // Completely silent
+        oscillator.connect(gainNode);
+        gainNode.connect(tempContext.destination);
+        oscillator.start();
+        oscillator.stop(tempContext.currentTime + 0.001); // Stop after 1ms
+        console.log('[AudioToggleButton] Created silent audio context to wake up audio system');
+      } catch (e) {
+        console.error('[AudioToggleButton] Failed to create silent audio context:', e);
       }
-    }));
+    }
+    
+    // Log the action for debugging
+    console.log(`[AudioToggleButton] Audio ${newState ? 'unmuted' : 'muted'} from toggle button`);
   };
   
   // SVG icons for the audio button

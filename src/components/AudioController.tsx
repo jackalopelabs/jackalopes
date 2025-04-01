@@ -111,6 +111,7 @@ export const AudioController = () => {
       };
       
       localStorage.setItem('audioSettings', JSON.stringify(settingsToSave));
+      console.log('[AudioController] Saved audio settings to localStorage:', settingsToSave);
     } catch (error) {
       console.error('Error saving audio preferences:', error);
     }
@@ -120,19 +121,24 @@ export const AudioController = () => {
     
     // Apply mute setting directly to WeaponSoundSettings
     WeaponSoundSettings.setMuted(muteAll);
+    console.log(`[AudioController] Updated WeaponSoundSettings.masterMuted: ${muteAll}`);
+    
+    // Create the event detail object
+    const eventDetail = {
+      masterVolume: effectiveMasterVolume,
+      footstepsEnabled,
+      walkingVolume,
+      runningVolume,
+      spatialAudioEnabled,
+      remoteSoundsEnabled,
+      muteAll
+    };
     
     // Dispatch event with the current audio settings
     window.dispatchEvent(new CustomEvent('audioSettingsChanged', {
-      detail: {
-        masterVolume: effectiveMasterVolume,
-        footstepsEnabled,
-        walkingVolume,
-        runningVolume,
-        spatialAudioEnabled,
-        remoteSoundsEnabled,
-        muteAll
-      }
+      detail: eventDetail
     }));
+    console.log('[AudioController] Dispatched audioSettingsChanged event:', eventDetail);
     
     // Also dispatch a specific event for remote sounds toggle
     window.dispatchEvent(new CustomEvent('remoteSoundsToggled', {
@@ -141,7 +147,22 @@ export const AudioController = () => {
       }
     }));
     
-    console.log('Audio settings updated:', {
+    // Apply mute to any active AudioContext if available
+    if (typeof window !== 'undefined') {
+      // Test if we need to force update audio contexts
+      if (muteAll && window.AudioContext) {
+        try {
+          // Create a silent context to ensure all contexts get the message
+          const silentCtx = new AudioContext();
+          silentCtx.suspend();
+          console.log('[AudioController] Created and suspended a silent AudioContext for mute state');
+        } catch (e) {
+          console.error('[AudioController] Error managing audio contexts:', e);
+        }
+      }
+    }
+    
+    console.log('[AudioController] Audio settings updated:', {
       masterVolume: effectiveMasterVolume,
       muteAll,
       footstepsEnabled,
