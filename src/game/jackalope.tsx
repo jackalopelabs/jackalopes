@@ -500,7 +500,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             }
             
             // Debug - occasionally log rotation to verify leaning is correct
-            if (Math.random() < 0.005) {
+            if (Math.random() < 0.005 && (window.jackalopesGame?.debugLevel || 0) >= 3) {
                 console.log(
                     `[JACKALOPE ROTATION] Rotation: (${THREE.MathUtils.radToDeg(jackalopeModelRef.current.rotation.x).toFixed(1)}°, ` +
                     `${THREE.MathUtils.radToDeg(jackalopeModelRef.current.rotation.y).toFixed(1)}°, ` +
@@ -510,7 +510,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             }
             
             // Debug - occasionally log position to verify model is where it should be
-            if (Math.random() < 0.01) {
+            if (Math.random() < 0.01 && (window.jackalopesGame?.debugLevel || 0) >= 3) {
                 console.log(
                     `[JACKALOPE MODEL] Position: (${jackalopeModelRef.current.position.x.toFixed(2)}, ${jackalopeModelRef.current.position.y.toFixed(2)}, ${jackalopeModelRef.current.position.z.toFixed(2)}) | ` +
                     `Physics: (${position.current.x.toFixed(2)}, ${position.current.y.toFixed(2)}, ${position.current.z.toFixed(2)})`

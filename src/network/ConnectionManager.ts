@@ -194,6 +194,27 @@ export class ConnectionManager extends EventEmitter {
   setLogLevel(level: LogLevel): void {
     this.logLevel = level;
     this.log(LogLevel.INFO, `Log level set to: ${LogLevel[level]}`);
+    
+    // Also update EntityStateObserver's debug level for consistent logging
+    if (typeof window !== 'undefined' && window.jackalopesGame) {
+      // Map LogLevel to debug level (0-3):
+      // LogLevel.NONE, ERROR -> 0
+      // LogLevel.WARN -> 1 
+      // LogLevel.INFO -> 2
+      // LogLevel.DEBUG, VERBOSE -> 3
+      const debugLevel = level === LogLevel.NONE ? 0 :
+                         level === LogLevel.ERROR ? 0 :
+                         level === LogLevel.WARN ? 1 :
+                         level === LogLevel.INFO ? 2 : 3;
+      
+      // Update the global debug level
+      window.jackalopesGame.debugLevel = debugLevel;
+      
+      // Also update EntityStateObserver if it exists
+      if (window.__entityStateObserver) {
+        window.__entityStateObserver.setDebugLevel(debugLevel);
+      }
+    }
   }
   
   // Public methods to easily change log levels
@@ -449,7 +470,9 @@ export class ConnectionManager extends EventEmitter {
       });
     } else {
       // For client-side estimation, just measure time to next server message
-      this.log(LogLevel.INFO, 'Using client-side latency estimation');
+      if (this.logLevel >= LogLevel.VERBOSE) {
+        this.log(LogLevel.INFO, 'Using client-side latency estimation');
+      }
       
       // Simulate a pong response after a brief delay
       setTimeout(() => {

@@ -855,7 +855,7 @@ const ThirdPersonCameraControls = ({
                     Math.min(delta * 4.0, 0.25);  // Normal responsiveness for merc
                 
                 // Log camera state occasionally for debugging
-                if (Math.random() < 0.01) {
+                if (Math.random() < 0.01 && (window.jackalopesGame?.debugLevel || 0) >= 3) {
                     console.log(`[CAMERA] Delta: ${delta.toFixed(4)}, Smoothing: ${targetSmoothing.toFixed(2)}`);
                     console.log(`[CAMERA] Target: (${player.x.toFixed(2)}, ${player.y.toFixed(2)}, ${player.z.toFixed(2)})`);
                     console.log(`[CAMERA] Current: (${targetRef.current.x.toFixed(2)}, ${targetRef.current.y.toFixed(2)}, ${targetRef.current.z.toFixed(2)})`);
