@@ -800,10 +800,12 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
             if (window.__networkManager) {
               console.log(`[RemotePlayer] Sending respawn request for jackalope: ${playerId}`);
               try {
-                // Default spawn position for jackalope respawns
-                const spawnPosition: [number, number, number] = [-10, 3, 10];
+                // Add detailed info about target
+                console.log(`Hit detection: Jackalope ${playerId} was hit`);
+                
+                // Create a spawn position for respawn
+                const spawnPosition: [number, number, number] = [-100, 3, 10];
                 window.__networkManager.sendRespawnRequest(playerId, spawnPosition);
-                console.log(`[RemotePlayer] Respawn request sent successfully for ${playerId}`);
               } catch (error: any) {
                 console.error(`[RemotePlayer] Error sending respawn request: ${error.message}`);
               }
@@ -811,10 +813,12 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
               // Fallback to connectionManager global if __networkManager isn't available
               console.log(`[RemotePlayer] Using connectionManager fallback for respawn request: ${playerId}`);
               try {
-                // Default spawn position for jackalope respawns
-                const spawnPosition: [number, number, number] = [-10, 3, 10];
+                // Add detailed info about target
+                console.log(`Hit detection: Jackalope ${playerId} was hit`);
+                
+                // Create a spawn position for respawn
+                const spawnPosition: [number, number, number] = [-100, 3, 10];
                 window.connectionManager.sendRespawnRequest(playerId, spawnPosition);
-                console.log(`[RemotePlayer] Respawn request sent successfully via connectionManager for ${playerId}`);
               } catch (error: any) {
                 console.error(`[RemotePlayer] Error sending respawn via connectionManager: ${error.message}`);
               }

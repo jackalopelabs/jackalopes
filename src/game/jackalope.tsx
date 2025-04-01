@@ -11,17 +11,30 @@ import { Component, Entity, EntityType } from './ecs'
 import { ConnectionManager } from '../network/ConnectionManager'
 import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel component
 
-// Add type declaration for window.playerPositionTracker
+// Add global type declaration at the top of the file
 declare global {
     interface Window {
+        // Existing declarations
+        connectionManager?: any;
+        __sendRespawnRequest?: (playerId: string) => void;
+        // Update jackalopesGame type
         jackalopesGame?: {
             playerType?: 'merc' | 'jackalope';
             flashlightOn?: boolean;
             levaPanelState?: 'open' | 'closed';
             debugLevel?: number;
+            spawnManager?: {
+                baseSpawnX: number;
+                currentSpawnX: number;
+                stepSize: number;
+                minX: number;
+                getNextSpawnPoint: () => [number, number, number];
+                resetSpawnPoints: () => [number, number, number];
+                getSpawnPoint: () => [number, number, number];
+            };
         };
         playerPositionTracker?: {
-            updatePosition: (position: THREE.Vector3) => void;
+            updatePosition: (newPos: THREE.Vector3) => void;
         };
         __createSpawnEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
         __createExplosionEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
@@ -112,6 +125,9 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
     
     // Track last server sync
     const lastStateTime = useRef(0)
+    
+    // Add state to track spawn position that decreases X distance each respawn
+    const [spawnPositionX, setSpawnPositionX] = useState<number>(-100);
     
     // Initialize position and physics controller
     useEffect(() => {
@@ -206,8 +222,8 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
     }, [thirdPersonView, visible]);
     
     // Listen for respawn event - only affects local player
-    useEffect(() => {
-        const handleRespawn = (event: CustomEvent) => {
+    const handleRespawn = useCallback((event: CustomEvent) => {
+        try {
             const localPlayerId = connectionManager?.getPlayerId();
             
             // IMPORTANT: In some cases propPlayerId might be undefined, but we should still handle
@@ -219,9 +235,26 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             if (localPlayerId) {
                 console.log('🐰 Jackalope processing respawn event', event.detail);
                 
-                // Extract spawn position from event and store it
-                const spawnCoords = event.detail?.position || [-10, 3, 10]; // Default jackalope spawn
+                // Use provided position from event, or use the spawnManager
+                let spawnCoords: [number, number, number];
+                
+                if (event.detail?.position) {
+                    // Use position from the event if provided
+                    spawnCoords = event.detail.position;
+                } else if (window.jackalopesGame?.spawnManager) {
+                    // Get next spawn point with progressive movement 
+                    spawnCoords = (window.jackalopesGame as any).spawnManager.getNextSpawnPoint();
+                } else {
+                    // Fallback to default
+                    spawnCoords = [-100, 3, 10];
+                }
+                
                 console.log(`🐰 Spawn coordinates: [${spawnCoords.join(', ')}]`);
+                
+                // Update spawn position for next respawn - move closer by 50 units
+                const newX = Math.min(-50, spawnPositionX + 50); // Don't go beyond -50
+                setSpawnPositionX(newX);
+                console.log(`🐰 Next spawn X position will be: ${newX}`);
                 
                 // Create a new THREE.Vector3 from spawn coordinates
                 respawnTargetPosition.current = new THREE.Vector3(spawnCoords[0], spawnCoords[1], spawnCoords[2]);
@@ -275,15 +308,19 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                     }, 3000);
                 }, 300);
             }
-        };
-        
+        } catch (error) {
+            console.error(`🐰 Error handling respawn after scoring:`, error);
+        }
+    }, [connectionManager, spawnPositionX]);
+    
+    useEffect(() => {
         // Add event listener
         window.addEventListener('player_respawned', handleRespawn as EventListener);
         
         return () => {
             window.removeEventListener('player_respawned', handleRespawn as EventListener);
         };
-    }, [connectionManager]);
+    }, [handleRespawn]);
     
     // Process respawn in useFrame
     useEffect(() => {
@@ -357,8 +394,15 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                         // Get local player ID for respawn
                         const localPlayerId = connectionManager.getPlayerId();
                         
-                        // Default respawn position for jackalope
-                        const spawnPosition: [number, number, number] = [-10, 3, 10];
+                        // Get respawn position from the global spawn manager
+                        let spawnPosition: [number, number, number];
+                        if (window.jackalopesGame?.spawnManager) {
+                            spawnPosition = (window.jackalopesGame as any).spawnManager.getNextSpawnPoint();
+                        } else {
+                            // Fallback to default
+                            spawnPosition = [-100, 3, 10];
+                        }
+                        console.log(`🐰 Using spawn position: [${spawnPosition.join(', ')}]`);
                         
                         try {
                             // Trigger respawn through network manager
@@ -824,7 +868,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             
             {/* Invulnerability shield effect */}
             {isInvulnerable && (
-                <mesh>
+                <mesh position={[position.current.x, position.current.y, position.current.z]}>
                     <sphereGeometry args={[3, 32, 32]} />
                     <meshStandardMaterial 
                         color="#4682B4"
@@ -838,4 +882,4 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             )}
         </>
     )
-}) 
+})

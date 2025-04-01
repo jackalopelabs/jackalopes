@@ -52,6 +52,16 @@ declare global {
             levaPanelState?: 'open' | 'closed';
             flashlightOn?: boolean; // Add flashlight state
             debugLevel?: number; // Store debug level
+            // Add spawn manager
+            spawnManager?: {
+                baseSpawnX: number;
+                currentSpawnX: number;
+                stepSize: number;
+                minX: number;
+                getNextSpawnPoint: () => [number, number, number];
+                resetSpawnPoints: () => [number, number, number];
+                getSpawnPoint: () => [number, number, number];
+            };
             // Add other global game properties as needed
         };
         playerPositionTracker?: {
@@ -2829,34 +2839,10 @@ export function App() {
         window.__networkManager = {
           sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => {
             if (connectionManager) {
-              console.log(`[App] Sending respawn request for player ${playerId} with default spawn position [-10, 3, 10]`);
-              
-              // Check if this is the jackalope that was actually hit
-              if (window.__lastHitJackalope && window.__lastHitJackalope !== playerId) {
-                console.log(`[App] Skipping respawn for ${playerId} as it wasn't the last hit jackalope (${window.__lastHitJackalope})`);
-                return;
-              }
-              
-              // Default spawn position for jackalope
-              const defaultSpawnPosition: [number, number, number] = [-10, 3, 10];
-              
-              // Use the provided spawn position or default
-              const finalSpawnPosition = spawnPosition || defaultSpawnPosition;
-              
-              // Clear tracking for this jackalope since it's respawning
-              // This will allow scoring points for this jackalope again after respawn
-              clearScoredJackalope(playerId);
-              
-              // Use the updated method with spawn position
-              connectionManager.sendRespawnRequest(playerId, finalSpawnPosition);
-              
-              // Log that we're respawning the jackalope but don't update score here
-              // Score was already updated when the jackalope was hit by the projectile
-              const localPlayerType = window.jackalopesGame?.playerType;
-              console.log(`[App] Checking scoring: Local player type: ${localPlayerType}, Merc hit Jackalope: ${playerId}`);
-              
-              // Clear the last hit jackalope flag after processing
-              window.__lastHitJackalope = undefined;
+              console.log(`[App] Sending respawn request for player ${playerId} with default spawn position [-100, 3, 10]`);
+              connectionManager.sendRespawnRequest(playerId, spawnPosition);
+            } else {
+              console.error('[App] Cannot send respawn request: connectionManager is not initialized');
             }
           }
         };
@@ -3693,6 +3679,84 @@ export function App() {
         };
     }, [isHost]);
     
+    // Create network manager functions to expose in global scope
+    const networkManager = {
+      sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => {
+        if (connectionManager) {
+          console.log(`[App] Sending respawn request for player ${playerId} with default spawn position [-100, 3, 10]`);
+          connectionManager.sendRespawnRequest(playerId, spawnPosition);
+        } else {
+          console.error('[App] Cannot send respawn request: connectionManager is not initialized');
+        }
+      }
+    };
+    
+    // Hook up respawn request function with optional spawn position to ConnectionManager
+    const handleRespawnRequest = (playerId: string, spawnPosition?: [number, number, number]) => {
+      if (!connectionManager) {
+        console.error('[App] Cannot send respawn request: connectionManager not initialized');
+        return;
+      }
+      
+      const defaultSpawnPosition: [number, number, number] = [-100, 3, 10];
+      
+      // Use provided position or default
+      const finalSpawnPosition = spawnPosition || defaultSpawnPosition;
+      
+      console.log(`[App] Sending respawn request with position [${finalSpawnPosition.join(', ')}]`);
+      
+      // Send the respawn request to server
+      connectionManager.sendRespawnRequest(playerId, finalSpawnPosition);
+    }
+    
+    // Make game properties accessible globally
+    window.jackalopesGame = {
+        playerType: playerCharacterInfo.type,
+        levaPanelState: 'closed',
+        flashlightOn: false,
+        debugLevel: 1
+    } as any; // Use type assertion to bypass type check
+    
+    // Create a jackalope spawn position manager
+    if (!window.jackalopesGame.spawnManager) {
+        window.jackalopesGame.spawnManager = {
+            baseSpawnX: -100,
+            currentSpawnX: -100,
+            stepSize: 50,
+            minX: -50,
+            getNextSpawnPoint: function(): [number, number, number] {
+                // Adjust X to move closer by stepSize
+                this.currentSpawnX = Math.min(this.minX, this.currentSpawnX + this.stepSize);
+                console.log(`🐰 [SpawnManager] Next spawn at X: ${this.currentSpawnX}`);
+                return [this.currentSpawnX, 3, 10];
+            },
+            resetSpawnPoints: function() {
+                console.log(`🐰 [SpawnManager] Resetting spawn positions to base X: ${this.baseSpawnX}`);
+                this.currentSpawnX = this.baseSpawnX;
+                return [this.currentSpawnX, 3, 10];
+            },
+            getSpawnPoint: function(): [number, number, number] {
+                return [this.currentSpawnX, 3, 10];
+            }
+        };
+    }
+    
+    // Set up player position tracker for third-person camera
+    useEffect(() => {
+        // Log when third-person view is activated or deactivated
+        console.log(`Third-person view ${thirdPersonView ? 'enabled' : 'disabled'}`);
+        
+        // Reset camera position tracker when switching views
+        if (!thirdPersonView && playerPosition.current) {
+            // Reset to current position without interpolation to prevent glitches
+            // when switching back to third-person view
+            playerPosition.current.copy(
+                playerRef.current?.rigidBody?.translation() || 
+                new THREE.Vector3(0, 7, 10)
+            );
+        }
+    }, [thirdPersonView, playerRef]);
+    
     return (
         <>
             {/* Add styles to fix Leva panel positioning and prevent UI disruption */}
@@ -3847,7 +3911,7 @@ export function App() {
                             ) : (
                                 <Jackalope
                                     ref={playerRef}
-                                    position={[-10, 7, 10]} // Different spawn position for jackalope
+                                    position={[-100, 7, 10]} // Different spawn position for jackalope
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}
@@ -3894,7 +3958,7 @@ export function App() {
                             ) : (
                                 <Jackalope
                                     ref={playerRef}
-                                    position={[-10, 7, 10]} // Different spawn position for jackalope
+                                    position={[-100, 7, 10]} // Different spawn position for jackalope
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}

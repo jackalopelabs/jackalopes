@@ -693,8 +693,8 @@ export class ConnectionManager extends EventEmitter {
     // Generate a unique ID for this respawn based on timestamp and random number
     const respawnId = `respawn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
-    // Default spawn position for jackalope if not provided
-    const defaultPosition: [number, number, number] = [-10, 3, 10];
+    // Set default position if not provided
+    const defaultPosition: [number, number, number] = [-100, 3, 10];
     
     // Create respawn event data
     const respawnData = {

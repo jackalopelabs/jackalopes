@@ -458,7 +458,7 @@ function handleGameEvent(clientId, data) {
         
         // Assign a fixed spawn position for the respawning player
         // Use the standard Jackalope spawn point
-        const spawnPosition = [-10, 3, 10]; // Fixed spawn point
+        const spawnPosition = [-100, 3, 10]; // Fixed spawn point
         
         // Add spawn position to the event
         event.spawnPosition = spawnPosition;

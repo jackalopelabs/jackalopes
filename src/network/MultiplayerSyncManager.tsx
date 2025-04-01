@@ -7,6 +7,27 @@ import entityStateObserver from './EntityStateObserver';
 import { RemotePlayer } from '../game/RemotePlayer';
 import { log, DEBUG_LEVELS, isDebugEnabled } from '../utils/debugUtils';
 
+// Add global type declaration
+declare global {
+  interface Window {
+    jackalopesGame?: {
+      playerType?: 'merc' | 'jackalope';
+      levaPanelState?: 'open' | 'closed';
+      flashlightOn?: boolean;
+      debugLevel?: number;
+      spawnManager?: {
+        baseSpawnX: number;
+        currentSpawnX: number;
+        stepSize: number;
+        minX: number;
+        getNextSpawnPoint: () => [number, number, number];
+        resetSpawnPoints: () => [number, number, number];
+        getSpawnPoint: () => [number, number, number];
+      };
+    };
+  }
+}
+
 interface MultiplayerSyncManagerProps {
   connectionManager: ConnectionManager;
 }
@@ -200,11 +221,21 @@ export const MultiplayerSyncManager: React.FC<MultiplayerSyncManagerProps> = ({
           console.log(`🔄 [SyncManager] Cannot process respawn for unknown entity: ${respawnPlayerId}`);
           // Try to create the entity if it doesn't exist yet
           try {
+            // Determine spawn position from spawnManager or fall back to event data
+            let fallbackPosition: [number, number, number];
+            if ((window.jackalopesGame as any)?.spawnManager) {
+              fallbackPosition = (window.jackalopesGame as any).spawnManager.getSpawnPoint();
+              console.log(`🔄 [SyncManager] Using spawn manager position: [${fallbackPosition.join(', ')}]`);
+            } else {
+              fallbackPosition = event.spawnPosition || [-100, 3, 10];
+              console.log(`🔄 [SyncManager] Using server-provided position: [${fallbackPosition.join(', ')}]`);
+            }
+
             console.log(`🔄 [SyncManager] Creating missing entity for respawn: ${respawnPlayerId}`);
             entityStateObserver.updateEntity({
               id: respawnPlayerId,
               type: 'jackalope', // Assume jackalope since only they respawn
-              position: event.spawnPosition || [-10, 3, 10],
+              position: fallbackPosition,
               rotation: 0,
               isMoving: false,
               isRunning: false,
@@ -217,8 +248,31 @@ export const MultiplayerSyncManager: React.FC<MultiplayerSyncManagerProps> = ({
           }
         }
         
-        // Get the assigned spawn position from the event
-        const spawnPosition = event.spawnPosition || [-10, 3, 10]; // Default jackalope spawn
+        // Determine the actual respawn position to use
+        let spawnPosition: [number, number, number];
+        
+        // Priority 1: Use spawn manager if available (client-side control for progressive spawning)
+        if ((window.jackalopesGame as any)?.spawnManager) {
+          // If this is a local player respawn, get the next position with progression
+          if (respawnPlayerId === connectionManager.getPlayerId()) {
+            spawnPosition = (window.jackalopesGame as any).spawnManager.getNextSpawnPoint();
+            console.log(`🔄 [SyncManager] Using next spawn point from manager: [${spawnPosition.join(', ')}]`);
+          } else {
+            // For remote players, just get the current position
+            spawnPosition = (window.jackalopesGame as any).spawnManager.getSpawnPoint();
+            console.log(`🔄 [SyncManager] Using current spawn point from manager: [${spawnPosition.join(', ')}]`);
+          }
+        }
+        // Priority 2: Use position from event if provided by server
+        else if (event.spawnPosition) {
+          spawnPosition = event.spawnPosition;
+          console.log(`🔄 [SyncManager] Using server-provided position: [${spawnPosition.join(', ')}]`);
+        }
+        // Priority 3: Fall back to default position
+        else {
+          spawnPosition = [-100, 3, 10];
+          console.log(`🔄 [SyncManager] Using default fallback position: [${spawnPosition.join(', ')}]`);
+        }
         
         console.log(`🔄 [SyncManager] Setting respawn position to: [${spawnPosition.join(', ')}]`);
         
