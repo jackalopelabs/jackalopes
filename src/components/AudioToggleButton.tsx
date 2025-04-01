@@ -4,24 +4,20 @@ import { WeaponSoundSettings } from './WeaponSoundEffects';
 interface AudioToggleButtonProps {
   position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right';
   initialState?: boolean;
-  showRemoteToggle?: boolean;
+  showRemoteToggle?: boolean; // This prop will be ignored but kept for backward compatibility
 }
 
 /**
  * AudioToggleButton - A floating button to toggle audio mute/unmute
  * 
  * This component provides a simple UI to quickly mute/unmute all sounds
- * and optionally toggle remote player sounds separately
  */
 export const AudioToggleButton: React.FC<AudioToggleButtonProps> = ({
   position = 'bottom-right',
   initialState = true,
-  showRemoteToggle = true
 }) => {
   // State for master audio (all sounds)
   const [audioEnabled, setAudioEnabled] = useState(initialState);
-  // State for remote player sounds only
-  const [remoteSoundsEnabled, setRemoteSoundsEnabled] = useState(initialState);
   
   // Load saved preferences on mount
   useEffect(() => {
@@ -34,9 +30,6 @@ export const AudioToggleButton: React.FC<AudioToggleButtonProps> = ({
           setAudioEnabled(!settings.muteAll);
           // Also update WeaponSoundSettings directly
           WeaponSoundSettings.setMuted(settings.muteAll);
-        }
-        if (settings.remoteSoundsEnabled !== undefined) {
-          setRemoteSoundsEnabled(settings.remoteSoundsEnabled);
         }
       }
     } catch (error) {
@@ -87,35 +80,23 @@ export const AudioToggleButton: React.FC<AudioToggleButtonProps> = ({
         walkingVolume: 0.3,
         runningVolume: 0.4,
         spatialAudioEnabled: true,
-        remoteSoundsEnabled
+        remoteSoundsEnabled: true // Always keep remote sounds enabled
       }
     }));
   };
   
-  // Toggle remote sounds only
-  const toggleRemoteSounds = () => {
-    const newState = !remoteSoundsEnabled;
-    setRemoteSoundsEnabled(newState);
-    
-    // Update localStorage
-    try {
-      const savedSettings = localStorage.getItem('audioSettings');
-      const settings = savedSettings ? JSON.parse(savedSettings) : {};
-      
-      // Update with new state
-      settings.remoteSoundsEnabled = newState;
-      localStorage.setItem('audioSettings', JSON.stringify(settings));
-    } catch (error) {
-      console.error('Error saving audio preferences:', error);
-    }
-    
-    // Dispatch specific event for remote sounds
-    window.dispatchEvent(new CustomEvent('remoteSoundsToggled', {
-      detail: {
-        enabled: newState && audioEnabled // Only enable if master audio is also enabled
-      }
-    }));
-  };
+  // SVG icons for the audio button
+  const MutedIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" width="24" height="24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 9.75 19.5 12m0 0 2.25 2.25M19.5 12l2.25-2.25M19.5 12l-2.25 2.25m-10.5-6 4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+    </svg>
+  );
+  
+  const UnmutedIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" width="24" height="24">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+    </svg>
+  );
   
   return (
     <div style={{
@@ -126,55 +107,26 @@ export const AudioToggleButton: React.FC<AudioToggleButtonProps> = ({
       gap: '8px',
       zIndex: 1000
     }}>
-      {/* Master audio toggle button */}
+      {/* Simplified audio toggle button with SVG icons */}
       <button 
         onClick={toggleAudio}
         style={{
           width: '50px',
           height: '50px',
           borderRadius: '50%',
-          backgroundColor: audioEnabled ? 'rgba(0, 150, 0, 0.7)' : 'rgba(150, 0, 0, 0.7)',
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
           border: 'none',
           color: 'white',
-          fontSize: '24px',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
           boxShadow: '0 2px 5px rgba(0,0,0,0.3)'
         }}
-        title={audioEnabled ? 'Mute All Sound' : 'Unmute Sound'}
+        title={audioEnabled ? 'Mute Sound' : 'Unmute Sound'}
       >
-        {audioEnabled ? '🔊' : '🔇'}
+        {audioEnabled ? <UnmutedIcon /> : <MutedIcon />}
       </button>
-      
-      {/* Remote audio toggle button (optional) */}
-      {showRemoteToggle && (
-        <button 
-          onClick={toggleRemoteSounds}
-          style={{
-            width: '50px',
-            height: '50px',
-            borderRadius: '50%',
-            backgroundColor: remoteSoundsEnabled && audioEnabled 
-              ? 'rgba(0, 100, 150, 0.7)' 
-              : 'rgba(100, 0, 150, 0.7)',
-            border: 'none',
-            color: 'white',
-            fontSize: '20px',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            boxShadow: '0 2px 5px rgba(0,0,0,0.3)',
-            opacity: audioEnabled ? 1 : 0.5 // Dim when master audio is off
-          }}
-          title={remoteSoundsEnabled ? 'Mute Remote Player Sounds' : 'Unmute Remote Player Sounds'}
-          disabled={!audioEnabled} // Disable when master audio is off
-        >
-          {remoteSoundsEnabled ? '👥🔊' : '👥🔇'}
-        </button>
-      )}
     </div>
   );
 }; 

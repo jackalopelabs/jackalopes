@@ -4365,7 +4365,7 @@ export function App() {
             />
 
             {/* Add AudioToggleButton for easy audio control */}
-            <AudioToggleButton position="bottom-right" showRemoteToggle={enableMultiplayer} />
+            <AudioToggleButton position="bottom-right" />
         </>
     );
 }
