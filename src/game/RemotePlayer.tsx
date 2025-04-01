@@ -15,13 +15,6 @@ declare global {
   interface Window {
     __fallbackModels?: Record<string, THREE.Object3D>;
     __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
-    __jackalopeHitHandlers?: Record<string, (projectileId: string, shooterId: string) => boolean>;
-    __createExplosionEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
-    __createSpawnEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
-    __networkManager?: {
-      sendRespawnRequest: (playerId: string) => void;
-    };
-    __extendJackalopeSpawnDistance?: () => void;
   }
 }
 
@@ -561,113 +554,66 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
     const attachedProjectilesRef = useRef<{id: string, position: THREE.Vector3}[]>([]);
     const rigidBodyRef = useRef<any>(null);
     
-    // Add state for managing hit and respawn
-    const [isHit, setIsHit] = useState(false);
-    const [isRespawning, setIsRespawning] = useState(false);
-    const [isInvulnerable, setIsInvulnerable] = useState(false);
-    const invulnerableTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    
-    // Function to handle when a jackalope is hit by a projectile
-    const handleJackalopeHit = useCallback((projectileId: string, shooterId: string): boolean => {
-      // Only process if not already hit or invulnerable
-      if (isHit || isRespawning || isInvulnerable) return false;
-      
-      console.log(`Jackalope ${playerId} hit by projectile ${projectileId} from ${shooterId}`);
-      
-      // Set hit state to trigger vanishing effect
-      setIsHit(true);
-      
-      // Play hit sound
-      const hitSound = new Audio('/src/assets/audio/jackalope-hit.mp3');
-      hitSound.play().catch(err => console.error('Error playing hit sound:', err));
-      
-      // Create particles at position before vanishing
-      if (typeof window !== 'undefined' && window.__createExplosionEffect && position) {
-        window.__createExplosionEffect(
-          new THREE.Vector3(position.x, position.y, position.z),
-          '#4682B4', // Blue color for Jackalope
-          30, // More particles for a bigger effect
-          0.3 // Larger explosion radius
-        );
-      }
-      
-      // After a short delay, trigger respawn
-      setTimeout(() => {
-        setIsHit(false);
-        setIsRespawning(true);
-        
-        // Tell the server we need to respawn this jackalope
-        if (typeof window !== 'undefined' && window.__networkManager) {
-          window.__networkManager.sendRespawnRequest(playerId);
-        }
-        
-        // For demo/testing, we'll just simulate a respawn after a delay
-        // In production, the server would tell us where to respawn
-        setTimeout(() => {
-          setIsRespawning(false);
-          setIsInvulnerable(true);
-          
-          // Give temporary invulnerability
-          if (invulnerableTimeoutRef.current) {
-            clearTimeout(invulnerableTimeoutRef.current);
-          }
-          
-          invulnerableTimeoutRef.current = setTimeout(() => {
-            setIsInvulnerable(false);
-            invulnerableTimeoutRef.current = null;
-          }, 3000); // 3 seconds of invulnerability
-          
-          // Create spawn effect at new position
-          if (typeof window !== 'undefined' && window.__createSpawnEffect && position) {
-            window.__createSpawnEffect(
-              new THREE.Vector3(position.x, position.y, position.z),
-              '#4682B4', // Blue color for Jackalope
-              20, // Particles for spawn effect
-              0.2 // Radius
-            );
-          }
-          
-          // Call the global function to extend the jackalope spawn distance
-          if (typeof window !== 'undefined' && window.__extendJackalopeSpawnDistance) {
-            console.log('Extending jackalope spawn distance after respawn');
-            window.__extendJackalopeSpawnDistance();
-          }
-        }, 1500); // 1.5 seconds "dead" before respawning
-      }, 200); // Short delay to allow the hit effect to be seen
-      
-      return true;
-    }, [playerId, position, isHit, isRespawning, isInvulnerable]);
-    
-    // Expose the hit handler function to window so projectiles can call it
-    useEffect(() => {
-      if (typeof window !== 'undefined') {
-        if (!window.__jackalopeHitHandlers) {
-          window.__jackalopeHitHandlers = {};
-        }
-        
-        window.__jackalopeHitHandlers[playerId] = handleJackalopeHit;
-        
-        return () => {
-          if (window.__jackalopeHitHandlers) {
-            delete window.__jackalopeHitHandlers[playerId];
-          }
-        };
-      }
-    }, [playerId, handleJackalopeHit]);
-    
-    // Clean up timeout on unmount
-    useEffect(() => {
-      return () => {
-        if (invulnerableTimeoutRef.current) {
-          clearTimeout(invulnerableTimeoutRef.current);
-        }
-      };
-    }, []);
-    
     // Keep ref in sync with state
     useEffect(() => {
       attachedProjectilesRef.current = attachedProjectiles;
     }, [attachedProjectiles]);
+    
+    // Add automatic cleanup for old projectiles
+    useEffect(() => {
+      // Set up a timer to clean up projectiles after some time
+      const cleanupTimer = setInterval(() => {
+        if (attachedProjectilesRef.current.length > 0) {
+          const MAX_PROJECTILES = 8; // Maximum allowed projectiles per jackalope
+          
+          // If we have too many projectiles, remove the oldest ones
+          if (attachedProjectilesRef.current.length > MAX_PROJECTILES) {
+            setAttachedProjectiles(prev => prev.slice(-MAX_PROJECTILES));
+          }
+        }
+      }, 5000); // Check every 5 seconds
+      
+      return () => clearInterval(cleanupTimer);
+    }, []);
+    
+    // Add a global handler to allow attaching projectiles to this jackalope from anywhere
+    useEffect(() => {
+      if (!window.__jackalopeAttachmentHandlers) {
+        window.__jackalopeAttachmentHandlers = {};
+      }
+      
+      // Create a unique handler for this jackalope instance
+      window.__jackalopeAttachmentHandlers[playerId] = (projectileData: {id: string, position: THREE.Vector3}) => {
+        // Check if we already have this projectile to prevent duplicates
+        if (attachedProjectilesRef.current.some(p => p.id === projectileData.id)) {
+          console.log(`Projectile ${projectileData.id} already attached to jackalope ${playerId}`);
+          return true;
+        }
+        
+        // Add the new projectile
+        setAttachedProjectiles(prev => {
+          // Check for max projectiles directly here
+          const MAX_PROJECTILES = 8;
+          let newList = [...prev, projectileData];
+          
+          // If we exceed the maximum, remove the oldest ones
+          if (newList.length > MAX_PROJECTILES) {
+            newList = newList.slice(-MAX_PROJECTILES);
+          }
+          
+          return newList;
+        });
+        
+        return true;
+      };
+      
+      // Cleanup
+      return () => {
+        if (window.__jackalopeAttachmentHandlers) {
+          delete window.__jackalopeAttachmentHandlers[playerId];
+        }
+      };
+    }, [playerId]);
     
     // Render the attached projectiles more efficiently
     const renderedProjectiles = useMemo(() => {
@@ -713,14 +659,7 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
           rotation={[0, (rotation || 0) + Math.PI, 0]}
           colliders={false}
           name={`remote-jackalope-${playerId}`}
-          userData={{ 
-            isJackalope: true, 
-            playerId, 
-            playerType: 'jackalope', 
-            jackalopeId: playerId,
-            isHit,
-            isRespawning
-          }}
+          userData={{ isJackalope: true, playerId, playerType: 'jackalope', jackalopeId: playerId }}
           friction={1}
           sensor={false}
           includeInvisible={true}
@@ -728,69 +667,45 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
           collisionGroups={0xFFFFFFFF} // Collide with everything
           restitution={0.1} // Make collisions less bouncy
         >
-          {/* Only render mesh contents when not hit/respawning */}
-          {!isHit && !isRespawning && (
-            <>
-              {/* Use multiple colliders to ensure good collision detection */}
-              {/* Main body collider - enlarged for better hit detection */}
-              <CapsuleCollider args={[2.4, 2.0]} position={[0, 1.2, 0]} sensor={false} friction={1} restitution={0.1} />
-              
-              {/* Add a box collider to ensure hits register */}
-              <CuboidCollider args={[2.0, 2.0, 2.0]} position={[0, 1.2, 0]} sensor={false} friction={1} restitution={0.1} />
-              
-              {/* Add a collider for the head area */}
-              <BallCollider args={[1.4]} position={[0, 3.0, 0]} sensor={false} friction={1} restitution={0.1} />
-              
-              {/* Extra collider to catch projectiles */}
-              <BallCollider args={[2.4]} position={[0, 1.6, 0]} sensor={false} friction={1} restitution={0.1} />
-              
-              {/* Use primitive for the model */}
-              <JackalopeModel 
-                position={[0, -0.9, 0]} 
-                rotation={[0, 0, 0]} 
-                scale={[2, 2, 2]} // Increase the scale to make the jackalope appear larger
-              />
-              
-              {/* Show invulnerability effect when necessary */}
-              {isInvulnerable && (
-                <mesh>
-                  <sphereGeometry args={[3, 32, 32]} />
-                  <meshStandardMaterial 
-                    color="#4682B4"
-                    transparent={true}
-                    opacity={0.3}
-                    emissive="#4682B4"
-                    emissiveIntensity={0.5}
-                    side={THREE.DoubleSide}
-                  />
-                </mesh>
-              )}
-              
-              {/* Render all attached projectiles directly as children of the jackalope */}
-              {renderedProjectiles}
-            </>
-          )}
+          {/* Use multiple colliders to ensure good collision detection */}
+          {/* Main body collider - enlarged for better hit detection */}
+          <CapsuleCollider args={[2.4, 2.0]} position={[0, 1.2, 0]} sensor={false} friction={1} restitution={0.1} />
+          
+          {/* Add a box collider to ensure hits register */}
+          <CuboidCollider args={[2.0, 2.0, 2.0]} position={[0, 1.2, 0]} sensor={false} friction={1} restitution={0.1} />
+          
+          {/* Add a collider for the head area */}
+          <BallCollider args={[1.4]} position={[0, 3.0, 0]} sensor={false} friction={1} restitution={0.1} />
+          
+          {/* Extra collider to catch projectiles */}
+          <BallCollider args={[2.4]} position={[0, 1.6, 0]} sensor={false} friction={1} restitution={0.1} />
+          
+          {/* Use primitive for the model */}
+          <JackalopeModel 
+            position={[0, -0.9, 0]} 
+            rotation={[0, 0, 0]} 
+            scale={[2, 2, 2]} // Increase the scale to make the jackalope appear larger
+          />
+          
+          {/* Render all attached projectiles directly as children of the jackalope */}
+          {renderedProjectiles}
         </RigidBody>
         
-        {/* Player ID tag - only show when not hit/respawning */}
-        {!isHit && !isRespawning && (
-          <Html position={[position?.x || 0, (position?.y || 0) + 5, position?.z || 0]} center>
-            <div style={{ 
-              background: 'rgba(0,0,0,0.5)', 
-              padding: '2px 6px', 
-              borderRadius: '4px', 
-              color: 'white',
-              fontSize: '12px', // Larger font to match the increased size
-              fontFamily: 'Arial, sans-serif'
-            }}>
-              {playerId?.split('-')[0]}
-              {isInvulnerable && ' (Invulnerable)'}
-            </div>
-          </Html>
-        )}
-        
+        {/* Player ID tag */}
+        <Html position={[position?.x || 0, (position?.y || 0) + 5, position?.z || 0]} center>
+          <div style={{ 
+            background: 'rgba(0,0,0,0.5)', 
+            padding: '2px 6px', 
+            borderRadius: '4px', 
+            color: 'white',
+            fontSize: '12px', // Larger font to match the increased size
+            fontFamily: 'Arial, sans-serif'
+          }}>
+            {playerId?.split('-')[0]}
+          </div>
+        </Html>
         {/* Add spatial audio for remote jackalope player */}
-        {!isHit && !isRespawning && audioComponent}
+        {audioComponent}
       </>
     );
   }

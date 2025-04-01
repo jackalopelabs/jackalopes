@@ -296,35 +296,66 @@ This animation system provides a more immersive multiplayer experience by making
 
 #### Jackalope Respawn Mechanic Implementation
 
-This core gameplay feature establishes the asymmetric nature of the Merc vs. Jackalope dynamic:
+The game now features an asymmetric gameplay mechanic where Mercs can shoot projectiles at Jackalopes, causing the Jackalopes to instantly respawn at their initial spawn location. This creates a hunt-and-chase dynamic between the two character types.
+
+### How It Works
+
+When a Merc's projectile hits a Jackalope player, the following sequence occurs:
 
 1. **Hit Detection**:
-   - Detect collision between Merc projectiles and Jackalope players
-   - Validate hit on server to prevent client-side exploits
-   - Broadcast hit event to all connected players
+   - The `JackalopeHitDetector` component continuously scans the scene for collisions between projectiles and Jackalope players
+   - When a hit is detected, it sends a `jackalopeHit` event via the ConnectionManager
+   - The event contains the hitPlayerId (Jackalope) and sourcePlayerId (Merc)
 
-2. **Vanishing Effect**:
-   - Create particle effect at Jackalope's position on hit
-   - Play audio cue for successful hit
-   - Remove Jackalope model from scene temporarily
+2. **Network Communication**:
+   - The hit event is broadcast to all connected players using both WebSocket and localStorage
+   - This ensures the hit is registered across different browsers/devices
+   - The message format follows the standard game event protocol
 
 3. **Respawn Logic**:
-   - Server assigns new spawn position from designated spawn points
-   - Apply brief invulnerability period after respawn
-   - Notify all clients of respawn with new position data
+   - When a Jackalope player receives a hit event with their ID as the target, they trigger respawn
+   - The `jackalopeSpawnDistance` is extended further away each time a respawn occurs
+   - The Jackalope component is remounted with a new key to reset its position and state
+   - The respawn happens only for the targeted Jackalope player, not affecting other players
 
-4. **Scoring & Feedback**:
-   - Award points to Merc player for successful hit
-   - Update UI for all players showing score change
-   - Play respawn animation at new location
+4. **Visual Effects**:
+   - A particle explosion occurs at the point of impact (visible to all players)
+   - The `JackalopeHitEffects` component renders visual feedback when hits occur
+   - Sound effects play to provide audio feedback
 
-5. **Implementation Approach**:
-   - Use EntityStateObserver to track hit events
-   - Leverage existing projectile collision system
-   - Add specific handlers for Jackalope-hit-by-Merc events
-   - Implement client-side prediction for responsive gameplay
+### Technical Implementation
 
-This mechanic reinforces the game's asymmetric design, where Mercs hunt Jackalopes who must use movement and strategy to avoid being hit.
+The feature is implemented through several interconnected components:
+
+1. **ConnectionManager Extension**:
+   - New method `sendJackalopeHitEvent` to send hit events
+   - Added handling of jackalope_hit event types in game events
+   - Use of localStorage for cross-browser testing and fallback
+
+2. **JackalopeHitDetector**:
+   - Scene traversal to find projectiles and Jackalope players
+   - Distance-based collision detection
+   - Event dispatch when collisions are detected
+
+3. **App Component Updates**:
+   - Event listeners for 'jackalopeHit' custom events
+   - Respawn state management with `respawnTriggered` counter
+   - Dynamic component remounting using keys
+
+4. **Jackalope Model Enhancements**:
+   - Added userData identifiers for collision detection
+   - Player ID tracking for targeted respawns
+   - Additional reference points for more accurate hit detection
+
+### Benefits of This System
+
+- Creates asymmetric gameplay with distinct character roles
+- Adds challenge for Jackalope players to avoid projectiles
+- Provides satisfying feedback for successful hits by Merc players
+- Demonstrates cross-client communication in the multiplayer system
+- Uses a variety of Three.js and React capabilities for robust implementation
+
+This mechanic helps establish the core gameplay loop of Mercs hunting Jackalopes, with Jackalopes using their enhanced mobility to escape. The respawn at original spawn location ensures that successful hunts are rewarded but the game continues without eliminating players completely.
 
 ### Performance Optimization
 - [ ] Switch to binary protocol for production

@@ -35,6 +35,9 @@ import { useGLTF } from '@react-three/drei';
 import { MercModelPath, JackalopeModelPath } from './assets';
 import { ModelLoader } from './components/ModelLoader';
 import { ModelChecker } from './components/ModelChecker';
+// Import JackalopeHitDetector
+import { JackalopeHitDetector } from './components/JackalopeHitDetector';
+import { JackalopeHitEffects } from './components/JackalopeHitEffect';
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -56,6 +59,13 @@ declare global {
             updatePosition: (newPos: THREE.Vector3) => void;
         };
         __extendJackalopeSpawnDistance?: () => void;
+        __playJackalopeHitSound?: () => void; // Add jackalope hit sound function
+        __jackalopeRespawnTarget?: string; // Add global respawn target
+        __knownJackalopes?: Record<string, {
+            lastSeen: number;
+            position: [number, number, number];
+        }>;
+        __forceTriggerJackalopeHit?: (jackalopeId: string) => boolean; // Add force trigger function
     }
 }
 
@@ -2671,6 +2681,160 @@ export function App() {
         };
     }, [extendJackalopeSpawnDistance]);
     
+    // Add a state to track if jackalope should respawn
+    const [jackalopeShouldRespawn, setJackalopeShouldRespawn] = useState(false);
+    const [respawnTriggered, setRespawnTriggered] = useState(0); // Counter to force respawn
+    const respawnInProgress = useRef(false);
+    const lastRespawnTime = useRef(0); // Track the last respawn time to prevent too-frequent respawns
+
+    // Force respawn function to trigger a respawn regardless of conditions
+    const forceJackalopeRespawn = useCallback(() => {
+        console.log('💀 FORCING JACKALOPE RESPAWN NOW');
+        respawnInProgress.current = true;
+        
+        // Play hit sound effect if available
+        if (window.__playJackalopeHitSound) {
+            window.__playJackalopeHitSound();
+        }
+        
+        // Trigger respawn
+        setJackalopeShouldRespawn(true);
+        // Increment respawn counter to force remounting of the component
+        setRespawnTriggered(prev => prev + 1);
+        
+        // Extend spawn distance for next respawn
+        if (window.__extendJackalopeSpawnDistance) {
+            window.__extendJackalopeSpawnDistance();
+        }
+        
+        // Record respawn time
+        lastRespawnTime.current = Date.now();
+        
+        // Reset the respawn flag after a short delay
+        setTimeout(() => {
+            setJackalopeShouldRespawn(false);
+            respawnInProgress.current = false;
+        }, 100);
+    }, []);
+
+    // Add event listener for jackalope hit events
+    useEffect(() => {
+        if (!enableMultiplayer) return;
+        
+        // Function to handle jackalope hit events
+        const handleJackalopeHit = (event: CustomEvent) => {
+            const { hitPlayerId, sourcePlayerId } = event.detail;
+            
+            console.log(`🎯 Jackalope hit event received: ${hitPlayerId} hit by ${sourcePlayerId}`);
+            
+            // Check if we are the jackalope that was hit
+            const localPlayerId = connectionManager.getPlayerId();
+            const isLocalJackalope = hitPlayerId === localPlayerId && playerCharacterInfo.type === 'jackalope';
+            
+            // Check cooldown to prevent multiple respawns
+            const now = Date.now();
+            const respawnCooldown = 2000; // 2 seconds between respawns
+            const isRespawnReady = (now - lastRespawnTime.current) > respawnCooldown;
+            
+            // Only respawn if we're the jackalope that was hit
+            if (isLocalJackalope && isRespawnReady && !respawnInProgress.current) {
+                console.log('💀 I was hit! Respawning...');
+                forceJackalopeRespawn();
+            } else if (isLocalJackalope && !isRespawnReady) {
+                console.log(`⏱️ Hit detected but respawn on cooldown (${((now - lastRespawnTime.current) / 1000).toFixed(1)}s)`);
+            } else if (!isLocalJackalope) {
+                console.log('👁️ Another jackalope was hit, not me');
+            }
+        };
+        
+        // Add direct-trigger respawn command for debugging
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Press 'R' key to force respawn if you're a jackalope
+            if (e.key === 'r' && playerCharacterInfo.type === 'jackalope') {
+                console.log('🔑 R key pressed, forcing Jackalope respawn');
+                
+                // Force respawn directly
+                respawnInProgress.current = true;
+                setJackalopeShouldRespawn(true);
+                setRespawnTriggered(prev => prev + 1);
+                
+                // Extend spawn distance
+                if (window.__extendJackalopeSpawnDistance) {
+                    window.__extendJackalopeSpawnDistance();
+                }
+                
+                // Reset flag after a delay
+                setTimeout(() => {
+                    setJackalopeShouldRespawn(false);
+                    respawnInProgress.current = false;
+                }, 100);
+            }
+        };
+        
+        // Add event listeners
+        window.addEventListener('jackalopeHit', handleJackalopeHit as EventListener);
+        window.addEventListener('keydown', handleKeyDown);
+        
+        // Clean up
+        return () => {
+            window.removeEventListener('jackalopeHit', handleJackalopeHit as EventListener);
+            window.removeEventListener('keydown', handleKeyDown);
+        };
+    }, [enableMultiplayer, connectionManager, playerCharacterInfo.type, forceJackalopeRespawn]);
+    
+    // Add a global respawn polling system
+    useEffect(() => {
+        if (!enableMultiplayer) return;
+        
+        let lastRespawnTarget: string | undefined = undefined;
+        
+        // Create a polling interval to check for global respawn trigger changes
+        const respawnPoller = setInterval(() => {
+            // Check if our global respawn trigger has been set
+            if (window.__jackalopeRespawnTarget && window.__jackalopeRespawnTarget !== lastRespawnTarget) {
+                const targetId = window.__jackalopeRespawnTarget;
+                lastRespawnTarget = targetId; // Remember this target to avoid double-triggering
+                
+                console.log(`🔄 Respawn poller detected target: ${targetId}`);
+                
+                // Check if we are the jackalope targeted for respawn
+                const localPlayerId = connectionManager.getPlayerId();
+                const isLocalJackalope = targetId === localPlayerId && playerCharacterInfo.type === 'jackalope';
+                
+                // Add fallback match for unknown IDs - attempt to respawn local jackalope if it contains 'unknown'
+                const isFallbackRespawn = targetId?.includes('unknown') && playerCharacterInfo.type === 'jackalope';
+                
+                if (isLocalJackalope || isFallbackRespawn) {
+                    console.log(`🔄 RESPAWN POLLER TRIGGERING LOCAL RESPAWN (${isFallbackRespawn ? 'fallback' : 'direct'} match)`);
+                    
+                    // Only respawn if we're not already respawning
+                    if (!respawnInProgress.current) {
+                        // Force respawn using the same method as 'R' key
+                        respawnInProgress.current = true;
+                        setJackalopeShouldRespawn(true);
+                        setRespawnTriggered(prev => prev + 1);
+                        
+                        // Extend spawn distance
+                        if (window.__extendJackalopeSpawnDistance) {
+                            window.__extendJackalopeSpawnDistance();
+                        }
+                        
+                        // Reset respawn flag after a delay
+                        setTimeout(() => {
+                            setJackalopeShouldRespawn(false);
+                            respawnInProgress.current = false;
+                            
+                            // Clear the global flag after successful respawn
+                            window.__jackalopeRespawnTarget = undefined;
+                        }, 100);
+                    }
+                }
+            }
+        }, 100); // Poll every 100ms
+        
+        return () => clearInterval(respawnPoller);
+    }, [enableMultiplayer, connectionManager, playerCharacterInfo.type]);
+    
     return (
         <>
             {/* Add styles to fix Leva panel positioning and prevent UI disruption */}
@@ -2724,18 +2888,76 @@ export function App() {
             
             {/* Only show ammo display for merc character */}
             {playerCharacterInfo.type === 'merc' && (
-                <div id="ammo-display" style={{
-                    position: 'absolute',
-                    top: '10px',
-                    right: '10px',
-                    color: 'rgba(255, 255, 255, 0.75)',
-                    fontSize: '14px',
-                    fontFamily: 'monospace',
-                    userSelect: 'none',
-                    zIndex: 1000
-                }}>
-                    AMMO: 50/50
-                </div>
+                <>
+                    <div id="ammo-display" style={{
+                        position: 'absolute',
+                        top: '10px',
+                        right: '10px',
+                        color: 'rgba(255, 255, 255, 0.75)',
+                        fontSize: '14px',
+                        fontFamily: 'monospace',
+                        userSelect: 'none',
+                        zIndex: 1000
+                    }}>
+                        AMMO: 50/50
+                    </div>
+                    
+                    {/* Add a debug hit button for mercs to force hit jackalopes */}
+                    <button 
+                        id="force-hit-btn"
+                        onClick={() => {
+                            console.log("🎯 Force Hit Button Pressed");
+                            
+                            // Find a jackalope to hit
+                            if (window.__knownJackalopes) {
+                                const jackalopes = Object.keys(window.__knownJackalopes);
+                                if (jackalopes.length > 0) {
+                                    // Pick the first jackalope (or could pick random)
+                                    const jackalopeId = jackalopes[0];
+                                    console.log(`🎯 Force hitting jackalope: ${jackalopeId}`);
+                                    
+                                    // Use the force trigger function if available
+                                    if (window.__forceTriggerJackalopeHit) {
+                                        window.__forceTriggerJackalopeHit(jackalopeId);
+                                    } else {
+                                        // Fallback
+                                        window.__jackalopeRespawnTarget = jackalopeId;
+                                        
+                                        // Dispatch direct event
+                                        window.dispatchEvent(new CustomEvent('jackalopeHit', {
+                                            detail: {
+                                                hitPlayerId: jackalopeId,
+                                                sourcePlayerId: 'force-button',
+                                                timestamp: Date.now()
+                                            }
+                                        }));
+                                    }
+                                } else {
+                                    console.log("No jackalopes found to hit");
+                                    alert("No jackalopes found to hit!");
+                                }
+                            } else {
+                                console.log("No jackalope registry found");
+                                alert("No jackalopes found!");
+                            }
+                        }}
+                        style={{
+                            position: 'absolute',
+                            bottom: '20px',
+                            right: '20px',
+                            padding: '10px 15px',
+                            background: 'rgba(255, 50, 50, 0.7)',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '5px',
+                            cursor: 'pointer',
+                            fontWeight: 'bold',
+                            zIndex: 1000
+                        }}
+                    >
+                        FORCE HIT
+                    </button>
+                </>
             )}
             
             <Canvas>
@@ -2824,8 +3046,9 @@ export function App() {
                                 />
                             ) : (
                                 <Jackalope
+                                    key={`jackalope-${respawnTriggered}`} // Add key prop to force remount on respawn
                                     ref={playerRef}
-                                    position={[jackalopeSpawnDistance, 7, 10]} // Use the dynamic spawn distance that extends on respawn
+                                    position={[jackalopeSpawnDistance, 7, 10]} 
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}
@@ -2928,6 +3151,14 @@ export function App() {
                             connectionManager={connectionManager}
                         />
                     )}
+
+                    {/* Add JackalopeHitDetector - only when multiplayer is enabled and player is Merc */}
+                    {enableMultiplayer && playerCharacterInfo.type === 'merc' && (
+                        <JackalopeHitDetector />
+                    )}
+                    
+                    {/* Add JackalopeHitEffects - visible for all players */}
+                    {enableMultiplayer && <JackalopeHitEffects />}
                 </Physics>
 
                 <PerspectiveCamera 

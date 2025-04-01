@@ -36,6 +36,9 @@ export const WeaponSoundEffects = () => {
   const shotBufferRef = useRef<AudioBuffer | null>(null);
   const isAudioInitializedRef = useRef(false);
   
+  // Add sound for Jackalope hits
+  const jackalopeHitSoundRef = useRef<HTMLAudioElement | null>(null);
+  
   // Listen for audio settings changes from AudioController
   useEffect(() => {
     const handleAudioSettingsChanged = (event: CustomEvent<{masterVolume: number, muteAll?: boolean}>) => {
@@ -229,6 +232,41 @@ export const WeaponSoundEffects = () => {
     }
   }, [isAudioInitializedRef.current]);
   
+  // Setup jackalope hit sound
+  useEffect(() => {
+    // Create audio element for jackalope hit sound
+    jackalopeHitSoundRef.current = new Audio();
+    jackalopeHitSoundRef.current.src = '/sounds/jackalope_hit.mp3'; // Use an appropriate sound file
+    jackalopeHitSoundRef.current.volume = 0.8;
+    jackalopeHitSoundRef.current.preload = 'auto';
+    
+    // Function to play the sound
+    const playJackalopeHitSound = () => {
+      if (jackalopeHitSoundRef.current) {
+        // Clone and play to allow overlapping sounds
+        const sound = jackalopeHitSoundRef.current.cloneNode() as HTMLAudioElement;
+        sound.volume = 0.8;
+        sound.play().catch(e => console.error('Error playing jackalope hit sound:', e));
+      }
+    };
+    
+    // Make function available globally
+    window.__playJackalopeHitSound = playJackalopeHitSound;
+    
+    // Listen for jackalopeHitVisual events
+    const handleJackalopeHit = () => {
+      playJackalopeHitSound();
+    };
+    
+    window.addEventListener('jackalopeHitVisual', handleJackalopeHit);
+    
+    return () => {
+      // Clean up
+      delete window.__playJackalopeHitSound;
+      window.removeEventListener('jackalopeHitVisual', handleJackalopeHit);
+    };
+  }, []);
+  
   // This component doesn't render anything
   return null;
 };
@@ -239,5 +277,6 @@ declare global {
     __playMercShot?: () => void;
     __setWeaponVolume?: (volume: number) => void;
     __getWeaponVolume?: () => number;
+    __playJackalopeHitSound?: () => void;
   }
 } 

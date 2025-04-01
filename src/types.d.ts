@@ -6,6 +6,12 @@ interface Window {
   __playMercShot?: () => void;
   __playerShots?: Record<string, () => boolean>;
   __triggerShot?: (id?: string) => string;
+  __jackalopeRespawnTarget?: string;
+  __knownJackalopes?: Record<string, {
+    lastSeen: number;
+    position: [number, number, number];
+  }>;
+  __forceTriggerJackalopeHit?: (jackalopeId: string) => boolean;
   
   jackalopesGame?: {
     playerType?: 'merc' | 'jackalope';

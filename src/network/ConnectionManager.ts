@@ -1223,4 +1223,105 @@ export class ConnectionManager extends EventEmitter {
       });
     }
   }
+
+  /**
+   * Send a hit event when a Merc hits a Jackalope
+   * @param hitPlayerId The ID of the Jackalope that was hit
+   */
+  sendJackalopeHitEvent(hitPlayerId: string) {
+    if (!this.isReadyToSend()) {
+      console.warn('Cannot send jackalope hit event - connection not ready');
+      return;
+    }
+
+    const sourcePlayerId = this.getPlayerId();
+    const eventData = {
+      type: 'game_event',
+      event: {
+        event_type: 'jackalope_hit',
+        hitPlayerId,
+        sourcePlayerId,
+        timestamp: Date.now(),
+        hitId: `hit-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+      }
+    };
+
+    console.log(`🎯 Sending jackalope hit event: ${hitPlayerId} hit by ${sourcePlayerId}`);
+    
+    // Send via WebSocket if online
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(JSON.stringify(eventData));
+    }
+    
+    // Always broadcast via localStorage for testing and as backup
+    this.broadcastViaLocalStorage(eventData.event);
+    
+    return eventData;
+  }
+
+  /**
+   * Process received game events
+   */
+  private handleGameEvent(event: any) {
+    // ... existing code for other event types ...
+
+    // Handle jackalope hit events
+    if (event.event_type === 'jackalope_hit') {
+      // Check if this event is for the current player (if we're a jackalope)
+      const isTargetPlayer = event.hitPlayerId === this.getPlayerId();
+      
+      if (isTargetPlayer) {
+        console.log(`😵 I was hit! Player ${event.hitPlayerId} hit by ${event.sourcePlayerId}`);
+        // Dispatch a custom event that the app can listen for
+        window.dispatchEvent(new CustomEvent('jackalopeHit', { 
+          detail: { 
+            hitPlayerId: event.hitPlayerId,
+            sourcePlayerId: event.sourcePlayerId,
+            timestamp: event.timestamp 
+          } 
+        }));
+      } else {
+        console.log(`👁️ Observed hit: Player ${event.hitPlayerId} hit by ${event.sourcePlayerId}`);
+      }
+      
+      // Always emit the event for any game components that need to know
+      this.emit('jackalope_hit', event);
+    }
+    
+    // ... existing code ...
+  }
+
+  /**
+   * Broadcast event via localStorage for cross-browser testing
+   * @param eventData The event data to broadcast
+   */
+  private broadcastViaLocalStorage(eventData: any) {
+    try {
+      // Create a unique storage key
+      const storageKey = `jackalopes_event_${Date.now()}`;
+      
+      // Add metadata
+      const broadcastData = {
+        ...eventData,
+        _meta: {
+          broadcastTime: Date.now(),
+          broadcasterId: this.getPlayerId(),
+          method: 'localStorage'
+        }
+      };
+      
+      // Store in localStorage to broadcast to other browser tabs
+      localStorage.setItem(storageKey, JSON.stringify(broadcastData));
+      
+      // Clean up after a short delay
+      setTimeout(() => {
+        localStorage.removeItem(storageKey);
+      }, 2000);
+      
+      return true;
+    } catch (error) {
+      console.error('Error broadcasting via localStorage:', error);
+      return false;
+    }
+  }
 } 
