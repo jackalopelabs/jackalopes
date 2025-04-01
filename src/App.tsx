@@ -1193,6 +1193,9 @@ export function App() {
     const { active } = useProgress()
     const [loading, setLoading] = useState(true)
     
+    // Add state to control Leva panel visibility
+    const [levaVisible, setLevaVisible] = useState(false);
+    
     // Handle loading state
     useEffect(() => {
         if (!active) {
@@ -1204,6 +1207,27 @@ export function App() {
             setLoading(true)
         }
     }, [active])
+    
+    // Add key handler for 'O' key to toggle Leva panel
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            // Toggle Leva panel when O key is pressed
+            if (e.key === 'o' || e.key === 'O') {
+                setLevaVisible(prev => !prev);
+                
+                // Also update the global state for consistency
+                if (window.jackalopesGame) {
+                    window.jackalopesGame.levaPanelState = !levaVisible ? 'open' : 'closed';
+                }
+                
+                // Force camera reconnection when toggling the panel
+                forceCameraReconnection('leva_key_toggle');
+            }
+        };
+        
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [levaVisible]);
     
     const directionalLightRef = useRef<THREE.DirectionalLight>(null)
     
@@ -3774,20 +3798,28 @@ export function App() {
                 {`
                 /* Fix positioning of Leva panel and ensure it doesn't disrupt other UI */
                 #leva__root {
-                    position: fixed !important;
-                    z-index: 10000;
+                    z-index: 2000 !important;
+                    top: 10px !important;
+                    right: 10px !important;
                 }
                 
                 /* Ensure Leva panel has consistent width to prevent layout shifts */
-                #leva__root > div {
-                    width: 280px !important;
-                    max-width: 280px !important;
+                div[class*="leva-c-"][class*="titleRow"] {
+                    min-width: 250px;
                 }
                 
                 /* Make sure the panel doesn't overlap with important UI elements */
-                #leva__root .leva-c-kWgxhW {
-                    overflow: auto;
-                    max-height: calc(100vh - 40px);
+                div[class*="leva-c-"][class*="root"] {
+                    max-height: 90vh !important;
+                    overflow-y: auto !important;
+                }
+                
+                /* Animation for the settings hint */
+                @keyframes fadeInOut {
+                    0% { opacity: 0; }
+                    10% { opacity: 1; }
+                    70% { opacity: 1; }
+                    100% { opacity: 0; }
                 }
                 `}
             </style>
@@ -4239,8 +4271,9 @@ export function App() {
 
             {/* Debug indicator for player character assignment - removed */}
             
-            {/* Add Leva panel with collapsed prop to keep it closed by default */}
+            {/* Add Leva panel with hidden prop to keep it completely hidden until 'O' key is pressed */}
             <Leva 
+                hidden={!levaVisible}
                 collapsed={true} 
                 titleBar={{ title: "Game Settings", filter: true }} 
                 theme={{ 
@@ -4258,6 +4291,25 @@ export function App() {
             
             {/* Add the flashlight UI component */}
             <FlashlightUI />
+
+            {/* Add Settings Hint */}
+            {!levaVisible && (
+                <div style={{
+                    position: 'fixed',
+                    top: '10px',
+                    right: '10px',
+                    background: 'rgba(0,0,0,0.6)',
+                    color: 'white',
+                    padding: '5px 8px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    zIndex: 1000,
+                    pointerEvents: 'none',
+                    animation: 'fadeInOut 5s forwards',
+                }}>
+                    Press 'O' for Settings
+                </div>
+            )}
 
             {/* Replace HealthBar with ScoreDisplay */}
             <ScoreDisplay 
