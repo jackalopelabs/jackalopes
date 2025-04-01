@@ -2131,6 +2131,16 @@ export function App() {
         disable_character_correction: {
             value: false,
             label: 'Disable Auto Character Correction'
+        },
+        debugLevel: {
+            value: 0,
+            options: {
+                'None': 0,
+                'Errors Only': 1,
+                'Important Events': 2,
+                'Verbose': 3
+            },
+            label: 'Debug Log Level'
         }
     }, {
         collapsed: true,
@@ -2208,6 +2218,36 @@ export function App() {
             }, 100);
         }
     }, [debugSettings.force_jackalope_third, enableMultiplayer, connectionManager]);
+    
+    // Update debug level when it changes
+    useEffect(() => {
+        console.log(`Debug level changed to: ${debugSettings.debugLevel}`);
+        
+        if (typeof window !== 'undefined') {
+            // Set the debug level directly
+            if (window.jackalopesGame) {
+                window.jackalopesGame.debugLevel = debugSettings.debugLevel;
+            }
+            
+            // Use the global setter function if available
+            if (window.__setDebugLevel) {
+                window.__setDebugLevel(debugSettings.debugLevel);
+            }
+            
+            // Also set it directly on the EntityStateObserver if available
+            if (window.__entityStateObserver) {
+                window.__entityStateObserver.setDebugLevel(debugSettings.debugLevel);
+            }
+            
+            // Update ConnectionManager log level if available
+            if (connectionManager) {
+                // Map our debug levels (0-3) to ConnectionManager's LogLevel
+                // 0 = NONE, 1 = ERROR, 2 = INFO, 3 = VERBOSE
+                const logLevelMap = [0, 1, 3, 5]; // Map to LogLevel enum values
+                connectionManager.setLogLevel(logLevelMap[debugSettings.debugLevel] || 0);
+            }
+        }
+    }, [debugSettings.debugLevel, connectionManager]);
     
     // Add an effect to force arms reset on initial load
     useEffect(() => {
@@ -2635,8 +2675,8 @@ export function App() {
     useEffect(() => {
         console.log('🔄 Initializing entity tracking and sound systems');
         
-        // Enable debug mode for development
-        entityStateObserver.setDebug(true);
+        // Set debug level based on the debug settings instead of hardcoding to true
+        entityStateObserver.setDebugLevel(debugSettings?.debugLevel ?? 0);
         
         // Update sound settings based on user preferences
         soundManager.updateSettings({
@@ -2650,7 +2690,7 @@ export function App() {
         return () => {
             console.log('Cleaning up entity and sound systems');
         };
-    }, []);
+    }, [debugSettings?.debugLevel]);
     
     // Add a frame processor component to handle sound updates
     const SoundProcessor = () => {
@@ -2661,6 +2701,30 @@ export function App() {
         
         return null;
     };
+    
+    useEffect(() => {
+        // Initialize the global game object with default settings
+        if (typeof window !== 'undefined') {
+            window.jackalopesGame = window.jackalopesGame || {};
+            window.jackalopesGame.debugLevel = window.jackalopesGame.debugLevel || 0; // Default to no logging (was 1)
+
+            // Expose functions to change debug level
+            window.__setDebugLevel = (level: number) => {
+                if (window.jackalopesGame) {
+                    window.jackalopesGame.debugLevel = level;
+                    console.log(`Debug level set to ${level}`);
+                    
+                    // Also update EntityStateObserver debug level if it exists
+                    if (window.__entityStateObserver) {
+                        window.__entityStateObserver.setDebugLevel(level);
+                    }
+                    
+                    // Return message about debug level
+                    return `Debug level set to ${level}: ${level === 0 ? 'None' : level === 1 ? 'Errors only' : level === 2 ? 'Important events' : 'Verbose'}`;
+                }
+            };
+        }
+    }, []);
     
     return (
         <>

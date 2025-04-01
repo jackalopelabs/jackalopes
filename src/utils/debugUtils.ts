@@ -138,7 +138,7 @@ export const setupDebugListener = () => {
 export const initDebugSystem = () => {
   // Set default debug level if not already set
   if (window.jackalopesGame && window.jackalopesGame.debugLevel === undefined) {
-    window.jackalopesGame.debugLevel = DEBUG_LEVELS.ERROR; // Default to errors only
+    window.jackalopesGame.debugLevel = DEBUG_LEVELS.NONE; // Default to no logs
   }
   
   // Set up the global setter function

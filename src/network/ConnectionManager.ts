@@ -124,9 +124,14 @@ export class ConnectionManager extends EventEmitter {
       }
     });
     
-    // If the serverUrl contains staging.games.bonsai.so but doesn't have /websocket/ path, add it
-    if (this.serverUrl.includes('staging.games.bonsai.so') && !this.serverUrl.includes('/websocket/')) {
-      // Extract the protocol and host
+    // Some early initialization
+    this.log(LogLevel.INFO, `Initializing ConnectionManager with server: ${this.serverUrl}`);
+    
+    // Add optional WebSocket path segment if it's not already there
+    if (!this.serverUrl.endsWith('/websocket/') && !this.serverUrl.endsWith('/websocket')) {
+      this.log(LogLevel.INFO, 'Server URL is missing websocket path, checking format...');
+      
+      // Parse URL to rebuild with websocket path
       const urlParts = this.serverUrl.match(/^(ws:\/\/|wss:\/\/)(.*?)(?::(\d+))?$/);
       if (urlParts) {
         const [, protocol, host, port] = urlParts;
@@ -136,8 +141,14 @@ export class ConnectionManager extends EventEmitter {
       }
     }
     
-    // Initialize the EntityStateObserver with our player information
-    entityStateObserver.setDebug(this.logLevel >= LogLevel.DEBUG);
+    // Initialize the EntityStateObserver with debug level based on global setting
+    // Use window.jackalopesGame?.debugLevel if available, otherwise use LogLevel-based logic
+    if (typeof window !== 'undefined' && window.jackalopesGame && window.jackalopesGame.debugLevel !== undefined) {
+      entityStateObserver.setDebugLevel(window.jackalopesGame.debugLevel);
+    } else {
+      // Fallback to old behavior
+      entityStateObserver.setDebug(this.logLevel >= LogLevel.DEBUG);
+    }
     
     // Connect after a short delay to ensure DOM is ready
     setTimeout(() => this.connect(), 500);

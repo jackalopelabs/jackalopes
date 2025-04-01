@@ -552,7 +552,7 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
   // For jackalope type, use the new JackalopeModel
   if (playerType === 'jackalope') {
     // Debug output occasionally to help diagnose position issues
-    if (Date.now() % 10000 < 20) {
+    if (Date.now() % 50000 < 20 && (window.jackalopesGame?.debugLevel || 0) >= 3) {
       log.player(`Remote jackalope position: (${position?.x.toFixed(2)}, ${position?.y.toFixed(2)}, ${position?.z.toFixed(2)}), rotation: ${rotation?.toFixed(2)}`);
     }
     

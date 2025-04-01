@@ -64,6 +64,30 @@ A 3D first-person shooter game built with React Three Fiber, Rapier physics, and
 
 5. Open your browser at the URL shown in the terminal output. Vite will automatically find an available port, typically starting with `http://localhost:5173/` and incrementing if ports are already in use.
 
+### Debugging Levels
+
+The game supports configurable debugging levels to control console verbosity:
+
+- **Level 0**: No logging
+- **Level 1**: Errors only (default)
+- **Level 2**: Important events
+- **Level 3**: Verbose (all logs)
+
+You can change the debug level at runtime through the browser console:
+
+```javascript
+// Set to errors only (default)
+window.__setDebugLevel(1)
+
+// Turn off all logging
+window.__setDebugLevel(0)
+
+// Enable verbose logging (very chatty)
+window.__setDebugLevel(3)
+```
+
+This is useful when troubleshooting multiplayer issues or tracking entity state changes.
+
 ### WordPress Plugin Installation
 
 The multiplayer functionality is powered by a WordPress plugin that can be installed in several ways:

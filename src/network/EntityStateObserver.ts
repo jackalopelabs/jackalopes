@@ -28,6 +28,7 @@ class EntityStateObserver extends EventEmitter {
   private entities: Record<string, EntityState> = {};
   private localPlayerId: string | null = null;
   private debug: boolean = false;
+  private debugLevel: number = 0; // 0 = no debug, 1 = errors only, 2 = important events, 3 = verbose
   
   constructor() {
     super();
@@ -35,7 +36,11 @@ class EntityStateObserver extends EventEmitter {
     if (typeof window !== 'undefined') {
       window.__entityStateObserver = this;
     }
-    console.log('📝 EntityStateObserver initialized');
+    
+    // Only log initialization at level 2 or higher
+    if (this.debugLevel >= 2) {
+      console.log('📝 EntityStateObserver initialized');
+    }
   }
   
   /**
@@ -43,7 +48,9 @@ class EntityStateObserver extends EventEmitter {
    */
   setLocalPlayerId(id: string) {
     this.localPlayerId = id;
-    console.log(`📝 EntityStateObserver: Local player ID set to ${id}`);
+    if (this.debugLevel >= 2) {
+      console.log(`📝 EntityStateObserver: Local player ID set to ${id}`);
+    }
   }
   
   /**
@@ -51,7 +58,20 @@ class EntityStateObserver extends EventEmitter {
    */
   setDebug(enabled: boolean) {
     this.debug = enabled;
+    this.debugLevel = enabled ? 3 : 0;
     if (enabled) console.log('📝 EntityStateObserver: Debug mode enabled');
+  }
+
+  /**
+   * Set specific debug level
+   * 0 = no debug, 1 = errors only, 2 = important events, 3 = verbose
+   */
+  setDebugLevel(level: number) {
+    this.debugLevel = level;
+    this.debug = level > 0;
+    if (level >= 2) {
+      console.log(`📝 EntityStateObserver: Debug level set to ${level}`);
+    }
   }
 
   /**
@@ -74,7 +94,9 @@ class EntityStateObserver extends EventEmitter {
       // Return just the Y component (yaw angle) as that's what most of our systems use
       return euler.y;
     } catch (error) {
-      console.warn('📝 Error normalizing rotation:', error);
+      if (this.debugLevel >= 1) {
+        console.warn('📝 Error normalizing rotation:', error);
+      }
       return 0; // Default rotation
     }
   }
@@ -104,7 +126,7 @@ class EntityStateObserver extends EventEmitter {
         lastUpdate: Date.now()
       };
       
-      if (this.debug) {
+      if (this.debugLevel >= 2) {
         console.log(`📝 Entity registered: ${state.id} (${this.entities[state.id].type})`);
       }
       
@@ -135,7 +157,8 @@ class EntityStateObserver extends EventEmitter {
     
     // Emit change event with the list of changes
     if (changes.length > 0) {
-      if (this.debug) {
+      // Only log at level 3 (verbose)
+      if (this.debugLevel >= 3) {
         console.log(`📝 Entity ${state.id} updated:`, changes.join(', '));
       }
       this.emit('entityChanged', updatedState, changes);
@@ -159,7 +182,9 @@ class EntityStateObserver extends EventEmitter {
   recordShot(entityId: string, origin: [number, number, number], direction: [number, number, number]): void {
     const entity = this.entities[entityId];
     if (!entity) {
-      console.warn(`📝 Cannot record shot: Entity ${entityId} not found`);
+      if (this.debugLevel >= 1) {
+        console.warn(`📝 Cannot record shot: Entity ${entityId} not found`);
+      }
       return;
     }
     
@@ -217,7 +242,7 @@ class EntityStateObserver extends EventEmitter {
       const entity = this.entities[id];
       delete this.entities[id];
       this.emit('entityRemoved', entity);
-      if (this.debug) {
+      if (this.debugLevel >= 2) {
         console.log(`📝 Entity removed: ${id}`);
       }
     }

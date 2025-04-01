@@ -553,8 +553,8 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             })
         }
         
-        // Add debug log occasionally
-        if (Math.random() < 0.01) {
+        // Add debug log occasionally - reduced frequency and only if debug level is high enough
+        if (Math.random() < 0.002 && (window.jackalopesGame?.debugLevel || 0) >= 3) {
             console.log(`[JACKALOPE] Pos: (${position.current.x.toFixed(2)}, ${position.current.y.toFixed(2)}, ${position.current.z.toFixed(2)}) | Vel: (${velocity.current.x.toFixed(2)}, ${velocity.current.y.toFixed(2)}, ${velocity.current.z.toFixed(2)}) | Anim: ${animation}`)
         }
         
