@@ -5,12 +5,16 @@ import { resolve } from 'path';
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    exclude: ['lucide-react'],
+  },
   build: {
     outDir: 'dist',
     assetsDir: 'assets',
     rollupOptions: {
       input: {
-        index: resolve(__dirname, 'src/main.tsx'),
+        main: resolve(__dirname, 'src/main.tsx'),
+        test: 'test.html',
       },
       output: {
         entryFileNames: 'assets/[name].js',

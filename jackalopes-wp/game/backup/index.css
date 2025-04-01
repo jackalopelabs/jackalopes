@@ -1,0 +1,155 @@
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
+.jackalopes-game {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Loading screens */
+.jackalopes-loading,
+.loading-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: #242424;
+  z-index: 100;
+}
+
+.jackalopes-loading-spinner,
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 5px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  border-top-color: #0070f3;
+  animation: spin 1s ease-in-out infinite;
+  margin-bottom: 20px;
+}
+
+.jackalopes-loading-message,
+.message {
+  color: white;
+  font-size: 16px;
+  text-align: center;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* UI elements */
+.jackalopes-ui {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 10;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.jackalopes-status,
+.jackalopes-wordpress-notice,
+.jackalopes-help {
+  padding: 5px 10px;
+  border-radius: 4px;
+  color: white;
+  font-size: 14px;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.jackalopes-status {
+  border-left: 3px solid #47a3ff;
+}
+
+.jackalopes-wordpress-notice {
+  border-left: 3px solid #21759b;
+}
+
+.jackalopes-help {
+  border-left: 3px solid #f3b700;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  left: auto;
+  bottom: auto;
+}
+
+/* Connected status */
+.connected {
+  border-left-color: #42b883;
+}
+
+.disconnected {
+  border-left-color: #ff5555;
+}
+
+/* Game mode selectors */
+.game-controls {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 10;
+  display: flex;
+  gap: 10px;
+}
+
+.game-controls button {
+  padding: 8px 12px;
+  background-color: rgba(0, 0, 0, 0.5);
+  border: 1px solid #666;
+  border-radius: 4px;
+  color: white;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  pointer-events: auto;
+}
+
+.game-controls button:hover {
+  background-color: rgba(0, 0, 0, 0.7);
+}
+
+.game-controls button.active {
+  background-color: #47a3ff;
+}
+
+/* FPS counter */
+.fps-stats {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 20;
+}
+
+/* Make WordPress notice visually distinct */
+.jackalopes-wordpress-notice {
+  background-color: rgba(0, 115, 170, 0.5);
+} 

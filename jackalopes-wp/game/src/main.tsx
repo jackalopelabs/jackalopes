@@ -2,6 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { setupWPGameIntegration } from './utils/wpIntegration';
+
+// Import types from shared file
+import { JackalopesGameSettings, JackalopesGameOptions } from './types/wordpress';
 
 /**
  * Jackalopes Game - WordPress Plugin Integration
@@ -10,66 +14,8 @@ import './index.css';
  * The game will be initialized when the WordPress shortcode is loaded.
  */
 
-// Import types from shared file
-import { JackalopesGameSettings, JackalopesGameOptions } from './types/wordpress';
-
-// Import ConnectionManager class type from utils to properly type the global
-import { ConnectionManager } from './utils/connectionManager';
-
-// Define the global interface for window object
-declare global {
-  interface Window {
-    initJackalopesGame: (containerId: string, options?: JackalopesGameOptions) => void;
-    jackalopesGameSettings?: JackalopesGameSettings;
-    __setGraphicsQuality?: (quality: 'auto' | 'high' | 'medium' | 'low') => void;
-    __shotBroadcast?: ((shot: any) => any) | undefined;
-    __setDebugLevel?: (level: number) => void;
-    __toggleNetworkLogs?: (verbose: boolean) => string;
-    connectionManager?: ConnectionManager;
-    __networkManager?: {
-      sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => void;
-    };
-    jackalopesGame?: {
-      playerType?: 'merc' | 'jackalope';
-      debugLevel?: number;
-    };
-  }
-}
-
-/**
- * Initialize debug features
- */
-function setupDebugHelpers() {
-  // Set debug level function
-  window.__setDebugLevel = (level: number) => {
-    if (window.jackalopesGame) {
-      window.jackalopesGame.debugLevel = level;
-    }
-    console.log(`Debug level set to ${level}`);
-    return `Debug level set to ${level}`;
-  };
-  
-  // Set graphics quality function
-  window.__setGraphicsQuality = (quality: 'auto' | 'high' | 'medium' | 'low') => {
-    console.log(`Graphics quality set to ${quality}`);
-    return quality;
-  };
-  
-  // Network logging toggle
-  window.__toggleNetworkLogs = (verbose: boolean) => {
-    console.log(`Network logs ${verbose ? 'enabled' : 'disabled'}`);
-    return `Network logs ${verbose ? 'enabled' : 'disabled'}`;
-  };
-  
-  // Make respawn function available globally
-  window.__networkManager = {
-    sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => {
-      if (window.connectionManager?.sendRespawnRequest) {
-        window.connectionManager.sendRespawnRequest(playerId, spawnPosition);
-      }
-    }
-  };
-}
+// Initialize WordPress integration
+setupWPGameIntegration();
 
 // Initialize the game when called from WordPress
 window.initJackalopesGame = (containerId: string, options: JackalopesGameOptions = {}) => {
@@ -79,9 +25,6 @@ window.initJackalopesGame = (containerId: string, options: JackalopesGameOptions
     console.error(`Jackalopes game container with ID "${containerId}" not found.`);
     return;
   }
-  
-  // Initialize debug helpers
-  setupDebugHelpers();
   
   // Get WordPress settings if available
   const wpSettings: JackalopesGameSettings = window.jackalopesGameSettings || {
@@ -108,16 +51,11 @@ window.initJackalopesGame = (containerId: string, options: JackalopesGameOptions
     loadingElement.remove();
   }
   
-  // Create React root and render the game
+  // Create React root and render the full game
   const root = ReactDOM.createRoot(container);
   root.render(
     <React.StrictMode>
-      <App 
-        serverUrl={serverUrl}
-        isFullscreen={isFullscreen}
-        isWordPress={true}
-        assetsUrl={wpSettings.assetsUrl}
-      />
+      <App />
     </React.StrictMode>
   );
   
@@ -134,14 +72,10 @@ window.initJackalopesGame = (containerId: string, options: JackalopesGameOptions
   console.log(`Jackalopes game initialized in container "${containerId}"`);
   console.log(`Server URL: ${serverUrl}`);
   console.log(`Session Key: ${sessionKey}`);
-  console.log(`Fullscreen: ${isFullscreen}`);
 };
 
 // If not in a WordPress environment (standalone development), initialize immediately
 if (!window.jackalopesGameSettings && process.env.NODE_ENV === 'development') {
-  // Set up debug helpers for standalone mode too
-  setupDebugHelpers();
-  
   const devContainer = document.getElementById('root');
   
   if (devContainer) {
@@ -149,16 +83,11 @@ if (!window.jackalopesGameSettings && process.env.NODE_ENV === 'development') {
     const sessionKey = localStorage.getItem('jackalopes_session_key') || 'JACKALOPES-DEV';
     localStorage.setItem('jackalopes_session_key', sessionKey);
     
-    // Simulated standalone initialization for development
+    // Simulated standalone initialization for development - use the full game App
     const root = ReactDOM.createRoot(devContainer);
     root.render(
       <React.StrictMode>
-        <App 
-          serverUrl="ws://localhost:8082"
-          isFullscreen={false}
-          isWordPress={false}
-          assetsUrl="./assets/"
-        />
+        <App />
       </React.StrictMode>
     );
     

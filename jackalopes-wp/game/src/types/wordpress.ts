@@ -3,7 +3,11 @@
  */
 
 /**
- * WordPress settings interface for Jackalopes game
+ * WordPress integration types
+ */
+
+/**
+ * WordPress game settings passed from the plugin
  */
 export interface JackalopesGameSettings {
   ajaxUrl: string;
@@ -12,15 +16,15 @@ export interface JackalopesGameSettings {
   serverUrl: string;
   debug: boolean;
   nonce: string;
-  sessionKey?: string;
+  sessionKey: string;
 }
 
 /**
- * Game options for WordPress shortcode
+ * Game initialization options
  */
 export interface JackalopesGameOptions {
-  fullscreen?: boolean;
   server?: string;
-  playerType?: 'merc' | 'jackalope';
+  fullscreen?: boolean;
   sessionKey?: string;
+  debugMode?: boolean;
 } 

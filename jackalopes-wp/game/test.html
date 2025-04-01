@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jackalopes Game Test</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        font-family: sans-serif;
+      }
+      #game-container {
+        width: 100%;
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="game-container"></div>
+    <script type="module">
+      import { initJackalopesGame } from './src/main.tsx';
+
+      // Initialize the game when the page loads
+      window.addEventListener('DOMContentLoaded', () => {
+        // Set up test-specific game settings
+        window.jackalopesGameSettings = {
+          ajaxUrl: '',
+          pluginUrl: '',
+          assetsUrl: '',
+          serverUrl: 'ws://localhost:8082',
+          debug: true,
+          nonce: '',
+          sessionKey: 'TEST-SESSION'
+        };
+
+        // Initialize the game in the container
+        initJackalopesGame('game-container', {
+          server: 'ws://localhost:8082',
+          fullscreen: true,
+          sessionKey: 'TEST-SESSION'
+        });
+      });
+    </script>
+  </body>
+</html> 
