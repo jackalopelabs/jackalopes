@@ -737,6 +737,23 @@ export function Platforms() {
                 scaleVariation={0.3}
                 heightVariation={0.4}
             />
+            
+            {/* Add a black circle in the center of the map */}
+            <RigidBody
+                type="fixed"
+                position={[0, 0.01, 0]} // Slightly above the ground to prevent z-fighting
+                colliders="hull"
+            >
+                <mesh rotation={[-Math.PI/2, 0, 0]} receiveShadow>
+                    <circleGeometry args={[10, 32]} />
+                    <meshStandardMaterial 
+                        color="#000000"
+                        roughness={0.8}
+                        metalness={0.2}
+                        side={THREE.DoubleSide}
+                    />
+                </mesh>
+            </RigidBody>
         </group>
     )
 }
