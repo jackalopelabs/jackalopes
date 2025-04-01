@@ -426,7 +426,8 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
   const containerStyle: React.CSSProperties = {
     position: 'absolute',
     bottom: '30px',
-    left: '30px',
+    left: '50%',
+    transform: 'translateX(-50%)',
     backgroundColor: 'rgba(0, 0, 0, 0.7)',
     borderRadius: '10px',
     padding: '12px 18px',
