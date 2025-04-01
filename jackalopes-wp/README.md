@@ -341,4 +341,37 @@ The game is implemented as a standalone React application that is integrated int
 - Built with [React Three Fiber](https://github.com/pmndrs/react-three-fiber)
 - Physics by [Rapier](https://github.com/pmndrs/react-three-rapier)
 - 3D rendering with [Three.js](https://threejs.org/)
-- Development by [Mason Lawlor](https://jackalope.io) 
+- Development by [Mason Lawlor](https://jackalope.io)
+
+## Asset Handling
+
+The plugin includes an automated asset handling system that addresses potential issues with 3D models and textures during the build process:
+
+### Automatic Asset Copying
+
+After each build, the `copy-assets.sh` script runs automatically to:
+
+1. Copy 3D models, textures, and other assets from source to distribution
+2. Look for assets in multiple locations (plugin src, original game src, original game public)
+3. Create placeholder files for any missing assets to prevent 404 errors
+4. Set up fallback paths for specific problematic assets
+
+### Manual Asset Fixing
+
+If you encounter missing assets in your WordPress deployment, you can run the asset fixer script manually:
+
+```bash
+cd /path/to/jackalopes
+./jackalopes-wp/copy-assets.sh
+```
+
+### Asset Troubleshooting
+
+If you see 404 errors for specific assets in the browser console:
+
+1. First check that the asset exists in `jackalopes-wp/game/src/assets/`
+2. If not, copy it from the original game's `public/` or `src/assets/` directory
+3. Run the copy-assets.sh script manually
+4. Rebuild the plugin with `npm run build --prefix jackalopes-wp/game`
+
+The script creates placeholder files for missing assets to prevent JavaScript errors, but for optimal game experience, you should provide the actual model files. 
