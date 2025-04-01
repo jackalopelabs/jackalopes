@@ -703,6 +703,18 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                         if (success) {
                             console.log(`Successfully hit jackalope ${jackalopeId} with projectile ${id}`);
                             
+                            // Trigger a scoring event for the merc who hit the jackalope
+                            try {
+                                // Dispatch a custom event to update the merc's score
+                                const scoringEvent = new CustomEvent('merc_scored', {
+                                    detail: { mercId: shooterId, jackalopeId }
+                                });
+                                window.dispatchEvent(scoringEvent);
+                                console.log(`🎯 Dispatched scoring event for merc ${shooterId} hitting jackalope ${jackalopeId}`);
+                            } catch (err) {
+                                console.error('Error dispatching merc scoring event:', err);
+                            }
+                            
                             // Disable the projectile
                             try {
                                 // First hide visuals immediately to provide instant feedback

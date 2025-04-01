@@ -34,6 +34,7 @@ import { useGLTF } from '@react-three/drei';
 import { MercModelPath, JackalopeModelPath } from './assets';
 import { ModelLoader } from './components/ModelLoader';
 import { ModelChecker } from './components/ModelChecker';
+import ScoreDisplay from './components/ScoreDisplay'; // Import the new ScoreDisplay component
 
 // Add TypeScript declaration for window.__setGraphicsQuality
 declare global {
@@ -1205,6 +1206,10 @@ export function App() {
     
     // Add health state
     const [playerHealth, setPlayerHealth] = useState(100);
+    
+    // Add score state
+    const [jackalopesScore, setJackalopesScore] = useState(0);
+    const [mercsScore, setMercsScore] = useState(0);
     
     // Initialize debug system
     useEffect(() => {
@@ -2673,10 +2678,20 @@ export function App() {
               console.log(`[App] Sending respawn request for player ${playerId} with default spawn position [-10, 3, 10]`);
               
               // Default spawn position for jackalope
-              const spawnPosition: [number, number, number] = [-10, 3, 10];
+              const defaultSpawnPosition: [number, number, number] = [-10, 3, 10];
+              
+              // Use the provided spawn position or default
+              const finalSpawnPosition = spawnPosition || defaultSpawnPosition;
               
               // Use the updated method with spawn position
-              connectionManager.sendRespawnRequest(playerId, spawnPosition);
+              connectionManager.sendRespawnRequest(playerId, finalSpawnPosition);
+              
+              // If this is from a merc hitting a jackalope, increment merc score
+              const localPlayerType = window.jackalopesGame?.playerType;
+              if (localPlayerType === 'merc') {
+                setMercsScore(prevScore => prevScore + 1);
+                console.log('🎯 Merc scored a point! New score:', mercsScore + 1);
+              }
             }
           }
         };
@@ -2687,7 +2702,7 @@ export function App() {
           delete window.__networkManager;
         };
       }
-    }, [connectionManager]);
+    }, [connectionManager, mercsScore]);
     
     // Initialize EntityStateObserver and SoundManager
     useEffect(() => {
@@ -2743,6 +2758,44 @@ export function App() {
             };
         }
     }, []);
+    
+    // Add listener for circle collisions to update Jackalope score
+    useEffect(() => {
+      // Handler for jackalope scoring points when touching the center circle
+      const handleJackalopeScored = () => {
+        // Only increment score if the local player is a jackalope
+        if (window.jackalopesGame?.playerType === 'jackalope') {
+          setJackalopesScore(prevScore => prevScore + 1);
+          console.log('🐰 Jackalope scored a point! New score:', jackalopesScore + 1);
+        }
+      };
+      
+      // Create a custom event for jackalope scoring
+      window.addEventListener('jackalope_scored', handleJackalopeScored);
+      
+      return () => {
+        window.removeEventListener('jackalope_scored', handleJackalopeScored);
+      };
+    }, [jackalopesScore]);
+    
+    // Add listener for merc scoring when hitting a jackalope
+    useEffect(() => {
+      // Handler for merc scoring points when hitting a jackalope
+      const handleMercScored = (event: CustomEvent) => {
+        // Only increment score if the local player is a merc
+        if (window.jackalopesGame?.playerType === 'merc') {
+          setMercsScore(prevScore => prevScore + 1);
+          console.log('🎯 Merc scored a point! New score:', mercsScore + 1);
+        }
+      };
+      
+      // Listen for the merc_scored event
+      window.addEventListener('merc_scored', handleMercScored as EventListener);
+      
+      return () => {
+        window.removeEventListener('merc_scored', handleMercScored as EventListener);
+      };
+    }, [mercsScore]);
     
     return (
         <>
@@ -3230,33 +3283,11 @@ export function App() {
             {/* Add the flashlight UI component */}
             <FlashlightUI />
 
-            {/* Add HealthBar component */}
-            <HealthBar 
-                health={playerHealth} 
-                maxHealth={100} 
-                showText={true} 
-                width="200px"
-                height="25px"
+            {/* Replace HealthBar with ScoreDisplay */}
+            <ScoreDisplay 
+                jackalopesScore={jackalopesScore} 
+                mercsScore={mercsScore} 
             />
-
-            {/* Add health controls hint if debug is enabled */}
-            {showDebug && (
-                <div style={{
-                    position: 'absolute',
-                    bottom: '10px',
-                    left: '30px',
-                    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-                    color: 'white',
-                    padding: '4px 8px',
-                    borderRadius: '4px',
-                    fontSize: '11px',
-                    fontFamily: 'monospace',
-                    userSelect: 'none',
-                    zIndex: 1000
-                }}>
-                    Press [H] to decrease health • [R] to reset
-                </div>
-            )}
 
             {/* Add AudioToggleButton for easy audio control */}
             <AudioToggleButton position="bottom-right" showRemoteToggle={enableMultiplayer} />

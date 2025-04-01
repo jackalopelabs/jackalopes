@@ -328,76 +328,85 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             }
         }
         
-        // Check for collision with respawn circle (only for jackalope players)
+        // Check for collision with circle in center (only for jackalope players) - for scoring only
         if (!isRespawning && !isInvulnerable && window.jackalopesGame?.playerType === 'jackalope') {
-            const circlePosition = new THREE.Vector3(0, 0.5, 0); // Center of respawn circle
+            const circlePosition = new THREE.Vector3(0, 0.5, 0); // Center of circle
             const distanceToCircle = position.current.distanceTo(circlePosition);
             
             // If jackalope is within 5 units of the circle center
             if (distanceToCircle < 5) {
-                console.log('🐰 Jackalope touched respawn circle, triggering respawn');
+                console.log('🐰 Jackalope touched center circle, scoring a point!');
                 
-                // Only trigger respawn if we have a connection manager
+                // Only trigger score event if we're a local player
                 if (connectionManager) {
-                    // Get local player ID
-                    const localPlayerId = connectionManager.getPlayerId();
-                    
-                    // Default respawn position for jackalope
-                    const spawnPosition: [number, number, number] = [-10, 3, 10];
-                    
                     try {
-                        // Create explosion effect at current position before respawning
+                        // Create particle effect at current position for visual feedback
                         if (window.__createExplosionEffect) {
                             window.__createExplosionEffect(
                                 position.current.clone(),
                                 '#4682B4', // Blue color for Jackalope
-                                30, // More particles for a bigger effect
-                                0.3 // Larger explosion radius
+                                20, // More particles for a scoring effect
+                                0.2 // Small explosion radius
                             );
                         }
                         
-                        // Send respawn request through network manager
-                        if (window.__networkManager && localPlayerId) {
-                            window.__networkManager.sendRespawnRequest(localPlayerId, spawnPosition);
-                            console.log(`🐰 Respawn request sent for jackalope ${localPlayerId}`);
-                        } else if (connectionManager && localPlayerId) {
-                            // Fallback to connection manager if __networkManager isn't available
-                            connectionManager.sendRespawnRequest(localPlayerId, spawnPosition);
-                            console.log(`🐰 Respawn request sent via connectionManager for ${localPlayerId}`);
-                        } else {
-                            console.log('🐰 No player ID available for respawn request');
+                        // Dispatch scoring event
+                        const scoringEvent = new CustomEvent('jackalope_scored');
+                        window.dispatchEvent(scoringEvent);
+                        
+                        // Get local player ID for respawn
+                        const localPlayerId = connectionManager.getPlayerId();
+                        
+                        // Default respawn position for jackalope
+                        const spawnPosition: [number, number, number] = [-10, 3, 10];
+                        
+                        try {
+                            // Trigger respawn through network manager
+                            if (window.__networkManager && localPlayerId) {
+                                window.__networkManager.sendRespawnRequest(localPlayerId, spawnPosition);
+                                console.log(`🐰 Respawn request sent for jackalope ${localPlayerId}`);
+                            } else if (connectionManager && localPlayerId) {
+                                // Fallback to connection manager if __networkManager isn't available
+                                connectionManager.sendRespawnRequest(localPlayerId, spawnPosition);
+                                console.log(`🐰 Respawn request sent via connectionManager for ${localPlayerId}`);
+                            } else {
+                                console.log('🐰 No player ID available for respawn request');
+                            }
+                            
+                            // Apply respawn immediately to avoid delay
+                            // Create a new THREE.Vector3 from spawn coordinates
+                            respawnTargetPosition.current = new THREE.Vector3(spawnPosition[0], spawnPosition[1], spawnPosition[2]);
+                            
+                            // Update tracked position
+                            position.current.set(spawnPosition[0], spawnPosition[1], spawnPosition[2]);
+                            
+                            // Direct teleport
+                            jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current);
+                            jackalopeRef.current.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true); // Reset velocity
+                            
+                            // Set respawning state
+                            setIsRespawning(true);
+                            respawnEffectRef.current = true; // Trigger visual effect
+                            
+                            // Set invulnerable state after a short delay
+                            setTimeout(() => {
+                                setIsRespawning(false);
+                                setIsInvulnerable(true);
+                                
+                                // Remove invulnerability after 3 seconds
+                                setTimeout(() => {
+                                    setIsInvulnerable(false);
+                                }, 3000);
+                            }, 300);
+                        } catch (error) {
+                            console.error(`🐰 Error handling respawn after scoring:`, error);
                         }
                         
-                        // Apply respawn immediately to avoid delay
-                        // Create a new THREE.Vector3 from spawn coordinates
-                        respawnTargetPosition.current = new THREE.Vector3(spawnPosition[0], spawnPosition[1], spawnPosition[2]);
-                        
-                        // Update tracked position
-                        position.current.set(spawnPosition[0], spawnPosition[1], spawnPosition[2]);
-                        
-                        // Direct teleport
-                        jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current);
-                        jackalopeRef.current.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true); // Reset velocity
-                        
-                        // Set respawning state
-                        setIsRespawning(true);
-                        respawnEffectRef.current = true; // Trigger visual effect
-                        
-                        // Set invulnerable state after a short delay
-                        setTimeout(() => {
-                            setIsRespawning(false);
-                            setIsInvulnerable(true);
-                            
-                            // Remove invulnerability after 3 seconds
-                            setTimeout(() => {
-                                setIsInvulnerable(false);
-                            }, 3000);
-                        }, 300);
                     } catch (error) {
-                        console.error(`🐰 Error handling respawn from circle:`, error);
+                        console.error(`🐰 Error handling scoring:`, error);
                     }
                 } else {
-                    console.log('🐰 No connection manager available for respawn');
+                    console.log('🐰 No connection manager available for scoring');
                 }
             }
         }

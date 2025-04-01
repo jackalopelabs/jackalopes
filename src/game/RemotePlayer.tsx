@@ -580,6 +580,18 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
       // Set hit state to trigger vanishing effect
       setIsHit(true);
       
+      // Trigger a scoring event for the merc who hit the jackalope
+      try {
+        // Dispatch a custom event to update the merc's score
+        const scoringEvent = new CustomEvent('merc_scored', {
+          detail: { mercId: shooterId, jackalopeId: playerId }
+        });
+        window.dispatchEvent(scoringEvent);
+        console.log(`🎯 Dispatched scoring event for merc ${shooterId} hitting jackalope ${playerId}`);
+      } catch (err) {
+        console.error('Error dispatching merc scoring event:', err);
+      }
+      
       // Play hit sound
       try {
         const hitSound = new Audio('/src/assets/audio/jackalope-hit.mp3');
