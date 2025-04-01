@@ -672,16 +672,19 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
         </RigidBody>
         {/* Player ID tag - positioned higher for the taller merc model */}
         <Html position={[position?.x || 0, (position?.y || 0) + 12, position?.z || 0]} center>
-          <div style={{ 
-            background: 'rgba(0,0,0,0.5)', 
-            padding: '2px 6px', 
-            borderRadius: '4px', 
-            color: 'white',
-            fontSize: '14px', // Slightly smaller font to match 5x scale
-            fontFamily: 'Arial, sans-serif'
-          }}>
-            {playerId?.split('-')[0]}
-          </div>
+          {/* Only show nametag if this player is on the same team as the local player */}
+          {window.jackalopesGame?.playerType === 'merc' && (
+            <div style={{ 
+              background: 'rgba(0,0,0,0.5)', 
+              padding: '2px 6px', 
+              borderRadius: '4px', 
+              color: 'white',
+              fontSize: '14px', // Slightly smaller font to match 5x scale
+              fontFamily: 'Arial, sans-serif'
+            }}>
+              {playerId?.split('-')[0]}
+            </div>
+          )}
         </Html>
         {/* Add spatial audio for remote merc player */}
         {audioComponent}
@@ -1087,17 +1090,20 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
         {/* Player ID tag - only show when not hit/respawning */}
         {!isHit && !isRespawning && (
           <Html position={[position?.x || 0, (position?.y || 0) + 5, position?.z || 0]} center>
-            <div style={{ 
-              background: 'rgba(0,0,0,0.5)', 
-              padding: '2px 6px', 
-              borderRadius: '4px', 
-              color: 'white',
-              fontSize: '12px', // Larger font to match the increased size
-              fontFamily: 'Arial, sans-serif'
-            }}>
-              {playerId?.split('-')[0]}
-              {isInvulnerable && ' (Invulnerable)'}
-            </div>
+            {/* Only show nametag if this player is on the same team as the local player */}
+            {window.jackalopesGame?.playerType === 'jackalope' && (
+              <div style={{ 
+                background: 'rgba(0,0,0,0.5)', 
+                padding: '2px 6px', 
+                borderRadius: '4px', 
+                color: 'white',
+                fontSize: '12px', // Larger font to match the increased size
+                fontFamily: 'Arial, sans-serif'
+              }}>
+                {playerId?.split('-')[0]}
+                {isInvulnerable && ' (Invulnerable)'}
+              </div>
+            )}
           </Html>
         )}
         
@@ -1182,26 +1188,28 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
         )}
       </mesh>
       
-      {/* Character nameplate */}
-      <Billboard
-        position={[0, playerType === 'merc' ? 7 : 2.2, 0]} // Adjust based on player type
-        follow={true}
-        lockX={false}
-        lockY={false}
-        lockZ={false}
-      >
-        <Text
-          fontSize={playerType === 'merc' ? 0.5 : 0.2} // Larger text for merc to be readable
-          color="#ffffff"
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.02}
-          outlineColor="#000000"
+      {/* Character nameplate - only show for teammates */}
+      {window.jackalopesGame?.playerType === playerType && (
+        <Billboard
+          position={[0, playerType === 'merc' ? 7 : 2.2, 0]} // Adjust based on player type
+          follow={true}
+          lockX={false}
+          lockY={false}
+          lockZ={false}
         >
-          {playerId?.split('-')[0]} 
-          {playerType === 'jackalope' ? ' (Jackalope)' : ' (Merc)'}
-        </Text>
-      </Billboard>
+          <Text
+            fontSize={playerType === 'merc' ? 0.5 : 0.2} // Larger text for merc to be readable
+            color="#ffffff"
+            anchorX="center"
+            anchorY="middle"
+            outlineWidth={0.02}
+            outlineColor="#000000"
+          >
+            {playerId?.split('-')[0]} 
+            {playerType === 'jackalope' ? ' (Jackalope)' : ' (Merc)'}
+          </Text>
+        </Billboard>
+      )}
       
       {/* Add spatial audio for remote fallback player */}
       {audioComponent}
