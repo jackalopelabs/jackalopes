@@ -1,288 +1,246 @@
-import { useEffect, useRef } from 'react';
-import { useFrame, useThree } from '@react-three/fiber';
 import * as THREE from 'three';
+import { useThree } from '@react-three/fiber';
+import { useRef, useEffect } from 'react';
+import JackalopeRegistry from '../game/JackalopeRegistry';
 
 /**
- * JackalopeHitDetector
- * 
- * This component detects collisions between Merc projectiles and Jackalope players.
- * When a collision is detected, it sends a hit event through the ConnectionManager.
+ * Base detector that works with a provided scene - can be used outside of Canvas
  */
-export const JackalopeHitDetector = () => {
-    const { scene } = useThree();
+export const JackalopeHitDetectorBase = (props: { 
+  enabled: boolean, 
+  scene: THREE.Scene 
+}) => {
+    const { scene } = props;
     const frameCount = useRef(0);
     const lastDetectionTime = useRef(0);
     const detectionInterval = 100; // milliseconds between detection checks
     
     // Function to find projectiles in the scene
     const findProjectiles = () => {
-        const projectiles: {
-            id: string,
-            position: THREE.Vector3,
-            createdByLocalPlayer: boolean
-        }[] = [];
-        
-        let spheresFound = 0;
-        let confirmProjectiles = 0;
+        const projectiles: { id: string, position: THREE.Vector3, object: THREE.Object3D }[] = [];
         
         scene.traverse((object) => {
-            // Look for projectiles (spheres) in the scene using multiple detection methods
-            const isSphere = 
-                (object.userData && (
-                    object.userData.isFireball || 
-                    object.userData.isSphere || 
-                    object.userData.isProjectile
-                )) ||
-                (object.name && (
-                    object.name.toLowerCase().includes('sphere') ||
-                    object.name.toLowerCase().includes('projectile') ||
-                    object.name.toLowerCase().includes('fireball')
-                ));
-            
-            if (isSphere) {
-                spheresFound++;
+            // Look for objects with specific metadata indicating they are projectiles
+            if (object.userData?.isSphereProjectile || 
+                (object.name && object.name.includes('sphere-projectile'))) {
                 
-                // Consider all spheres created by local player unless explicitly marked otherwise
-                // This ensures we detect more potential collisions
-                const createdByLocalPlayer = object.userData?.createdByLocalPlayer !== false;
+                const position = new THREE.Vector3();
+                object.getWorldPosition(position);
                 
-                // Add to list if it has a position
-                if (object.position) {
-                    confirmProjectiles++;
-                    
-                    projectiles.push({
-                        id: object.name || object.uuid,
-                        position: object.position.clone(),
-                        createdByLocalPlayer
-                    });
-                    
-                    // Log occasionally for debugging
-                    if (frameCount.current % 120 === 0 && projectiles.length > 0) {
-                        console.log(`🔴 Found projectile: ID=${object.name || object.uuid}, Position=${object.position.x.toFixed(2)},${object.position.y.toFixed(2)},${object.position.z.toFixed(2)}`);
-                    }
-                }
+                projectiles.push({
+                    id: object.uuid,
+                    position,
+                    object
+                });
             }
         });
-        
-        // Log debugging info occasionally
-        if (frameCount.current % 60 === 0) {
-            console.log(`💥 Projectile scan: Found ${spheresFound} sphere objects, ${confirmProjectiles} with positions`);
-        }
         
         return projectiles;
     };
     
-    // Function to find remote Jackalope players in the scene
-    const findRemoteJackalopes = () => {
-        const jackalopes: {
-            id: string,
-            position: THREE.Vector3,
-            object: THREE.Object3D
-        }[] = [];
-        
-        // Debug counter for scanning
-        let objectsScanned = 0;
-        let potentialJackalopes = 0;
-        let detailedLogging = false; // Toggle for more verbose logging
-        
-        // Force more detailed logging once every ~5 seconds
-        if (frameCount.current % 150 === 0) {
-            detailedLogging = true;
-            console.log("🔍 DETAILED JACKALOPE SCAN - Hunting for jackalope objects...");
-        }
-        
-        scene.traverse((object) => {
-            objectsScanned++;
-            
-            // Check name first - this is the most reliable indicator
-            const name = object.name?.toLowerCase() || '';
-            const containsJackalope = name.includes('jackalope');
-            
-            // If this object has any reference to jackalope in the name or userData, log it
-            if ((containsJackalope || 
-                (object.userData && object.userData.isJackalope) ||
-                (object.userData && object.userData.playerType === 'jackalope')) && 
-                detailedLogging) {
-                
-                console.log(`🐰 FOUND POTENTIAL JACKALOPE: "${name}"`, {
-                    position: object.position,
-                    userData: object.userData,
-                    parent: object.parent?.name,
-                    parentUserData: object.parent?.userData
-                });
-            }
-            
-            // More exhaustive checks to find Jackalope players
-            if (object.userData) {
-                // Check for various ways a Jackalope might be identified
-                const isJackalope = 
-                    containsJackalope ||
-                    object.userData.isJackalope === true || 
-                    object.userData.playerType === 'jackalope' ||
-                    (object.parent?.userData?.isJackalope === true) ||
-                    (object.parent?.userData?.playerType === 'jackalope');
-                
-                // If this looks like a Jackalope, add it to potential jackalopes
-                if (isJackalope) {
-                    potentialJackalopes++;
-                    
-                    // Try multiple ways to get the player ID
-                    let playerId = object.userData.playerId || 
-                                  object.userData.id || 
-                                  (object.parent && object.parent.userData && object.parent.userData.playerId);
-                    
-                    // If no ID is found but this is definitely a jackalope, create a fallback ID
-                    if (!playerId && isJackalope) {
-                        // Try to extract from name if possible
-                        if (name.includes('-')) {
-                            const parts = name.split('-');
-                            playerId = parts[parts.length - 1];
-                        } else {
-                            // Use a consistent fallback ID for this jackalope by hashing its position
-                            // This ensures the same jackalope always gets the same ID
-                            const posHash = `${Math.round(object.position.x)}-${Math.round(object.position.y)}-${Math.round(object.position.z)}`;
-                            playerId = `unknown-jackalope-${posHash}`;
-                        }
-                    }
-                    
-                    if (playerId) {
-                        // Only add once for each unique jackalope ID 
-                        if (!jackalopes.some(j => j.id === playerId)) {
-                            jackalopes.push({
-                                id: playerId,
-                                position: object.position.clone(),
-                                object
-                            });
-                            
-                            // Add extra debug info with more frequency
-                            if (detailedLogging || frameCount.current % 60 === 0) {
-                                console.log(`🐰 Found Jackalope: ID=${playerId}, Position=${object.position.x.toFixed(2)},${object.position.y.toFixed(2)},${object.position.z.toFixed(2)}`);
-                            }
-                        }
-                    }
-                }
-            }
-        });
-        
-        // Print debug info about what we found on longer intervals
-        if (frameCount.current % 60 === 0) {
-            console.log(`🔍 Scene scanning: Checked ${objectsScanned} objects, found ${potentialJackalopes} potential Jackalopes, confirmed ${jackalopes.length} with IDs`);
-            
-            // If we found jackalopes, ensure they are registered globally
-            if (jackalopes.length > 0) {
-                console.log("🐰 Registered jackalopes:", jackalopes.map(j => j.id).join(', '));
-                
-                // Register jackalopes to a global registry for targeting
-                if (!window.__knownJackalopes) {
-                    window.__knownJackalopes = {};
-                }
-                
-                // Update the global registry with all found jackalopes
-                jackalopes.forEach(j => {
-                    window.__knownJackalopes![j.id] = {
-                        lastSeen: Date.now(),
-                        position: [j.position.x, j.position.y, j.position.z]
-                    };
-                });
-            }
-        }
-        
-        return jackalopes;
-    };
-    
-    // Check for collisions between projectiles and Jackalopes
+    // Function to scan for Jackalopes, detect collisions, and update registry
     const checkCollisions = () => {
+        // Current timestamp for this detection cycle
         const now = Date.now();
+        
+        // Only check at the specified interval
         if (now - lastDetectionTime.current < detectionInterval) {
-            return; // Don't check too frequently
+            return;
         }
         
         lastDetectionTime.current = now;
         frameCount.current++;
         
-        // Find all relevant objects
+        // Find projectiles
         const projectiles = findProjectiles();
-        const jackalopes = findRemoteJackalopes();
         
-        // No need to continue if there are no projectiles or jackalopes
-        if (projectiles.length === 0 || jackalopes.length === 0) {
-            return;
-        }
-        
-        // Debug info
-        if (frameCount.current % 60 === 0) { // Every ~2 seconds at 30fps
-            console.log(`🎯 Hit check: Testing ${projectiles.length} projectiles against ${jackalopes.length} jackalopes`);
-        }
-        
-        // Check for collisions
-        for (const projectile of projectiles) {
-            for (const jackalope of jackalopes) {
-                // Calculate distance between projectile and jackalope
-                const distance = projectile.position.distanceTo(jackalope.position);
-                
-                // If distance is less than a threshold, consider it a hit
-                const hitThreshold = 3.0; // Increased from 2.0 to make hits more generous
-                
-                if (distance < hitThreshold) {
-                    // Add detailed debug logging
-                    console.log(`🎯 HIT DETECTED! Distance: ${distance.toFixed(2)}, Threshold: ${hitThreshold}
-                    Projectile: ${projectile.id} at (${projectile.position.x.toFixed(2)}, ${projectile.position.y.toFixed(2)}, ${projectile.position.z.toFixed(2)})
-                    Jackalope: ${jackalope.id} at (${jackalope.position.x.toFixed(2)}, ${jackalope.position.y.toFixed(2)}, ${jackalope.position.z.toFixed(2)})`);
+        // If we have projectiles, search for jackalopes to check for collisions
+        if (projectiles.length > 0) {
+            // Use our centralized registry to find jackalopes
+            const jackalopes = JackalopeRegistry.findJackalopesInScene(scene);
+            
+            // Update the registry with all found jackalopes
+            JackalopeRegistry.registerMany(jackalopes);
+            
+            // Check for collisions between projectiles and jackalopes
+            let collisionDetected = false;
+            
+            // For each projectile, check against all jackalopes
+            projectiles.forEach(projectile => {
+                jackalopes.forEach(jackalope => {
+                    // Calculate distance between projectile and jackalope
+                    const distance = projectile.position.distanceTo(jackalope.position);
                     
-                    // Send hit event through ConnectionManager
-                    if (window.connectionManager) {
-                        console.log(`🎯 Sending jackalope hit event via ConnectionManager: ${jackalope.id}`);
-                        window.connectionManager.sendJackalopeHitEvent(jackalope.id);
+                    // Define hit threshold - increased for better detection
+                    const hitThreshold = 2.5; // Spheres are about 1 unit, jackalopes about 2 units
+                    
+                    // If distance is within threshold, we have a hit
+                    if (distance < hitThreshold) {
+                        collisionDetected = true;
+                        console.log(`💥 HIT DETECTED! Projectile ${projectile.id} hit jackalope ${jackalope.id} at distance ${distance.toFixed(2)}`);
                         
-                        // Also dispatch a local event for visual/audio effects
-                        window.dispatchEvent(new CustomEvent('jackalopeHitVisual', {
-                            detail: {
-                                position: jackalope.position,
-                                jackalopeId: jackalope.id
-                            }
-                        }));
-                        
-                        // Play hit sound if available
-                        if (window.__playJackalopeHitSound) {
-                            window.__playJackalopeHitSound();
-                        }
-                        
-                        // Direct hit event - not relying only on ConnectionManager
-                        console.log(`🎯 Dispatching direct jackalopeHit event`);
-                        window.dispatchEvent(new CustomEvent('jackalopeHit', {
-                            detail: {
-                                hitPlayerId: jackalope.id,
-                                sourcePlayerId: 'local-player', // Since we don't have the actual source ID
-                                timestamp: Date.now()
-                            }
-                        }));
-                    } else {
-                        console.warn("ConnectionManager not available, sending direct hit event only");
-                        // Even without ConnectionManager, dispatch the event directly
-                        window.dispatchEvent(new CustomEvent('jackalopeHit', {
-                            detail: {
-                                hitPlayerId: jackalope.id,
-                                sourcePlayerId: 'local-player',
-                                timestamp: Date.now()
-                            }
-                        }));
+                        // Force a hit using our registry's hit function
+                        JackalopeRegistry.forceHitJackalope(jackalope.id);
                     }
-                    
-                    // Don't continue checking this projectile - it has hit something
-                    break;
-                }
+                });
+            });
+            
+            // Log detection stats occasionally
+            if (frameCount.current % 100 === 0 || collisionDetected) {
+                console.log(`🔍 JackalopeHitDetector: Found ${projectiles.length} projectiles and ${jackalopes.length} jackalopes.`);
+            }
+        }
+        
+        // Periodically clean old registry entries
+        if (frameCount.current % 100 === 0) {
+            JackalopeRegistry.cleanRegistry();
+            if (Math.random() < 0.1) {
+                JackalopeRegistry.logRegistryStatus();
             }
         }
     };
     
-    // Run detection on each frame
-    useFrame(() => {
-        frameCount.current += 1;
-        checkCollisions();
-    });
+    // Run collision detection on each frame
+    useEffect(() => {
+        if (!props.enabled || !scene) return;
+        
+        const unsubscribe = THREE.MathUtils.generateUUID();
+        
+        const handleFrame = () => {
+            checkCollisions();
+        };
+        
+        // Subscribe to render loop
+        const renderLoop = () => {
+            handleFrame();
+            return requestAnimationFrame(renderLoop);
+        };
+        
+        const handle = renderLoop();
+        
+        return () => {
+            cancelAnimationFrame(handle);
+        };
+    }, [props.enabled, scene]);
+    
+    // Add a more aggressive Jackalope scene scanner
+    useEffect(() => {
+        // Only run if the component is enabled
+        if (!props.enabled || !scene) return;
+        
+        // Check for jackalopes at a higher frequency than collision detection
+        const jackalopeScanner = setInterval(() => {
+            const foundJackalopes = JackalopeRegistry.findJackalopesInScene(scene);
+            
+            // Update the global registry with all found jackalopes
+            if (foundJackalopes.length > 0) {
+                // Log occasionally for debugging
+                if (Math.random() < 0.02) {
+                    console.log(`🔍 Aggressive scene scan found ${foundJackalopes.length} jackalopes`);
+                }
+                
+                // Register in global registry
+                JackalopeRegistry.registerMany(foundJackalopes);
+            }
+        }, 200); // Run 5 times per second
+        
+        return () => {
+            clearInterval(jackalopeScanner);
+        };
+    }, [props.enabled, scene]);
     
     // Return null as this is a utility component
     return null;
+};
+
+/**
+ * JackalopeHitDetector - For use INSIDE a Canvas component
+ * Uses useThree to get the scene
+ */
+export const JackalopeHitDetector = (props: { enabled: boolean }) => {
+    const { scene } = useThree();
+    return <JackalopeHitDetectorBase {...props} scene={scene} />;
+};
+
+/**
+ * GlobalJackalopeRegistry - For use OUTSIDE a Canvas component
+ * Gets scene via document.querySelector
+ */
+export const GlobalJackalopeRegistry = (props: { enabled: boolean }) => {
+    // Reference to hold the scene once found
+    const sceneRef = useRef<THREE.Scene | null>(null);
+    
+    // Find the scene on mount and when enabled changes
+    useEffect(() => {
+        if (!props.enabled) return;
+        
+        // Function to try and find the scene
+        const findScene = () => {
+            try {
+                const canvas = document.querySelector('canvas');
+                if (canvas) {
+                    const r3f = (canvas as any).__r3f;
+                    if (r3f && r3f.scene) {
+                        sceneRef.current = r3f.scene;
+                        console.log('Found Three.js scene for GlobalJackalopeRegistry');
+                        return true;
+                    }
+                }
+                return false;
+            } catch (error) {
+                console.error('Error finding Three.js scene:', error);
+                return false;
+            }
+        };
+        
+        // Try to find scene immediately
+        if (!findScene()) {
+            // If not found, try a few more times with increasing delays
+            const attempts = [100, 300, 600, 1000, 2000];
+            attempts.forEach((delay, index) => {
+                setTimeout(() => {
+                    if (!sceneRef.current) {
+                        const found = findScene();
+                        console.log(`Scene find attempt ${index + 1}: ${found ? 'SUCCESS' : 'FAILED'}`);
+                    }
+                }, delay);
+            });
+        }
+        
+        // Schedule registry cleaning
+        const cleanInterval = setInterval(() => {
+            JackalopeRegistry.cleanRegistry();
+        }, 5000);
+        
+        return () => {
+            clearInterval(cleanInterval);
+        };
+    }, [props.enabled]);
+    
+    // Run a scheduled registry scan if needed
+    useEffect(() => {
+        if (!props.enabled || !sceneRef.current) return;
+        
+        const scanInterval = setInterval(() => {
+            if (sceneRef.current) {
+                const jackalopes = JackalopeRegistry.findJackalopesInScene(sceneRef.current);
+                if (jackalopes.length > 0) {
+                    JackalopeRegistry.registerMany(jackalopes);
+                    if (Math.random() < 0.05) {
+                        console.log(`GlobalJackalopeRegistry found ${jackalopes.length} jackalopes`);
+                    }
+                }
+            }
+        }, 500);
+        
+        return () => {
+            clearInterval(scanInterval);
+        };
+    }, [props.enabled, sceneRef.current]);
+    
+    return sceneRef.current ? 
+        <JackalopeHitDetectorBase enabled={props.enabled} scene={sceneRef.current} /> : 
+        null;
 };
 
 export default JackalopeHitDetector; 

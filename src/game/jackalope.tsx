@@ -10,6 +10,7 @@ import { Component, Entity, EntityType } from './ecs'
 // Import ConnectionManager for multiplayer support
 import { ConnectionManager } from '../network/ConnectionManager'
 import { JackalopeModel } from './JackalopeModel' // Import the JackalopeModel component
+import JackalopeRegistry from './JackalopeRegistry'
 
 // Add type declaration for window.playerPositionTracker
 declare global {
@@ -565,91 +566,108 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         }
     }, [connectionManager]);
 
-    // After setting up the playerIdRef
-    // Add a direct hit event listener to force this jackalope to respawn when hit
+    // Add a direct respawn handler to detect force hits and other respawn triggers
     useEffect(() => {
-        if (!playerIdRef.current || !connectionManager) return;
+        // Skip if no player ID
+        if (!playerIdRef.current || !visible) return;
         
-        // Log registration with very visible format
-        console.log(`🐇🐇🐇 JACKALOPE ${playerIdRef.current} REGISTERING DIRECT HIT HANDLER 🐇🐇🐇`);
+        console.log(`🐇 Jackalope ${playerIdRef.current} setting up respawn listener`);
         
-        // Function to handle direct hit events
-        const handleDirectHit = (event: CustomEvent) => {
-            // Get the hit target ID
-            const hitId = event.detail?.id || event.detail?.hitPlayerId;
+        // Track the last known global respawn target
+        let lastKnownTarget = window.__jackalopeRespawnTarget;
+        
+        // Function to handle direct respawn events
+        const handleDirectRespawn = (event: CustomEvent) => {
+            // Skip if missing details
+            if (!event.detail) return;
             
-            if (!hitId) return;
+            // Get the target player ID
+            const targetId = event.detail.playerId || event.detail.id || event.detail.hitPlayerId;
             
-            // Check if this hit is for this jackalope
-            if (hitId === playerIdRef.current) {
-                console.log(`⚡⚡⚡ DIRECT HIT DETECTED FOR THIS JACKALOPE ${playerIdRef.current} ⚡⚡⚡`);
+            // Check if this respawn is for us
+            if (targetId === playerIdRef.current) {
+                console.log(`⚡ DIRECT RESPAWN EVENT RECEIVED FOR ${playerIdRef.current}`);
                 
-                // Also global trigger - ensure it gets picked up by the App respawn system
-                // Only set if playerIdRef.current is not null
-                if (playerIdRef.current) {
-                    window.__jackalopeRespawnTarget = playerIdRef.current;
-                }
-                
-                // Dispatch a custom event specifically for respawning this jackalope
-                window.dispatchEvent(new CustomEvent('respawnJackalope', {
+                // Dispatch a custom event that the App component can listen for
+                window.dispatchEvent(new CustomEvent('jackalopeHit', {
                     detail: {
-                        playerId: playerIdRef.current
-                    },
-                    bubbles: true
+                        hitPlayerId: playerIdRef.current,
+                        sourcePlayerId: 'direct-respawn',
+                        timestamp: Date.now()
+                    }
                 }));
             }
         };
         
-        // Listen for direct hit events and jackalopeHitDirect
-        window.addEventListener('jackalopeHitDirect', handleDirectHit as EventListener);
-        window.addEventListener('jackalopeHit', handleDirectHit as EventListener);
-        
-        // Also listen for global respawn trigger changes
-        const checkForRespawnTrigger = setInterval(() => {
-            // Check if our global respawn target matches this jackalope's ID
-            if (window.__jackalopeRespawnTarget === playerIdRef.current) {
-                console.log(`⚡ Jackalope ${playerIdRef.current} detected respawn trigger aimed at itself`);
+        // Create a polling function to check the global respawn target
+        const checkGlobalTarget = () => {
+            // Only check if the global target has changed and matches our ID
+            if (window.__jackalopeRespawnTarget &&
+                window.__jackalopeRespawnTarget !== lastKnownTarget &&
+                window.__jackalopeRespawnTarget === playerIdRef.current) {
                 
-                // Clear the trigger to prevent loops
-                window.__jackalopeRespawnTarget = undefined;
+                console.log(`🔄 Global respawn target detected: ${window.__jackalopeRespawnTarget}`);
+                lastKnownTarget = window.__jackalopeRespawnTarget;
                 
-                // Dispatch the event
-                window.dispatchEvent(new CustomEvent('respawnJackalope', {
+                // Dispatch a custom event that the App component can listen for
+                window.dispatchEvent(new CustomEvent('jackalopeHit', {
                     detail: {
-                        playerId: playerIdRef.current
-                    },
-                    bubbles: true
+                        hitPlayerId: playerIdRef.current,
+                        sourcePlayerId: 'global-target',
+                        timestamp: Date.now()
+                    }
                 }));
             }
-        }, 100);
+        };
         
-        // Register this Jackalope in the global registry
-        if (!window.__knownJackalopes) {
-            window.__knownJackalopes = {};
-        }
+        // Add event listeners for direct respawn events
+        window.addEventListener('respawnJackalope', handleDirectRespawn as EventListener);
+        window.addEventListener('jackalopeHitDirect', handleDirectRespawn as EventListener);
+        
+        // Set up the polling interval to check the global target
+        const pollingInterval = setInterval(checkGlobalTarget, 500);
+        
+        // Clean up
+        return () => {
+            window.removeEventListener('respawnJackalope', handleDirectRespawn as EventListener);
+            window.removeEventListener('jackalopeHitDirect', handleDirectRespawn as EventListener);
+            clearInterval(pollingInterval);
+        };
+    }, [visible, playerIdRef.current]);
+
+    // After the other useEffect in the Jackalope component, add another one for registry
+    useEffect(() => {
+        // Skip if no player ID or not visible
+        if (!playerIdRef.current || !visible) return;
+        
+        console.log(`🐇 Registering jackalope ${playerIdRef.current} in global registry`);
         
         // Update registration in the global registry to help hit detection
         const updateRegistration = setInterval(() => {
             if (playerIdRef.current && position.current) {
-                window.__knownJackalopes![playerIdRef.current] = {
-                    lastSeen: Date.now(),
-                    position: [position.current.x, position.current.y, position.current.z]
-                };
+                // Use the JackalopeRegistry helper to register this jackalope
+                JackalopeRegistry.registerJackalope(
+                    playerIdRef.current,
+                    new THREE.Vector3(position.current.x, position.current.y, position.current.z)
+                );
+                
+                // Log occasional updates (very low frequency to avoid spam)
+                if (Math.random() < 0.01) {
+                    console.log(`📍 Updated jackalope ${playerIdRef.current} position in registry`);
+                }
             }
-        }, 500);
+        }, 500); // Update every 500ms
         
         return () => {
-            window.removeEventListener('jackalopeHitDirect', handleDirectHit as EventListener);
-            window.removeEventListener('jackalopeHit', handleDirectHit as EventListener);
-            clearInterval(checkForRespawnTrigger);
             clearInterval(updateRegistration);
             
-            // Remove from registry on unmount
-            if (playerIdRef.current && window.__knownJackalopes) {
-                delete window.__knownJackalopes[playerIdRef.current];
+            // Clean up from registry on unmount
+            if (playerIdRef.current) {
+                // Clean old entries
+                JackalopeRegistry.cleanRegistry();
             }
         };
-    }, [playerIdRef.current, connectionManager]);
+    }, [visible, playerIdRef.current]);
 
     return (
         <>
@@ -706,8 +724,12 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                     rotation={[0, rotation.current + Math.PI, 0]}
                     userData={{ 
                         isJackalope: true, 
-                        playerId: playerIdRef.current || 'unknown-jackalope' 
+                        playerType: 'jackalope',
+                        jackalopeId: playerIdRef.current || 'unknown-jackalope',
+                        playerId: playerIdRef.current || 'unknown-jackalope',
+                        type: 'jackalope'
                     }}
+                    name={`jackalope-${playerIdRef.current || 'unknown'}`}
                 >
                     <JackalopeModel
                         animation={animation}

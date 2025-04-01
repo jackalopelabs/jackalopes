@@ -604,220 +604,113 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
     }, [color]);
     
     // Handle collision events 
-    const handleCollision = (payload: CollisionEnterPayload) => {
-        // Skip if already stuck or can't collide yet or no rigid body reference
-        if (stuck || !canCollide || !rigidBodyRef.current) return;
+    const handleCollision = (e: any) => {
+        // Skip collisions while stuck (to prevent multiple hits)
+        if (stuckRef.current) return;
+
+        const { target, other } = e;
         
-        // Don't process collisions with entities that lack a rigid body
-        if (!payload.other.rigidBody) return;
+        // Get the actual colliding objects
+        const targetObject = target?.rigidBody?.raw()?.userData?.object;
+        const parentObject = targetObject?.parent;
         
-        try {
-            // Increment collision counter for debugging
-            collisionCounter.current += 1;
+        // Debug log occasionally
+        const shouldLog = Math.random() < 0.01;
+        if (shouldLog) {
+            console.log("[PROJECTILE] Collision detected", { 
+                targetName: targetObject?.name,
+                parentName: parentObject?.name,
+                targetUserData: targetObject?.userData,
+                parentUserData: parentObject?.userData
+            });
+        }
+        
+        // Extract userData for easier checking
+        const targetUserData = targetObject?.userData;
+        const parentUserData = parentObject?.userData;
+        
+        // Enhanced jackalope collision detection with multiple checks
+        // Check ALL possible indicators in both target and parent objects
+        const isJackalopeCollision = (
+            // Direct checks for userData properties
+            (targetUserData?.isJackalope === true || 
+             targetUserData?.playerType === 'jackalope' ||
+             targetUserData?.jackalopeId ||
+             targetUserData?.type === 'jackalope') ||
             
-            // Get collision details
-            const targetObject = payload.other.rigidBodyObject;
-            const targetName = targetObject?.name?.toLowerCase() || '';
+            // Check parent object userData properties
+            (parentUserData?.isJackalope === true || 
+             parentUserData?.playerType === 'jackalope' ||
+             parentUserData?.jackalopeId ||
+             parentUserData?.type === 'jackalope') ||
             
-            // Log basic collision details
-            console.log(`COLLISION DETAILS for ${id} at position:`, finalPosition);
+            // Fallback name checks (case insensitive)
+            (targetObject?.name?.toLowerCase().includes('jackalope') ||
+             parentObject?.name?.toLowerCase().includes('jackalope'))
+        );
+        
+        // SPECIAL HANDLING FOR JACKALOPE COLLISIONS
+        if (isJackalopeCollision) {
+            console.log("⚡ JACKALOPE HIT - DIRECT COLLISION DETECTED ⚡");
+            console.log("Target:", targetObject, "Parent:", parentObject);
             
-            // Try to get parent information safely without using the parent() method
-            let parentName = '';
-            let parentUserData = null;
+            // Mark as stuck immediately to prevent multiple collision handling
+            setStuck(true);
+            stuckRef.current = true;
+            
             try {
-                // Access the parent through the object3D hierarchy if possible
-                if (targetObject?.parent) {
-                    parentName = targetObject.parent.name?.toLowerCase() || '';
-                    parentUserData = targetObject.parent.userData;
+                // Get the jackalope ID with improved extraction
+                let jackalopeId = targetUserData?.jackalopeId || 
+                                  targetUserData?.playerId || 
+                                  parentUserData?.jackalopeId || 
+                                  parentUserData?.playerId;
+                                  
+                // If we still don't have an ID but have a name that contains a player ID
+                if (!jackalopeId) {
+                    // Try to extract player ID from name - common format is jackalope-player_XXX
+                    const nameMatch = (targetObject?.name || parentObject?.name || '').match(/player_[a-z0-9]+/i);
+                    if (nameMatch) {
+                        jackalopeId = nameMatch[0];
+                        console.log(`📍 Extracted jackalope ID from name: ${jackalopeId}`);
+                    }
+                }
+                
+                if (jackalopeId) {
+                    console.log(`🎯 Found jackalope ID: ${jackalopeId}`);
+                    
+                    // 1. Send hit event via ConnectionManager
+                    if (window.connectionManager) {
+                        try {
+                            window.connectionManager.sendJackalopeHitEvent(jackalopeId);
+                            console.log(`✅ Sent jackalope hit via ConnectionManager: ${jackalopeId}`);
+                        } catch (err) {
+                            console.error("Failed to send hit via ConnectionManager:", err);
+                        }
+                    }
+                    
+                    // 2. Set global respawn target as failsafe
+                    window.__jackalopeRespawnTarget = jackalopeId;
+                    
+                    // 3. Dispatch custom event for local handling
+                    window.dispatchEvent(new CustomEvent('jackalopeHit', {
+                        detail: {
+                            hitPlayerId: jackalopeId,
+                            sourcePlayerId: 'direct-collision', 
+                            timestamp: Date.now()
+                        }
+                    }));
+                    
+                    console.log(`✅ Hit events dispatched for jackalope: ${jackalopeId}`);
+                } else {
+                    console.error("⚠️ Jackalope collision detected but could not find jackalope ID");
                 }
             } catch (err) {
-                console.log('Error accessing parent info:', err);
+                console.error("Error handling jackalope collision:", err);
             }
-            
-            // Get userData if available to check for player type
-            const targetUserData = targetObject?.userData;
-            const isJackalopeByUserData = targetUserData?.isJackalope === true || parentUserData?.isJackalope === true;
-            const isMercByUserData = targetUserData?.isMerc === true || parentUserData?.isMerc === true;
-            
-            // Enhanced collision detection with more thorough checks
-            // Check for jackalope in all the possible ways it could be named
-            const jackalopeNamePatterns = ['jackalope', 'remote-jackalope', 'jackalope-player'];
-            const mercNamePatterns = ['merc', 'remote-merc', 'merc-player'];
-            
-            const isJackalopeCollision = 
-                isJackalopeByUserData || 
-                jackalopeNamePatterns.some(pattern => targetName.includes(pattern)) ||
-                jackalopeNamePatterns.some(pattern => parentName.includes(pattern));
-                
-            const isMercCollision = 
-                isMercByUserData || 
-                mercNamePatterns.some(pattern => targetName.includes(pattern)) ||
-                mercNamePatterns.some(pattern => parentName.includes(pattern));
-                
-            const isPlayerCollision = 
-                isJackalopeCollision || 
-                isMercCollision || 
-                targetName.includes('player') || 
-                parentName.includes('player');
-            
-            // Log detailed collision information
-            console.log('COLLISION DETECTED', {
-                collisionNumber: collisionCounter.current,
-                targetName,
-                parentName,
-                targetUserData,
-                parentUserData,
-                isJackalopeByUserData,
-                isMercByUserData,
-                isJackalopeCollision,
-                isMercCollision, 
-                isPlayerCollision,
-                targetType: payload.other.rigidBodyObject?.type,
-                sphereId: id
-            });
-            
-            // SPECIAL HANDLING FOR JACKALOPE COLLISIONS
-            if (isJackalopeCollision) {
-                console.log("⚡ JACKALOPE HIT - DIRECT COLLISION DETECTED ⚡");
-                
-                // Mark as stuck immediately to prevent multiple collision handling
-                setStuck(true);
-                stuckRef.current = true;
-                
-                try {
-                    // Get the jackalope ID with improved extraction
-                    let jackalopeId = targetUserData?.jackalopeId || 
-                                      targetUserData?.playerId || 
-                                      parentUserData?.jackalopeId || 
-                                      parentUserData?.playerId;
-                                      
-                    // If we still don't have an ID, try extracting from name
-                    if (!jackalopeId && targetName) {
-                        if (targetName.includes('-')) {
-                            const parts = targetName.split('-');
-                            jackalopeId = parts[parts.length - 1];
-                        }
-                    }
-                    
-                    // Add fallback ID if all extraction methods fail - crucial for testing
-                    if (!jackalopeId) {
-                        jackalopeId = 'unknown-jackalope-' + Date.now();
-                        console.warn(`Could not extract Jackalope ID, using fallback: ${jackalopeId}`);
-                    }
-                    
-                    console.log(`🎯 DIRECT HIT ON JACKALOPE: ${jackalopeId} (name: ${targetName})`);
-                    
-                    // Use the force trigger function for the most reliable hit detection
-                    // This consolidates all hit event dispatching methods in one place
-                    if (window.__forceTriggerJackalopeHit) {
-                        console.log(`🔥 Using forceTriggerJackalopeHit for maximum reliability`);
-                        window.__forceTriggerJackalopeHit(jackalopeId);
-                    } else {
-                        // Fallback to original methods if force trigger isn't available
-                        
-                        // 1. Send via ConnectionManager
-                        if (window.connectionManager) {
-                            console.log(`🎯 Sending jackalope hit event via ConnectionManager: ${jackalopeId}`);
-                            window.connectionManager.sendJackalopeHitEvent(jackalopeId);
-                        }
-                        
-                        // 2. Dispatch direct event with detailed information
-                        console.log(`🎯 Dispatching jackalopeHit event with ID: ${jackalopeId}`);
-                        window.dispatchEvent(new CustomEvent('jackalopeHit', {
-                            detail: {
-                                hitPlayerId: jackalopeId,
-                                sourcePlayerId: 'projectile-source',
-                                timestamp: Date.now(),
-                                targetName: targetName, // Include target name for better debugging
-                                position: finalPosition.slice()  // Include hit position
-                            },
-                            bubbles: true,  // Make it bubble up for better detection
-                            cancelable: false
-                        }));
-                        
-                        // 3. Emit another event with a slightly different structure as backup
-                        console.log(`🎯 Dispatching extra jackalopeHitDirect event for ID: ${jackalopeId}`);
-                        window.dispatchEvent(new CustomEvent('jackalopeHitDirect', {
-                            detail: {
-                                id: jackalopeId,
-                                name: targetName,
-                                position: finalPosition.slice()
-                            },
-                            bubbles: true
-                        }));
-                        
-                        // 4. Force a global respawn trigger through window
-                        console.log(`🎯 Setting global respawn trigger for jackalope ${jackalopeId}`);
-                        window.__jackalopeRespawnTarget = jackalopeId;
-                        
-                        // 5. Dispatch hit visual event for effects
-                        window.dispatchEvent(new CustomEvent('jackalopeHitVisual', {
-                            detail: {
-                                position: new THREE.Vector3(
-                                    finalPosition[0], 
-                                    finalPosition[1], 
-                                    finalPosition[2]
-                                ),
-                                jackalopeId: jackalopeId
-                            }
-                        }));
-                        
-                        // 6. Play hit sound effect
-                        if (window.__playJackalopeHitSound) {
-                            window.__playJackalopeHitSound();
-                        }
-                    }
-                    
-                    // Apply visual effect to the sphere
-                    applyJackalopeHitEffect();
-                    
-                } catch (error) {
-                    console.error("ERROR IN JACKALOPE HIT HANDLER:", error);
-                }
-            } else {
-                // STANDARD COLLISION HANDLING FOR NON-JACKALOPE OBJECTS
-                
-                // Get current position from the collision point
-                const position = rigidBodyRef.current.translation();
-                
-                // Standard attachment position
-                const attachPosition: [number, number, number] = [position.x, position.y, position.z];
-                
-                // Set final position based on the attachment point
-                setFinalPosition(attachPosition);
-                
-                // Stick to the surface by making it fixed
-                rigidBodyRef.current.setBodyType(1, true); // 1 for Fixed, true to wake the body
-                
-                // Disable all movement
-                rigidBodyRef.current.setLinvel({ x: 0, y: 0, z: 0 }, true);
-                rigidBodyRef.current.setAngvel({ x: 0, y: 0, z: 0 }, true);
-                
-                // Mark as stuck
-                setStuck(true);
-                stuckRef.current = true;
-                
-                // Register this collision time to start light fade timer
-                collisionTimeRef.current = Date.now();
-                
-                // Handle player collision detection for non-jackalope players
-                if (isPlayerCollision) {
-                    if (isMercCollision) {
-                        console.log('Shot hit a merc!', targetName);
-                        
-                        // Play merc hit sound if available
-                        if (window.__playMercHitSound) {
-                            window.__playMercHitSound();
-                        }
-                    } else {
-                        console.log('Shot hit a generic player!', targetName);
-                    }
-                }
-            }
-        } catch (error) {
-            console.error('Error in handleCollision:', error);
         }
+        
+        // Handle wall/floor collisions
+        // ...rest of collision handling
     }
     
     // Function to apply dramatic hit effect when hitting a jackalope
@@ -1805,54 +1698,84 @@ export const setSphereDarkMode = (darkMode: boolean) => {
 
 // Add a function to forcibly trigger a jackalope hit without physics checks
 export const forceTriggerJackalopeHit = (jackalopeId: string) => {
-  console.log(`🔥 FORCE TRIGGERING HIT ON JACKALOPE: ${jackalopeId}`);
-  
-  // Try all available methods to ensure the hit is registered
-  
-  // 1. Set global respawn target
-  window.__jackalopeRespawnTarget = jackalopeId;
-  
-  // 2. Send via ConnectionManager
-  if (window.connectionManager) {
-    console.log(`🎯 Sending jackalope hit event via ConnectionManager: ${jackalopeId}`);
-    window.connectionManager.sendJackalopeHitEvent(jackalopeId);
-  }
-  
-  // 3. Dispatch direct events with multiple formats for maximum compatibility
-  // Standard hit event
-  window.dispatchEvent(new CustomEvent('jackalopeHit', {
-    detail: {
-      hitPlayerId: jackalopeId,
-      sourcePlayerId: 'forced-hit',
-      timestamp: Date.now()
-    },
-    bubbles: true
-  }));
-  
-  // Alternative format hit event
-  window.dispatchEvent(new CustomEvent('jackalopeHitDirect', {
-    detail: {
-      id: jackalopeId,
-      name: `jackalope-${jackalopeId}`,
-      position: [0, 0, 0] // Position not important for direct hits
-    },
-    bubbles: true
-  }));
-  
-  // 4. Visual feedback event
-  window.dispatchEvent(new CustomEvent('jackalopeHitVisual', {
-    detail: {
-      position: new THREE.Vector3(0, 0, 0), // Generic position
-      jackalopeId: jackalopeId
+  try {
+    console.log(`🔥 FORCE TRIGGERING HIT ON JACKALOPE: ${jackalopeId}`);
+    
+    // Try all available methods to ensure the hit is registered
+    
+    // 1. Set global respawn target with enhanced flags for better detection
+    window.__jackalopeRespawnTarget = jackalopeId;
+    window.__jackalopeRespawnTrigger = 'force-hit-button';
+    window.__jackalopeRespawnTimestamp = Date.now();
+    
+    // 2. Send via ConnectionManager if available
+    if (window.connectionManager) {
+      console.log(`🎯 Sending jackalope hit event via ConnectionManager: ${jackalopeId}`);
+      try {
+        window.connectionManager.sendJackalopeHitEvent(jackalopeId);
+      } catch (error) {
+        console.warn('Error sending hit via ConnectionManager:', error);
+      }
     }
-  }));
-  
-  // 5. Play hit sound if available
-  if (window.__playJackalopeHitSound) {
-    window.__playJackalopeHitSound();
+    
+    // 3. Dispatch direct events with multiple formats for maximum compatibility
+    try {
+      // Standard hit event - use consistent source ID for better identification
+      window.dispatchEvent(new CustomEvent('jackalopeHit', {
+        detail: {
+          hitPlayerId: jackalopeId,
+          sourcePlayerId: 'force-hit-button', // Using consistent ID
+          timestamp: Date.now()
+        },
+        bubbles: true
+      }));
+      
+      // Alternative format hit event
+      window.dispatchEvent(new CustomEvent('jackalopeHitDirect', {
+        detail: {
+          id: jackalopeId,
+          name: `jackalope-${jackalopeId}`,
+          position: [0, 0, 0], // Position not important for direct hits
+          source: 'force-hit-button' // Add source identifier here too
+        },
+        bubbles: true
+      }));
+      
+      // Custom respawn event
+      window.dispatchEvent(new CustomEvent('respawnJackalope', {
+        detail: {
+          playerId: jackalopeId,
+          source: 'force-hit-button' // Add source identifier
+        },
+        bubbles: true
+      }));
+      
+      // Universal notification to ensure all systems know about this hit
+      window.dispatchEvent(new CustomEvent('forceHitTriggered', {
+        detail: {
+          targetId: jackalopeId,
+          timestamp: Date.now()
+        },
+        bubbles: true
+      }));
+    } catch (error) {
+      console.warn('Error dispatching hit events:', error);
+    }
+    
+    // 4. Play hit sound if available
+    try {
+      if (window.__playJackalopeHitSound) {
+        window.__playJackalopeHitSound();
+      }
+    } catch (error) {
+      console.warn('Error playing hit sound:', error);
+    }
+    
+    return true; // Return success
+  } catch (error) {
+    console.error('Error in forceTriggerJackalopeHit:', error);
+    return false;
   }
-  
-  return true; // Return success
 };
 
 // Expose the function globally
