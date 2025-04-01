@@ -300,6 +300,24 @@ export const MultiplayerSyncManager: React.FC<MultiplayerSyncManagerProps> = ({
           console.log(`🔄 [SyncManager] Remote player ${respawnPlayerId} will respawn, not dispatching local event`);
         }
       }
+      // Handle score update events
+      else if (event.event_type === 'game_score_update') {
+        console.log('🏆 [SyncManager] Received score update event:', event);
+        
+        // Forward the score update event to anyone listening
+        try {
+          // Create a custom event to update the scores in App.tsx
+          const scoreUpdateEvent = new CustomEvent('game_score_update', {
+            detail: event
+          });
+          
+          // Dispatch the event to the window so App.tsx can listen for it
+          window.dispatchEvent(scoreUpdateEvent);
+          console.log('🏆 [SyncManager] Dispatched score update event:', event);
+        } catch (err) {
+          console.error('🏆 [SyncManager] Error dispatching score update event:', err);
+        }
+      }
     };
     
     // Register event handlers

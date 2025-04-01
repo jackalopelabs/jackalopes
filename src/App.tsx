@@ -2765,8 +2765,35 @@ export function App() {
       const handleJackalopeScored = () => {
         // Only increment score if the local player is a jackalope
         if (window.jackalopesGame?.playerType === 'jackalope') {
-          setJackalopesScore(prevScore => prevScore + 1);
-          console.log('🐰 Jackalope scored a point! New score:', jackalopesScore + 1);
+          const newScore = jackalopesScore + 1;
+          setJackalopesScore(newScore);
+          console.log('🐰 Jackalope scored a point! New score:', newScore);
+          
+          // Store the updated score in localStorage
+          try {
+            localStorage.setItem('jackalopes_score', String(newScore));
+            localStorage.setItem('scores_last_updated', String(Date.now()));
+          } catch (err) {
+            console.error('Error storing score in localStorage:', err);
+          }
+          
+          // Broadcast score update to all players if in multiplayer mode
+          if (enableMultiplayer && connectionManager && connectionManager.isReadyToSend()) {
+            // Use a direct broadcast message with a unique format for better reliability
+            console.log('📣 Broadcasting jackalope score:', newScore);
+            connectionManager.sendMessage({
+              type: 'game_event',
+              event: {
+                event_type: 'game_score_update', // More specific event type
+                source: 'jackalope_scored',
+                scoreType: 'jackalope', // Explicitly mark which score is being updated
+                jackalopesScore: newScore,
+                mercsScore: mercsScore,
+                timestamp: Date.now(),
+                shotId: `score-j-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+              }
+            });
+          }
         }
       };
       
@@ -2776,7 +2803,7 @@ export function App() {
       return () => {
         window.removeEventListener('jackalope_scored', handleJackalopeScored);
       };
-    }, [jackalopesScore]);
+    }, [jackalopesScore, mercsScore, enableMultiplayer, connectionManager]);
     
     // Add listener for merc scoring when hitting a jackalope
     useEffect(() => {
@@ -2784,8 +2811,35 @@ export function App() {
       const handleMercScored = (event: CustomEvent) => {
         // Only increment score if the local player is a merc
         if (window.jackalopesGame?.playerType === 'merc') {
-          setMercsScore(prevScore => prevScore + 1);
-          console.log('🎯 Merc scored a point! New score:', mercsScore + 1);
+          const newScore = mercsScore + 1;
+          setMercsScore(newScore);
+          console.log('🎯 Merc scored a point! New score:', newScore);
+          
+          // Store the updated score in localStorage
+          try {
+            localStorage.setItem('mercs_score', String(newScore));
+            localStorage.setItem('scores_last_updated', String(Date.now()));
+          } catch (err) {
+            console.error('Error storing score in localStorage:', err);
+          }
+          
+          // Broadcast score update to all players if in multiplayer mode
+          if (enableMultiplayer && connectionManager && connectionManager.isReadyToSend()) {
+            // Use a direct broadcast message with a unique format for better reliability
+            console.log('📣 Broadcasting merc score:', newScore);
+            connectionManager.sendMessage({
+              type: 'game_event',
+              event: {
+                event_type: 'game_score_update', // More specific event type
+                source: 'merc_scored',
+                scoreType: 'merc', // Explicitly mark which score is being updated
+                jackalopesScore: jackalopesScore,
+                mercsScore: newScore,
+                timestamp: Date.now(),
+                shotId: `score-m-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+              }
+            });
+          }
         }
       };
       
@@ -2795,7 +2849,200 @@ export function App() {
       return () => {
         window.removeEventListener('merc_scored', handleMercScored as EventListener);
       };
-    }, [mercsScore]);
+    }, [mercsScore, jackalopesScore, enableMultiplayer, connectionManager]);
+    
+    // Initialize scores from localStorage if available
+    useEffect(() => {
+      try {
+        const storedJackalopesScore = localStorage.getItem('jackalopes_score');
+        const storedMercsScore = localStorage.getItem('mercs_score');
+        
+        if (storedJackalopesScore) {
+          const parsedScore = parseInt(storedJackalopesScore, 10);
+          if (!isNaN(parsedScore) && parsedScore > jackalopesScore) {
+            console.log(`📊 Loading jackalopes score from localStorage: ${parsedScore}`);
+            setJackalopesScore(parsedScore);
+          }
+        }
+        
+        if (storedMercsScore) {
+          const parsedScore = parseInt(storedMercsScore, 10);
+          if (!isNaN(parsedScore) && parsedScore > mercsScore) {
+            console.log(`📊 Loading mercs score from localStorage: ${parsedScore}`);
+            setMercsScore(parsedScore);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading scores from localStorage:', err);
+      }
+    }, []);
+    
+    // Listen for localStorage changes to sync scores between tabs
+    useEffect(() => {
+      const handleStorageChange = (e: StorageEvent) => {
+        if (e.key === 'jackalopes_score') {
+          const newScore = parseInt(e.newValue || '0', 10);
+          if (!isNaN(newScore) && newScore > jackalopesScore) {
+            console.log(`📊 Updating jackalopes score from localStorage: ${newScore}`);
+            setJackalopesScore(newScore);
+          }
+        } else if (e.key === 'mercs_score') {
+          const newScore = parseInt(e.newValue || '0', 10);
+          if (!isNaN(newScore) && newScore > mercsScore) {
+            console.log(`📊 Updating mercs score from localStorage: ${newScore}`);
+            setMercsScore(newScore);
+          }
+        }
+      };
+      
+      window.addEventListener('storage', handleStorageChange);
+      
+      return () => {
+        window.removeEventListener('storage', handleStorageChange);
+      };
+    }, [jackalopesScore, mercsScore]);
+    
+    // Add listener for score update events from other players
+    useEffect(() => {
+      // Only set up handler when multiplayer is enabled
+      if (!enableMultiplayer || !connectionManager) return;
+      
+      // Track processed score updates to avoid duplicates
+      const processedScoreUpdates = new Set<string>();
+      
+      // Handle the game event messages from the server
+      const handleGameEvent = (data: any) => {
+        // Check if this is a score update event
+        if (data && data.event && data.event.event_type === 'game_score_update' && data.event.shotId) {
+          const event = data.event;
+          
+          console.log('📊 Received score update event:', event);
+          
+          // Skip if we've already processed this score update
+          if (processedScoreUpdates.has(event.shotId)) {
+            console.log('⏩ Skipping duplicate score update:', event.shotId);
+            return;
+          }
+          
+          // Mark this update as processed
+          processedScoreUpdates.add(event.shotId);
+          
+          // Limit the size of the processed set to avoid memory leaks
+          if (processedScoreUpdates.size > 100) {
+            // Remove oldest entries
+            const updatesArray = Array.from(processedScoreUpdates);
+            processedScoreUpdates.clear();
+            updatesArray.slice(-50).forEach(id => processedScoreUpdates.add(id));
+          }
+          
+          console.log(`📊 Updating scores from remote event: J=${event.jackalopesScore}, M=${event.mercsScore}`);
+          
+          // Update scores to match the received values
+          setJackalopesScore(event.jackalopesScore);
+          setMercsScore(event.mercsScore);
+          
+          // Announce the score update to make it very clear
+          if (event.scoreType === 'jackalope') {
+            console.log(`🐰 Jackalope scored! (Updated remotely to ${event.jackalopesScore})`);
+          } else if (event.scoreType === 'merc') {
+            console.log(`🎯 Merc scored! (Updated remotely to ${event.mercsScore})`);
+          }
+        }
+      };
+      
+      // Handle the custom window events dispatched by MultiplayerSyncManager
+      const handleWindowScoreEvent = (e: Event) => {
+        const event = (e as CustomEvent).detail;
+        if (!event || !event.shotId) return;
+        
+        console.log('📊 Received score update from window event:', event);
+        
+        // Skip if we've already processed this score update
+        if (processedScoreUpdates.has(event.shotId)) {
+          console.log('⏩ Skipping duplicate score update from window event:', event.shotId);
+          return;
+        }
+        
+        // Mark this update as processed
+        processedScoreUpdates.add(event.shotId);
+        
+        console.log(`📊 Updating scores from window event: J=${event.jackalopesScore}, M=${event.mercsScore}`);
+        
+        // Update scores to match the received values
+        setJackalopesScore(event.jackalopesScore);
+        setMercsScore(event.mercsScore);
+      };
+      
+      // Listen for window events as well for better cross-client synchronization
+      window.addEventListener('game_score_update', handleWindowScoreEvent);
+      
+      // Add listener for game events
+      connectionManager.on('game_event', handleGameEvent);
+      
+      // Request current scores from all players when we connect
+      if (connectionManager.isReadyToSend()) {
+        console.log('🔄 Requesting current scores from all players...');
+        setTimeout(() => {
+          connectionManager.sendMessage({
+            type: 'game_event',
+            event: {
+              event_type: 'game_score_request', // More specific event type
+              timestamp: Date.now(),
+              shotId: `req-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+            }
+          });
+        }, 1000); // Delay to ensure connection is ready
+      }
+      
+      // Listen for score requests and respond with our scores
+      const handleScoreRequest = (data: any) => {
+        if (data && data.event && data.event.event_type === 'game_score_request') {
+          console.log('📡 Received score request, sending our scores...');
+          if (connectionManager.isReadyToSend()) {
+            connectionManager.sendMessage({
+              type: 'game_event',
+              event: {
+                event_type: 'game_score_update',
+                source: 'score_request_response',
+                jackalopesScore: jackalopesScore,
+                mercsScore: mercsScore,
+                timestamp: Date.now(),
+                shotId: `resp-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+              }
+            });
+          }
+        }
+      };
+      
+      // Add this as a separate handler
+      connectionManager.on('game_event', handleScoreRequest);
+      
+      // Also implement a periodic score synchronization
+      const syncInterval = setInterval(() => {
+        if (connectionManager && connectionManager.isReadyToSend()) {
+          // Send our current scores every 10 seconds to ensure synchronization
+          connectionManager.sendMessage({
+            type: 'game_event',
+            event: {
+              event_type: 'game_score_update',
+              source: 'periodic_sync',
+              jackalopesScore: jackalopesScore,
+              mercsScore: mercsScore,
+              timestamp: Date.now(),
+              shotId: `sync-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+            }
+          });
+        }
+      }, 10000); // Sync every 10 seconds
+      
+      return () => {
+        // Clean up the subscriptions
+        connectionManager.off('game_event', handleGameEvent);
+        connectionManager.off('game_event', handleScoreRequest);
+        window.removeEventListener('game_score_update', handleWindowScoreEvent);
+        clearInterval(syncInterval);
+      };
+    }, [enableMultiplayer, connectionManager, jackalopesScore, mercsScore]);
     
     return (
         <>
