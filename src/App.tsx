@@ -4227,27 +4227,7 @@ export function App() {
                 </div>
             )}
 
-            {/* Debug indicator for player character assignment */}
-            {enableMultiplayer && (
-                <div style={{
-                    position: 'fixed',
-                    top: isMobile ? '40px' : '10px', // Move down if mobile indicator is showing
-                    left: '10px',
-                    background: 'rgba(0,0,0,0.7)',
-                    color: 'white',
-                    padding: '8px 12px',
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    zIndex: 1000,
-                    fontFamily: 'monospace'
-                }}>
-                    Player Type: <strong>{playerCharacterInfo.type}</strong><br />
-                    View: <strong>{playerCharacterInfo.thirdPerson ? '3rd Person' : '1st Person'}</strong><br />
-                    Player ID: <strong>{connectionManager.getPlayerId?.() || 'None'}</strong><br />
-                    Connection: <strong>{connectionManager.isOfflineMode() ? 'Offline' : 'Online'}</strong><br />
-                    Multiplayer: <strong>{enableMultiplayer ? 'Enabled' : 'Disabled'}</strong>
-                </div>
-            )}
+            {/* Debug indicator for player character assignment - removed */}
             
             {/* Add Leva panel with collapsed prop to keep it closed by default */}
             <Leva 
