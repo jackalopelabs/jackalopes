@@ -8,7 +8,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
 import { useControls, folder, Leva } from 'leva'
 import { useTexture } from '@react-three/drei'
-import { useRef, useEffect, useState, useMemo } from 'react'
+import { useRef, useEffect, useState, useMemo, useCallback, Suspense } from 'react'
 import * as THREE from 'three'
 import { Player, PlayerControls } from './game/player'
 import { Jackalope } from './game/jackalope'
@@ -1211,6 +1211,9 @@ export function App() {
     // Add score state
     const [jackalopesScore, setJackalopesScore] = useState(0);
     const [mercsScore, setMercsScore] = useState(0);
+    
+    // Add a ref to track the last time a score was updated
+    const lastScoreTime = useRef<number>(0);
     
     // Track which jackalopes have been hit to avoid double-counting
     // This is shared between both scoring mechanisms
@@ -2757,9 +2760,8 @@ export function App() {
                 // Since we just cleared the tracking, this should now score appropriately
                 const newScore = mercsScore + 1;
                 setMercsScore(newScore);
-                
-                // Re-add to scored list after incrementing the score
-                scoredJackalopesRef.current.add(playerId);
+                // Update last score time to prevent timer resets from overriding
+                lastScoreTime.current = Date.now();
                 console.log(`🎯 Merc scored a point! Current score: ${mercsScore}, updating to: ${newScore}`);
                 
                 // Save updated list to localStorage
@@ -2851,6 +2853,8 @@ export function App() {
         if (window.jackalopesGame?.playerType === 'jackalope') {
           const newScore = jackalopesScore + 1;
           setJackalopesScore(newScore);
+          // Update last score time to prevent timer resets from overriding
+          lastScoreTime.current = Date.now();
           console.log('🐰 Jackalope scored a point! New score:', newScore);
           
           // Store the updated score in localStorage
@@ -2928,24 +2932,30 @@ export function App() {
           
           const newScore = mercsScore + 1;
           setMercsScore(newScore);
+          // Update last score time to prevent timer resets from overriding
+          lastScoreTime.current = Date.now();
           console.log(`🎯 Merc scored a point! Current score: ${mercsScore}, updating to: ${newScore}`);
           
           // Store the updated score in localStorage
           try {
             localStorage.setItem('mercs_score', String(newScore));
             localStorage.setItem('scores_last_updated', String(Date.now()));
+            localStorage.setItem('last_score_time', Date.now().toString());
           } catch (err) {
             console.error('Error storing score in localStorage:', err);
           }
           
           // Broadcast score update to all players if in multiplayer mode
           if (enableMultiplayer && connectionManager && connectionManager.isReadyToSend()) {
+            // Generate a unique event ID to prevent duplicate processing
+            const scoreEventId = `score-m-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+            
             // Use a direct broadcast message with a unique format for better reliability
             console.log('📣 Broadcasting merc score:', newScore);
             connectionManager.sendMessage({
               type: 'game_event',
               event: {
-                event_type: 'game_score_update', // More specific event type
+                event_type: 'game_score_update',
                 source: 'merc_scored_direct_hit',
                 scoreType: 'merc', // Explicitly mark which score is being updated
                 jackalopesScore: jackalopesScore,
@@ -2953,11 +2963,28 @@ export function App() {
                 eliminatedJackalopeId: jackalopeId, // Include which jackalope was eliminated
                 mercId: mercId,
                 hitShotId: shotId, // Original shot ID that caused the hit
+                scored_time: Date.now(), // Add timestamp to help with race conditions
                 scoredJackalopes: Array.from(scoredJackalopesRef.current), // Share which jackalopes have been scored
                 timestamp: Date.now(),
-                shotId: `score-m-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+                shotId: scoreEventId
               }
             });
+            
+            // Also broadcast via window event for cross-tab communication
+            window.dispatchEvent(new CustomEvent('game_score_update', {
+              detail: {
+                event_type: 'game_score_update',
+                source: 'merc_scored_local',
+                scoreType: 'merc',
+                jackalopesScore: jackalopesScore,
+                mercsScore: newScore,
+                scored_time: Date.now(),
+                shotId: `score-m-local-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+              }
+            }));
+            
+            // Mark this score update as processed
+            processedScoreUpdates.add(scoreEventId);
           }
         }
       };
@@ -3054,30 +3081,94 @@ export function App() {
             updatesArray.slice(-50).forEach(id => processedScoreUpdates.add(id));
           }
           
-          console.log(`📊 Updating scores from remote event: J=${event.jackalopesScore}, M=${event.mercsScore}`);
+          console.log(`📊 Received score update from network: J=${event.jackalopesScore}, M=${event.mercsScore}, source=${event.source || 'unknown'}`);
           
-          // Update scores to match the received values
-          setJackalopesScore(event.jackalopesScore);
-          setMercsScore(event.mercsScore);
-          
-          // Update scored jackalopes tracking if provided
-          if (event.scoredJackalopes && Array.isArray(event.scoredJackalopes)) {
-            console.log(`📊 Updating scored jackalopes list with ${event.scoredJackalopes.length} entries from network`);
+          // Handle score updates by source type
+          if (event.source === 'timer_reset') {
+            // Only apply timer resets if our scores aren't more recent
+            if (!event.reset_time || Date.now() - event.reset_time < 5000) {
+              console.log('📊 Processing timer reset from network');
+              setJackalopesScore(0);
+              setMercsScore(0);
+              localStorage.setItem('jackalopes_score', '0');
+              localStorage.setItem('mercs_score', '0');
+            } else {
+              console.log('📊 Ignoring old timer reset event');
+            }
+          } 
+          else if (event.source && (event.source.includes('merc_scored') || event.source.includes('jackalope_scored'))) {
+            // Direct scoring events - always apply these with priority
+            console.log('📊 Processing direct scoring event from network');
             
-            // Merge the received list with our current list
-            event.scoredJackalopes.forEach((id: string) => {
-              scoredJackalopesRef.current.add(id);
-            });
+            // If this is a merc scoring event, update merc score
+            if (event.source.includes('merc_scored') && event.mercsScore > mercsScore) {
+              setMercsScore(event.mercsScore);
+              // Update last score time
+              lastScoreTime.current = Date.now();
+              localStorage.setItem('mercs_score', String(event.mercsScore));
+            }
             
-            // Save to localStorage
-            saveScoredJackalopes();
+            // If this is a jackalope scoring event, update jackalope score
+            if (event.source.includes('jackalope_scored') && event.jackalopesScore > jackalopesScore) {
+              setJackalopesScore(event.jackalopesScore);
+              // Update last score time
+              lastScoreTime.current = Date.now();
+              localStorage.setItem('jackalopes_score', String(event.jackalopesScore));
+            }
+            
+            // Update scored jackalopes tracking if provided
+            if (event.scoredJackalopes && Array.isArray(event.scoredJackalopes)) {
+              console.log(`📊 Updating scored jackalopes list with ${event.scoredJackalopes.length} entries from network`);
+              
+              // Merge the received list with our current list
+              event.scoredJackalopes.forEach((id: string) => {
+                scoredJackalopesRef.current.add(id);
+              });
+              
+              // Save to localStorage
+              saveScoredJackalopes();
+            }
+            
+            // If a single jackalope was eliminated, add it to our tracking
+            if (event.eliminatedJackalopeId) {
+              console.log(`📊 Adding jackalope ${event.eliminatedJackalopeId} to scored list from network event`);
+              scoredJackalopesRef.current.add(event.eliminatedJackalopeId);
+              saveScoredJackalopes();
+            }
+          } 
+          else {
+            // Other score updates (periodic sync, etc)
+            console.log('📊 Processing general score update from network');
+            
+            // For general updates, take the higher score
+            const newJackalopesScore = Math.max(jackalopesScore, event.jackalopesScore || 0);
+            const newMercsScore = Math.max(mercsScore, event.mercsScore || 0);
+            
+            if (newJackalopesScore !== jackalopesScore || newMercsScore !== mercsScore) {
+              console.log(`📊 Updating scores to higher values: J=${newJackalopesScore}, M=${newMercsScore}`);
+              
+              if (newJackalopesScore !== jackalopesScore) {
+                setJackalopesScore(newJackalopesScore);
+                localStorage.setItem('jackalopes_score', String(newJackalopesScore));
+              }
+              
+              if (newMercsScore !== mercsScore) {
+                setMercsScore(newMercsScore);
+                localStorage.setItem('mercs_score', String(newMercsScore));
+              }
+              
+              // Update last score time if either score changed
+              lastScoreTime.current = Date.now();
+            } else {
+              console.log('📊 No score changes needed - our scores are higher or equal');
+            }
           }
           
           // Announce the score update to make it very clear
           if (event.scoreType === 'jackalope') {
-            console.log(`🐰 Jackalope scored! (Updated remotely to ${event.jackalopesScore})`);
+            console.log(`🐰 Jackalope scored! Current scores: J=${jackalopesScore}, M=${mercsScore}`);
           } else if (event.scoreType === 'merc') {
-            console.log(`🎯 Merc scored! (Updated remotely to ${event.mercsScore})`);
+            console.log(`🎯 Merc scored! Current scores: J=${jackalopesScore}, M=${mercsScore}`);
           }
         }
       };
@@ -3098,30 +3189,94 @@ export function App() {
         // Mark this update as processed
         processedScoreUpdates.add(event.shotId);
         
-        console.log(`📊 Updating scores from window event: J=${event.jackalopesScore}, M=${event.mercsScore}`);
+        console.log(`📊 Updating scores from window event: J=${event.jackalopesScore}, M=${event.mercsScore}, source=${event.source || 'unknown'}`);
         
-        // Update scores to match the received values
-        setJackalopesScore(event.jackalopesScore);
-        setMercsScore(event.mercsScore);
-        
-        // Update scored jackalopes tracking if provided
-        if (event.scoredJackalopes && Array.isArray(event.scoredJackalopes)) {
-          console.log(`📊 Updating scored jackalopes list with ${event.scoredJackalopes.length} entries from window event`);
+        // Handle score updates by source type
+        if (event.source === 'timer_reset') {
+          // Only apply timer resets if our scores aren't more recent
+          if (!event.reset_time || Date.now() - event.reset_time < 5000) {
+            console.log('📊 Processing timer reset from window event');
+            setJackalopesScore(0);
+            setMercsScore(0);
+            localStorage.setItem('jackalopes_score', '0');
+            localStorage.setItem('mercs_score', '0');
+          } else {
+            console.log('📊 Ignoring old timer reset window event');
+          }
+        } 
+        else if (event.source && (event.source.includes('merc_scored') || event.source.includes('jackalope_scored'))) {
+          // Direct scoring events - always apply these with priority
+          console.log('📊 Processing direct scoring event from window');
           
-          // Merge the received list with our current list
-          event.scoredJackalopes.forEach((id: string) => {
-            scoredJackalopesRef.current.add(id);
-          });
+          // If this is a merc scoring event, update merc score
+          if (event.source.includes('merc_scored') && event.mercsScore > mercsScore) {
+            setMercsScore(event.mercsScore);
+            // Update last score time
+            lastScoreTime.current = Date.now();
+            localStorage.setItem('mercs_score', String(event.mercsScore));
+          }
           
-          // Save to localStorage
-          saveScoredJackalopes();
+          // If this is a jackalope scoring event, update jackalope score
+          if (event.source.includes('jackalope_scored') && event.jackalopesScore > jackalopesScore) {
+            setJackalopesScore(event.jackalopesScore);
+            // Update last score time
+            lastScoreTime.current = Date.now();
+            localStorage.setItem('jackalopes_score', String(event.jackalopesScore));
+          }
+          
+          // Update scored jackalopes tracking if provided
+          if (event.scoredJackalopes && Array.isArray(event.scoredJackalopes)) {
+            console.log(`📊 Updating scored jackalopes list with ${event.scoredJackalopes.length} entries from window event`);
+            
+            // Merge the received list with our current list
+            event.scoredJackalopes.forEach((id: string) => {
+              scoredJackalopesRef.current.add(id);
+            });
+            
+            // Save to localStorage
+            saveScoredJackalopes();
+          }
+          
+          // If a single jackalope was eliminated, add it to our tracking
+          if (event.eliminatedJackalopeId) {
+            console.log(`📊 Adding jackalope ${event.eliminatedJackalopeId} to scored list from window event`);
+            scoredJackalopesRef.current.add(event.eliminatedJackalopeId);
+            saveScoredJackalopes();
+          }
+        } 
+        else {
+          // Other score updates (periodic sync, etc)
+          console.log('📊 Processing general score update from window');
+          
+          // For general updates, take the higher score
+          const newJackalopesScore = Math.max(jackalopesScore, event.jackalopesScore || 0);
+          const newMercsScore = Math.max(mercsScore, event.mercsScore || 0);
+          
+          if (newJackalopesScore !== jackalopesScore || newMercsScore !== mercsScore) {
+            console.log(`📊 Updating scores to higher values: J=${newJackalopesScore}, M=${newMercsScore}`);
+            
+            if (newJackalopesScore !== jackalopesScore) {
+              setJackalopesScore(newJackalopesScore);
+              localStorage.setItem('jackalopes_score', String(newJackalopesScore));
+            }
+            
+            if (newMercsScore !== mercsScore) {
+              setMercsScore(newMercsScore);
+              localStorage.setItem('mercs_score', String(newMercsScore));
+            }
+            
+            // Update last score time if either score changed
+            lastScoreTime.current = Date.now();
+          } else {
+            console.log('📊 No score changes needed - our scores are higher or equal');
+          }
         }
         
-        // If a single jackalope was eliminated, add it to our tracking
-        if (event.eliminatedJackalopeId) {
-          console.log(`📊 Adding jackalope ${event.eliminatedJackalopeId} to scored list from window event`);
-          scoredJackalopesRef.current.add(event.eliminatedJackalopeId);
-          saveScoredJackalopes();
+        // Announce the score update to make it very clear
+        if (event.scoreType === 'jackalope') {
+          console.log(`🐰 Jackalope scored! Current scores: J=${jackalopesScore}, M=${mercsScore}`);
+        } else if (event.scoreType === 'merc') {
+          console.log(`🎯 Merc scored! Current scores: J=${jackalopesScore}, M=${mercsScore}`);
         }
       };
       
@@ -3213,6 +3368,215 @@ export function App() {
         window.removeEventListener('player_respawn', handleRespawnEvent as EventListener);
       };
     }, []);
+    
+    // Add this near the top of the App function component where other refs are defined
+    const processedScoreUpdates = useRef(new Set<string>()).current;
+    // Add this after lastScoreTime ref
+    const lastBroadcastTime = useRef(Date.now());
+    
+    // Update handleJackalopeScored function
+    const handleJackalopeScored = (event: CustomEvent) => {
+      // Only increment score if the local player is a jackalope
+      if (window.jackalopesGame?.playerType === 'jackalope') {
+        const mercId = event.detail?.mercId;
+        
+        if (!mercId) {
+          console.log(`🐰 Missing mercId in jackalope_scored event:`, event.detail);
+          return;
+        }
+        
+        console.log(`🐰 Processing scoring event: Jackalope scored against Merc ${mercId}`);
+        
+        // Skip if we've already scored for this merc (in the last minute)
+        const mercKey = `merc-${mercId}-${Math.floor(Date.now() / 60000)}`;
+        
+        if (scoredMercsRef.current.has(mercKey)) {
+          console.log(`🐰 Already scored for merc ${mercId} recently, not incrementing score`);
+          return;
+        }
+        
+        // Mark this merc as scored against
+        scoredMercsRef.current.add(mercKey);
+        console.log(`🐰 Adding merc ${mercId} to scored list (total: ${scoredMercsRef.current.size})`);
+        
+        // If the set gets too large, clear older entries
+        if (scoredMercsRef.current.size > 100) {
+          console.log('🐰 Clearing old scored mercs from tracking');
+          scoredMercsRef.current.clear();
+        }
+        
+        const newScore = jackalopesScore + 1;
+        setJackalopesScore(newScore);
+        // Update last score time to prevent timer resets from overriding
+        lastScoreTime.current = Date.now();
+        console.log(`🐰 Jackalope scored a point! Current score: ${jackalopesScore}, updating to: ${newScore}`);
+        
+        // Store the updated score in localStorage
+        try {
+          localStorage.setItem('jackalopes_score', String(newScore)); 
+          localStorage.setItem('scores_last_updated', String(Date.now()));
+          localStorage.setItem('last_score_time', Date.now().toString());
+        } catch (err) {
+          console.error('Error storing score in localStorage:', err);
+        }
+        
+        // Broadcast score update to all players if in multiplayer mode
+        if (enableMultiplayer && connectionManager && connectionManager.isReadyToSend()) {
+          // Generate a unique event ID to prevent duplicate processing
+          const scoreEventId = `score-j-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+          
+          // Use a direct broadcast message with a unique format for better reliability
+          console.log('📣 Broadcasting jackalope score:', newScore);
+          connectionManager.sendMessage({
+            type: 'game_event',
+            event: {
+              event_type: 'game_score_update',
+              source: 'jackalope_scored_direct_hit',
+              scoreType: 'jackalope', // Explicitly mark which score is being updated
+              jackalopesScore: newScore,
+              mercsScore: mercsScore,
+              targetMercId: mercId, // Include which merc was the target
+              scored_time: Date.now(), // Add timestamp to help with race conditions
+              timestamp: Date.now(),
+              shotId: scoreEventId
+            }
+          });
+          
+          // Also broadcast via window event for cross-tab communication
+          window.dispatchEvent(new CustomEvent('game_score_update', {
+            detail: {
+              event_type: 'game_score_update',
+              source: 'jackalope_scored_local',
+              scoreType: 'jackalope',
+              jackalopesScore: newScore,
+              mercsScore: mercsScore,
+              scored_time: Date.now(),
+              shotId: `score-j-local-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+            }
+          }));
+          
+          // Mark this score update as processed
+          processedScoreUpdates.add(scoreEventId);
+        }
+      }
+    };
+    
+    // Add periodic score sync function
+    const syncScoresWithNetwork = useCallback(() => {
+      // Only broadcast every 5 seconds at most
+      const now = Date.now();
+      if (now - lastBroadcastTime.current < 5000) {
+        return;
+      }
+      
+      lastBroadcastTime.current = now;
+      
+      // Don't broadcast if both scores are 0
+      if (jackalopesScore === 0 && mercsScore === 0) {
+        return;
+      }
+      
+      // Broadcast current scores to all players if in multiplayer mode
+      if (enableMultiplayer && connectionManager && connectionManager.isReadyToSend()) {
+        console.log('📣 Broadcasting periodic score sync');
+        
+        // Generate a unique event ID to prevent duplicate processing
+        const syncEventId = `sync-${now}-${Math.random().toString(36).substring(2, 9)}`;
+        
+        connectionManager.sendMessage({
+          type: 'game_event',
+          event: {
+            event_type: 'game_score_update',
+            source: 'periodic_sync',
+            jackalopesScore: jackalopesScore,
+            mercsScore: mercsScore,
+            timestamp: now,
+            shotId: syncEventId
+          }
+        });
+        
+        // Mark this sync as processed
+        processedScoreUpdates.add(syncEventId);
+        
+        // Also broadcast via window event for cross-tab communication
+        window.dispatchEvent(new CustomEvent('game_score_update', {
+          detail: {
+            source: 'periodic_sync',
+            jackalopesScore: jackalopesScore,
+            mercsScore: mercsScore,
+            timestamp: now,
+            shotId: `sync-window-${now}-${Math.random().toString(36).substring(2, 9)}`
+          }
+        }));
+      }
+    }, [jackalopesScore, mercsScore, enableMultiplayer, connectionManager]);
+    
+    // Add this effect to sync scores periodically
+    useEffect(() => {
+      // Set up periodic score sync to ensure all clients have latest scores
+      const syncInterval = setInterval(syncScoresWithNetwork, 15000);
+      
+      return () => clearInterval(syncInterval);
+    }, [syncScoresWithNetwork]);
+    
+    // Listen for timer reset events
+    useEffect(() => {
+      const handleTimerReset = (e: Event) => {
+        const event = (e as CustomEvent).detail;
+        if (!event || !event.id) return;
+        
+        console.log('⏱️ Received timer reset event from ScoreDisplay:', event);
+        
+        // Skip if we've already processed this reset
+        if (processedScoreUpdates.has(event.id)) {
+          return;
+        }
+        
+        // Mark this reset as processed
+        processedScoreUpdates.add(event.id);
+        
+        // Check if scores were updated recently
+        const timeSinceLastScore = Date.now() - lastScoreTime.current;
+        if (timeSinceLastScore > 5000 && (jackalopesScore > 0 || mercsScore > 0)) {
+          // Reset scores if it's been more than 5 seconds since the last score update
+          console.log('⏱️ Resetting scores from timer event');
+          setJackalopesScore(0);
+          setMercsScore(0);
+          localStorage.setItem('jackalopes_score', '0');
+          localStorage.setItem('mercs_score', '0');
+          localStorage.setItem('scores_reset_time', Date.now().toString());
+          
+          // Broadcast score reset
+          if (enableMultiplayer && connectionManager && connectionManager.isReadyToSend()) {
+            const resetEventId = `reset-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+            
+            connectionManager.sendMessage({
+              type: 'game_event',
+              event: {
+                event_type: 'game_score_update',
+                source: 'timer_reset',
+                jackalopesScore: 0,
+                mercsScore: 0,
+                reset_time: Date.now(),
+                timestamp: Date.now(),
+                shotId: resetEventId
+              }
+            });
+            
+            // Mark this reset as processed
+            processedScoreUpdates.add(resetEventId);
+          }
+        } else {
+          console.log(`⏱️ Not resetting scores from timer event - scores were updated ${timeSinceLastScore}ms ago`);
+        }
+      };
+      
+      window.addEventListener('timer_reset', handleTimerReset as EventListener);
+      
+      return () => {
+        window.removeEventListener('timer_reset', handleTimerReset as EventListener);
+      };
+    }, [jackalopesScore, mercsScore, enableMultiplayer, connectionManager]);
     
     return (
         <>
@@ -3704,6 +4068,52 @@ export function App() {
             <ScoreDisplay 
                 jackalopesScore={jackalopesScore} 
                 mercsScore={mercsScore} 
+                onReset={() => {
+                    // Only reset scores if no scoring events in the last 3 seconds
+                    // This prevents the timer from resetting scores that were just updated
+                    const timeSinceLastScore = Date.now() - lastScoreTime.current;
+                    if (timeSinceLastScore > 3000 || (jackalopesScore === 0 && mercsScore === 0)) {
+                        // Reset scores to 0-0 when timer reaches zero
+                        setJackalopesScore(0);
+                        setMercsScore(0);
+                        
+                        // Also update localStorage
+                        localStorage.setItem('jackalopes_score', '0');
+                        localStorage.setItem('mercs_score', '0');
+                        localStorage.setItem('scores_reset_time', Date.now().toString());
+                        
+                        // Also notify other clients if multiplayer is enabled
+                        if (enableMultiplayer && connectionManager && connectionManager.isReadyToSend()) {
+                            connectionManager.sendMessage({
+                                type: 'game_event',
+                                event: {
+                                    event_type: 'game_score_update',
+                                    source: 'timer_reset',
+                                    jackalopesScore: 0,
+                                    mercsScore: 0,
+                                    reset_time: Date.now(),
+                                    timestamp: Date.now(),
+                                    shotId: `reset-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+                                }
+                            });
+                            
+                            // Also broadcast via window event for cross-tab communication
+                            window.dispatchEvent(new CustomEvent('game_score_update', {
+                                detail: {
+                                    source: 'timer_reset',
+                                    jackalopesScore: 0,
+                                    mercsScore: 0,
+                                    reset_time: Date.now(),
+                                    shotId: `reset-window-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+                                }
+                            }));
+                        }
+                        
+                        console.log('🕒 Timer reached zero - scores reset to 0-0');
+                    } else {
+                        console.log(`🕒 Timer reached zero but score was updated ${timeSinceLastScore}ms ago - not resetting`);
+                    }
+                }}
             />
 
             {/* Add AudioToggleButton for easy audio control */}
