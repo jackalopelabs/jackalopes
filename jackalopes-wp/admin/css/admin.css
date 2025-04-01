@@ -1,0 +1,70 @@
+/**
+ * Jackalopes WP Plugin Admin Styles
+ */
+
+.jackalopes-admin-content {
+    margin-top: 20px;
+    max-width: 1200px;
+}
+
+.jackalopes-admin-section {
+    background: #fff;
+    border: 1px solid #ccd0d4;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+    margin-bottom: 20px;
+    padding: 20px;
+}
+
+.jackalopes-server-status {
+    display: flex;
+    align-items: center;
+    margin: 15px 0;
+    padding: 10px;
+    background: #f9f9f9;
+    border-left: 4px solid #ccc;
+}
+
+.jackalopes-server-running {
+    border-left-color: #46b450;
+}
+
+.jackalopes-server-stopped {
+    border-left-color: #dc3232;
+}
+
+.jackalopes-server-unknown {
+    border-left-color: #ffb900;
+}
+
+.status-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 10px;
+}
+
+.jackalopes-server-running .status-indicator {
+    background-color: #46b450;
+}
+
+.jackalopes-server-stopped .status-indicator {
+    background-color: #dc3232;
+}
+
+.jackalopes-server-unknown .status-indicator {
+    background-color: #ffb900;
+}
+
+.status-message {
+    flex: 1;
+}
+
+.jackalopes-shortcode-example {
+    display: inline-block;
+    padding: 10px;
+    background: #f1f1f1;
+    border: 1px solid #ddd;
+    font-family: monospace;
+    margin: 10px 0;
+} 
