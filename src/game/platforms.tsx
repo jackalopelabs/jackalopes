@@ -374,6 +374,28 @@ export function Platforms() {
                 </RigidBody>
             ))}
             
+            {/* Black respawn circle in the center of the map */}
+            <RigidBody
+                type="fixed"
+                position={[0, 0.5, 0]}
+                colliders="hull"
+                sensor={true}
+                name="respawn-circle"
+                userData={{ isRespawnCircle: true }}
+            >
+                <mesh castShadow receiveShadow>
+                    <cylinderGeometry args={[5, 5, 0.2, 32]} />
+                    <meshStandardMaterial
+                        color="#000000"
+                        side={THREE.DoubleSide}
+                        roughness={0.9}
+                        metalness={0.1}
+                        emissive="#000000"
+                        emissiveIntensity={0.5}
+                    />
+                </mesh>
+            </RigidBody>
+            
             {/* Low poly terrain outside - replace the flat floor */}
             <RigidBody
                 type="fixed"
@@ -737,23 +759,6 @@ export function Platforms() {
                 scaleVariation={0.3}
                 heightVariation={0.4}
             />
-            
-            {/* Add a black circle in the center of the map */}
-            <RigidBody
-                type="fixed"
-                position={[0, 0.01, 0]} // Slightly above the ground to prevent z-fighting
-                colliders="hull"
-            >
-                <mesh rotation={[-Math.PI/2, 0, 0]} receiveShadow>
-                    <circleGeometry args={[10, 32]} />
-                    <meshStandardMaterial 
-                        color="#000000"
-                        roughness={0.8}
-                        metalness={0.2}
-                        side={THREE.DoubleSide}
-                    />
-                </mesh>
-            </RigidBody>
         </group>
     )
 }

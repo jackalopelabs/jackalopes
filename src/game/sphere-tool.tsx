@@ -1578,8 +1578,7 @@ declare global {
         __createExplosionEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
         __createSpawnEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
         __networkManager?: {
-            sendRespawnRequest: (playerId: string) => void;
-            broadcastMessage: (type: string, data: any) => void;
+            sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => void;
         };
     }
 }

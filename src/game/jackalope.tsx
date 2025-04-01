@@ -24,6 +24,10 @@ declare global {
             updatePosition: (position: THREE.Vector3) => void;
         };
         __createSpawnEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
+        __createExplosionEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
+        __networkManager?: {
+            sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => void;
+        };
     }
 }
 
@@ -321,6 +325,80 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                     20, // Particles
                     0.5 // Radius
                 );
+            }
+        }
+        
+        // Check for collision with respawn circle (only for jackalope players)
+        if (!isRespawning && !isInvulnerable && window.jackalopesGame?.playerType === 'jackalope') {
+            const circlePosition = new THREE.Vector3(0, 0.5, 0); // Center of respawn circle
+            const distanceToCircle = position.current.distanceTo(circlePosition);
+            
+            // If jackalope is within 5 units of the circle center
+            if (distanceToCircle < 5) {
+                console.log('🐰 Jackalope touched respawn circle, triggering respawn');
+                
+                // Only trigger respawn if we have a connection manager
+                if (connectionManager) {
+                    // Get local player ID
+                    const localPlayerId = connectionManager.getPlayerId();
+                    
+                    // Default respawn position for jackalope
+                    const spawnPosition: [number, number, number] = [-10, 3, 10];
+                    
+                    try {
+                        // Create explosion effect at current position before respawning
+                        if (window.__createExplosionEffect) {
+                            window.__createExplosionEffect(
+                                position.current.clone(),
+                                '#4682B4', // Blue color for Jackalope
+                                30, // More particles for a bigger effect
+                                0.3 // Larger explosion radius
+                            );
+                        }
+                        
+                        // Send respawn request through network manager
+                        if (window.__networkManager && localPlayerId) {
+                            window.__networkManager.sendRespawnRequest(localPlayerId, spawnPosition);
+                            console.log(`🐰 Respawn request sent for jackalope ${localPlayerId}`);
+                        } else if (connectionManager && localPlayerId) {
+                            // Fallback to connection manager if __networkManager isn't available
+                            connectionManager.sendRespawnRequest(localPlayerId, spawnPosition);
+                            console.log(`🐰 Respawn request sent via connectionManager for ${localPlayerId}`);
+                        } else {
+                            console.log('🐰 No player ID available for respawn request');
+                        }
+                        
+                        // Apply respawn immediately to avoid delay
+                        // Create a new THREE.Vector3 from spawn coordinates
+                        respawnTargetPosition.current = new THREE.Vector3(spawnPosition[0], spawnPosition[1], spawnPosition[2]);
+                        
+                        // Update tracked position
+                        position.current.set(spawnPosition[0], spawnPosition[1], spawnPosition[2]);
+                        
+                        // Direct teleport
+                        jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current);
+                        jackalopeRef.current.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true); // Reset velocity
+                        
+                        // Set respawning state
+                        setIsRespawning(true);
+                        respawnEffectRef.current = true; // Trigger visual effect
+                        
+                        // Set invulnerable state after a short delay
+                        setTimeout(() => {
+                            setIsRespawning(false);
+                            setIsInvulnerable(true);
+                            
+                            // Remove invulnerability after 3 seconds
+                            setTimeout(() => {
+                                setIsInvulnerable(false);
+                            }, 3000);
+                        }, 300);
+                    } catch (error) {
+                        console.error(`🐰 Error handling respawn from circle:`, error);
+                    }
+                } else {
+                    console.log('🐰 No connection manager available for respawn');
+                }
             }
         }
         
