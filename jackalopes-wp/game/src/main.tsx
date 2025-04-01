@@ -12,17 +12,20 @@ interface JackalopesGameOptions {
   server?: string;
 }
 
+// Define WordPress settings interface
+interface JackalopesGameSettings {
+  ajaxUrl: string;
+  pluginUrl: string;
+  assetsUrl: string;
+  serverUrl: string;
+  debug: boolean;
+  nonce: string;
+}
+
 declare global {
   interface Window {
     initJackalopesGame: (containerId: string, options?: JackalopesGameOptions) => void;
-    jackalopesGameSettings?: {
-      ajaxUrl: string;
-      pluginUrl: string;
-      assetsUrl: string;
-      serverUrl: string;
-      debug: boolean;
-      nonce: string;
-    };
+    jackalopesGameSettings?: JackalopesGameSettings;
   }
 }
 
@@ -36,7 +39,14 @@ window.initJackalopesGame = (containerId: string, options: JackalopesGameOptions
   }
   
   // Get WordPress settings if available
-  const wpSettings = window.jackalopesGameSettings || {};
+  const wpSettings = window.jackalopesGameSettings || {
+    ajaxUrl: '',
+    pluginUrl: '',
+    assetsUrl: '',
+    serverUrl: '',
+    debug: false,
+    nonce: ''
+  };
   
   // Merge options with WordPress settings
   const serverUrl = options.server || wpSettings.serverUrl || 'ws://localhost:8082';
@@ -56,7 +66,7 @@ window.initJackalopesGame = (containerId: string, options: JackalopesGameOptions
         serverUrl={serverUrl}
         isFullscreen={isFullscreen}
         isWordPress={true}
-        assetsUrl={wpSettings.assetsUrl || ''}
+        assetsUrl={wpSettings.assetsUrl}
       />
     </React.StrictMode>
   );

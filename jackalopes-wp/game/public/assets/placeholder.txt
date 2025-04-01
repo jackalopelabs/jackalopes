@@ -1,0 +1,9 @@
+This is a placeholder file. 
+
+In a real implementation, this directory would contain:
+- 3D models (.glb, .gltf)
+- Textures (.jpg, .png)
+- Sound effects (.mp3, .wav)
+- Other game assets
+
+When integrating the actual Jackalopes game, you would copy the assets from the original project to this directory. 
