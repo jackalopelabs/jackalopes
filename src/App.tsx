@@ -3723,10 +3723,10 @@ export function App() {
             baseSpawnX: -100,
             currentSpawnX: -100,
             stepSize: 50,
-            minX: -50,
+            minX: -500, // Changed from -50 to -500 to allow going further out
             getNextSpawnPoint: function(): [number, number, number] {
-                // Adjust X to move closer by stepSize
-                this.currentSpawnX = Math.min(this.minX, this.currentSpawnX + this.stepSize);
+                // Adjust X to move further away by stepSize (subtract instead of add)
+                this.currentSpawnX = Math.max(this.minX, this.currentSpawnX - this.stepSize);
                 console.log(`🐰 [SpawnManager] Next spawn at X: ${this.currentSpawnX}`);
                 return [this.currentSpawnX, 3, 10];
             },

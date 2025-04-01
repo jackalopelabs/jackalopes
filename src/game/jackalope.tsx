@@ -126,9 +126,6 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
     // Track last server sync
     const lastStateTime = useRef(0)
     
-    // Add state to track spawn position that decreases X distance each respawn
-    const [spawnPositionX, setSpawnPositionX] = useState<number>(-100);
-    
     // Initialize position and physics controller
     useEffect(() => {
         // Create physics character controller
@@ -251,11 +248,6 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 
                 console.log(`🐰 Spawn coordinates: [${spawnCoords.join(', ')}]`);
                 
-                // Update spawn position for next respawn - move closer by 50 units
-                const newX = Math.min(-50, spawnPositionX + 50); // Don't go beyond -50
-                setSpawnPositionX(newX);
-                console.log(`🐰 Next spawn X position will be: ${newX}`);
-                
                 // Create a new THREE.Vector3 from spawn coordinates
                 respawnTargetPosition.current = new THREE.Vector3(spawnCoords[0], spawnCoords[1], spawnCoords[2]);
                 
@@ -311,7 +303,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         } catch (error) {
             console.error(`🐰 Error handling respawn after scoring:`, error);
         }
-    }, [connectionManager, spawnPositionX]);
+    }, [connectionManager]);
     
     useEffect(() => {
         // Add event listener
