@@ -2828,8 +2828,8 @@ export function App() {
         return (
             <div style={{
                 position: 'absolute',
-                bottom: '20px',
-                right: '20px',
+                top: '20px',
+                left: '20px',
                 padding: '5px 10px',
                 backgroundColor: isOn ? 'rgba(255, 255, 0, 0.3)' : 'rgba(100, 100, 100, 0.3)',
                 color: isOn ? '#ffff00' : '#aaaaaa',
