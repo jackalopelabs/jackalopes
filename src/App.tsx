@@ -57,6 +57,7 @@ declare global {
         playerPositionTracker?: {
             updatePosition: (newPos: THREE.Vector3) => void;
         };
+        __lastHitJackalope?: string;
     }
 }
 
@@ -1210,6 +1211,58 @@ export function App() {
     // Add score state
     const [jackalopesScore, setJackalopesScore] = useState(0);
     const [mercsScore, setMercsScore] = useState(0);
+    
+    // Track which jackalopes have been hit to avoid double-counting
+    // This is shared between both scoring mechanisms
+    const scoredJackalopesRef = useRef(new Set<string>());
+    
+    // Log current tracking state for debugging
+    useEffect(() => {
+      try {
+        const storedJackalopes = localStorage.getItem('scored_jackalopes');
+        console.log(`🎯 APP INIT: Tracked jackalopes from localStorage: ${storedJackalopes || 'none'}`);
+      } catch (err) {
+        console.error('Error checking localStorage:', err);
+      }
+      
+      // Log at startup what jackalopes are already in the tracking set
+      console.log(`🎯 APP INIT: Current tracked jackalopes: ${Array.from(scoredJackalopesRef.current).join(', ') || 'none'} (count: ${scoredJackalopesRef.current.size})`);
+    }, []);
+    
+    // Initialize scored jackalopes tracking from localStorage
+    useEffect(() => {
+      try {
+        const storedScoredJackalopes = localStorage.getItem('scored_jackalopes');
+        if (storedScoredJackalopes) {
+          const parsedJackalopes = JSON.parse(storedScoredJackalopes);
+          if (Array.isArray(parsedJackalopes)) {
+            scoredJackalopesRef.current = new Set(parsedJackalopes);
+            console.log(`📊 Loaded ${scoredJackalopesRef.current.size} previously scored jackalopes from localStorage`);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading scored jackalopes from localStorage:', err);
+      }
+    }, []);
+    
+    // Helper function to save scored jackalopes to localStorage
+    const saveScoredJackalopes = () => {
+      try {
+        const jackalopesArray = Array.from(scoredJackalopesRef.current);
+        localStorage.setItem('scored_jackalopes', JSON.stringify(jackalopesArray));
+      } catch (err) {
+        console.error('Error saving scored jackalopes to localStorage:', err);
+      }
+    };
+    
+    // Helper function to clear tracking for a specific jackalope
+    const clearScoredJackalope = (jackalopeId: string) => {
+      if (scoredJackalopesRef.current.has(jackalopeId)) {
+        console.log(`🎯 Clearing scored tracking for respawned jackalope ${jackalopeId}`);
+        scoredJackalopesRef.current.delete(jackalopeId);
+        saveScoredJackalopes();
+      }
+    };
     
     // Initialize debug system
     useEffect(() => {
@@ -2677,21 +2730,52 @@ export function App() {
             if (connectionManager) {
               console.log(`[App] Sending respawn request for player ${playerId} with default spawn position [-10, 3, 10]`);
               
+              // Check if this is the jackalope that was actually hit
+              if (window.__lastHitJackalope && window.__lastHitJackalope !== playerId) {
+                console.log(`[App] Skipping respawn for ${playerId} as it wasn't the last hit jackalope (${window.__lastHitJackalope})`);
+                return;
+              }
+              
               // Default spawn position for jackalope
               const defaultSpawnPosition: [number, number, number] = [-10, 3, 10];
               
               // Use the provided spawn position or default
               const finalSpawnPosition = spawnPosition || defaultSpawnPosition;
               
+              // Clear tracking for this jackalope since it's respawning
+              // This will allow scoring points for this jackalope again after respawn
+              clearScoredJackalope(playerId);
+              
               // Use the updated method with spawn position
               connectionManager.sendRespawnRequest(playerId, finalSpawnPosition);
               
               // If this is from a merc hitting a jackalope, increment merc score
               const localPlayerType = window.jackalopesGame?.playerType;
+              console.log(`[App] Checking scoring: Local player type: ${localPlayerType}, Merc hit Jackalope: ${playerId}`);
+              
               if (localPlayerType === 'merc') {
-                setMercsScore(prevScore => prevScore + 1);
-                console.log('🎯 Merc scored a point! New score:', mercsScore + 1);
+                // Since we just cleared the tracking, this should now score appropriately
+                const newScore = mercsScore + 1;
+                setMercsScore(newScore);
+                
+                // Re-add to scored list after incrementing the score
+                scoredJackalopesRef.current.add(playerId);
+                console.log(`🎯 Merc scored a point! Current score: ${mercsScore}, updating to: ${newScore}`);
+                
+                // Save updated list to localStorage
+                saveScoredJackalopes();
+                
+                // Store the updated score in localStorage
+                try {
+                  localStorage.setItem('mercs_score', String(newScore));
+                  localStorage.setItem('scores_last_updated', String(Date.now()));
+                } catch (err) {
+                  console.error('Error storing score in localStorage:', err);
+                }
               }
+              
+              // Clear the last hit jackalope flag after processing
+              window.__lastHitJackalope = undefined;
             }
           }
         };
@@ -2811,9 +2895,40 @@ export function App() {
       const handleMercScored = (event: CustomEvent) => {
         // Only increment score if the local player is a merc
         if (window.jackalopesGame?.playerType === 'merc') {
+          // Extract jackalope ID from the event
+          const jackalopeId = event.detail?.jackalopeId;
+          const mercId = event.detail?.mercId;
+          const shotId = event.detail?.shotId;
+          
+          if (!jackalopeId) {
+            console.log(`🎯 Missing jackalopeId in merc_scored event:`, event.detail);
+            return;
+          }
+          
+          console.log(`🎯 Processing scoring event: Merc ${mercId} hit Jackalope ${jackalopeId} with shot ${shotId}`);
+          
+          // Skip if we've already scored for this jackalope
+          if (scoredJackalopesRef.current.has(jackalopeId)) {
+            console.log(`🎯 Already scored for jackalope ${jackalopeId}, not incrementing score`);
+            return;
+          }
+          
+          // Mark this jackalope as scored
+          scoredJackalopesRef.current.add(jackalopeId);
+          console.log(`🎯 Adding jackalope ${jackalopeId} to scored list (total: ${scoredJackalopesRef.current.size})`);
+          
+          // If the set gets too large, clear older entries (after 100 entries)
+          if (scoredJackalopesRef.current.size > 100) {
+            console.log('🎯 Clearing old scored jackalopes from tracking');
+            scoredJackalopesRef.current.clear();
+          } else {
+            // Save updated list to localStorage  
+            saveScoredJackalopes();
+          }
+          
           const newScore = mercsScore + 1;
           setMercsScore(newScore);
-          console.log('🎯 Merc scored a point! New score:', newScore);
+          console.log(`🎯 Merc scored a point! Current score: ${mercsScore}, updating to: ${newScore}`);
           
           // Store the updated score in localStorage
           try {
@@ -2831,10 +2946,14 @@ export function App() {
               type: 'game_event',
               event: {
                 event_type: 'game_score_update', // More specific event type
-                source: 'merc_scored',
+                source: 'merc_scored_direct_hit',
                 scoreType: 'merc', // Explicitly mark which score is being updated
                 jackalopesScore: jackalopesScore,
                 mercsScore: newScore,
+                eliminatedJackalopeId: jackalopeId, // Include which jackalope was eliminated
+                mercId: mercId,
+                hitShotId: shotId, // Original shot ID that caused the hit
+                scoredJackalopes: Array.from(scoredJackalopesRef.current), // Share which jackalopes have been scored
                 timestamp: Date.now(),
                 shotId: `score-m-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
               }
@@ -2941,6 +3060,19 @@ export function App() {
           setJackalopesScore(event.jackalopesScore);
           setMercsScore(event.mercsScore);
           
+          // Update scored jackalopes tracking if provided
+          if (event.scoredJackalopes && Array.isArray(event.scoredJackalopes)) {
+            console.log(`📊 Updating scored jackalopes list with ${event.scoredJackalopes.length} entries from network`);
+            
+            // Merge the received list with our current list
+            event.scoredJackalopes.forEach((id: string) => {
+              scoredJackalopesRef.current.add(id);
+            });
+            
+            // Save to localStorage
+            saveScoredJackalopes();
+          }
+          
           // Announce the score update to make it very clear
           if (event.scoreType === 'jackalope') {
             console.log(`🐰 Jackalope scored! (Updated remotely to ${event.jackalopesScore})`);
@@ -2971,6 +3103,26 @@ export function App() {
         // Update scores to match the received values
         setJackalopesScore(event.jackalopesScore);
         setMercsScore(event.mercsScore);
+        
+        // Update scored jackalopes tracking if provided
+        if (event.scoredJackalopes && Array.isArray(event.scoredJackalopes)) {
+          console.log(`📊 Updating scored jackalopes list with ${event.scoredJackalopes.length} entries from window event`);
+          
+          // Merge the received list with our current list
+          event.scoredJackalopes.forEach((id: string) => {
+            scoredJackalopesRef.current.add(id);
+          });
+          
+          // Save to localStorage
+          saveScoredJackalopes();
+        }
+        
+        // If a single jackalope was eliminated, add it to our tracking
+        if (event.eliminatedJackalopeId) {
+          console.log(`📊 Adding jackalope ${event.eliminatedJackalopeId} to scored list from window event`);
+          scoredJackalopesRef.current.add(event.eliminatedJackalopeId);
+          saveScoredJackalopes();
+        }
       };
       
       // Listen for window events as well for better cross-client synchronization
@@ -3043,6 +3195,24 @@ export function App() {
         clearInterval(syncInterval);
       };
     }, [enableMultiplayer, connectionManager, jackalopesScore, mercsScore]);
+    
+    // Add handler for respawn events from server
+    useEffect(() => {
+      const handleRespawnEvent = (event: CustomEvent) => {
+        const respawnedPlayerId = event.detail?.playerId;
+        if (respawnedPlayerId) {
+          // Clear tracking for this jackalope when it respawns from a network event
+          clearScoredJackalope(respawnedPlayerId);
+          console.log(`🔄 Cleared tracking for respawned jackalope: ${respawnedPlayerId}`);
+        }
+      };
+      
+      window.addEventListener('player_respawn', handleRespawnEvent as EventListener);
+      
+      return () => {
+        window.removeEventListener('player_respawn', handleRespawnEvent as EventListener);
+      };
+    }, []);
     
     return (
         <>

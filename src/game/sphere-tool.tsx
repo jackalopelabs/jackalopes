@@ -688,6 +688,9 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                 // Log that we found a Jackalope to hit
                 console.log(`Found Jackalope ${jackalopeId} to hit!`);
                 
+                // Set the last hit jackalope to prevent multiple respawns
+                window.__lastHitJackalope = jackalopeId;
+                
                 // Use the special hit handler provided by the jackalope
                 if (jackalopeId && window.__jackalopeHitHandlers[jackalopeId]) {
                     console.log(`Using hit handler for jackalope ${jackalopeId}`);
@@ -698,21 +701,25 @@ const Sphere = ({ id, position, direction, color, radius, isStuck: initialIsStuc
                         const shooterId = sphereIdParts.length > 1 ? sphereIdParts[0] : 'unknown';
                         
                         // Call the handler with the projectile ID and shooter ID
-                        const success = window.__jackalopeHitHandlers[jackalopeId](id, shooterId);
+                        const hitResult = window.__jackalopeHitHandlers[jackalopeId](id, shooterId);
                         
-                        if (success) {
+                        if (hitResult) {
                             console.log(`Successfully hit jackalope ${jackalopeId} with projectile ${id}`);
                             
-                            // Trigger a scoring event for the merc who hit the jackalope
+                            // Dispatch additional scoring event with explicit projectile ID
+                            // This gives multiple chances for the scoring to be handled properly
                             try {
-                                // Dispatch a custom event to update the merc's score
                                 const scoringEvent = new CustomEvent('merc_scored', {
-                                    detail: { mercId: shooterId, jackalopeId }
+                                    detail: { 
+                                        mercId: shooterId || 'unknown', 
+                                        jackalopeId: jackalopeId,
+                                        shotId: id
+                                    }
                                 });
                                 window.dispatchEvent(scoringEvent);
-                                console.log(`🎯 Dispatched scoring event for merc ${shooterId} hitting jackalope ${jackalopeId}`);
+                                console.log(`🎯 Dispatched scoring event for merc ${shooterId || 'unknown'} hitting jackalope ${jackalopeId} with projectile ${id}`);
                             } catch (err) {
-                                console.error('Error dispatching merc scoring event:', err);
+                                console.error('Error dispatching detailed merc scoring event:', err);
                             }
                             
                             // Disable the projectile
@@ -1589,6 +1596,7 @@ declare global {
         __jackalopeHitHandlers?: Record<string, (projectileId: string, shooterId: string) => boolean>;
         __createExplosionEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
         __createSpawnEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
+        __lastHitJackalope?: string; // Track which jackalope was last hit
         __networkManager?: {
             sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => void;
         };

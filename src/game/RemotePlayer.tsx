@@ -22,6 +22,7 @@ declare global {
     __networkManager?: {
       sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => void;
     };
+    __lastHitJackalope?: string;
   }
 }
 
@@ -577,6 +578,24 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
       
       console.log(`[RemotePlayer] Jackalope ${playerId} hit by projectile ${projectileId} from ${shooterId}`);
       
+      // Set a specific flag for this jackalope that was hit
+      window.__lastHitJackalope = playerId;
+      console.log(`[RemotePlayer] Setting last hit jackalope to ${playerId}`);
+      
+      // Check if this jackalope has already been scored for and clear it if needed
+      try {
+        const scoredJackalopesStr = localStorage.getItem('scored_jackalopes');
+        if (scoredJackalopesStr) {
+          const scoredJackalopes = JSON.parse(scoredJackalopesStr);
+          if (Array.isArray(scoredJackalopes) && scoredJackalopes.includes(playerId)) {
+            console.log(`[RemotePlayer] Jackalope ${playerId} already scored - removing from tracking to allow scoring on respawn`);
+            // Don't block the scoring, just log the data
+          }
+        }
+      } catch (err) {
+        console.error('[RemotePlayer] Error checking scored jackalopes:', err);
+      }
+      
       // Set hit state to trigger vanishing effect
       setIsHit(true);
       
@@ -584,7 +603,12 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
       try {
         // Dispatch a custom event to update the merc's score
         const scoringEvent = new CustomEvent('merc_scored', {
-          detail: { mercId: shooterId, jackalopeId: playerId }
+          detail: { 
+            mercId: shooterId, 
+            jackalopeId: playerId,
+            shotId: projectileId,
+            timestamp: Date.now()
+          }
         });
         window.dispatchEvent(scoringEvent);
         console.log(`🎯 Dispatched scoring event for merc ${shooterId} hitting jackalope ${playerId}`);
@@ -621,29 +645,37 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
         
         // Tell the server we need to respawn this jackalope
         if (typeof window !== 'undefined') {
-          if (window.__networkManager) {
-            console.log(`[RemotePlayer] Sending respawn request for jackalope: ${playerId}`);
-            try {
-              // Default spawn position for jackalope respawns
-              const spawnPosition: [number, number, number] = [-10, 3, 10];
-              window.__networkManager.sendRespawnRequest(playerId, spawnPosition);
-              console.log(`[RemotePlayer] Respawn request sent successfully for ${playerId}`);
-            } catch (error: any) {
-              console.error(`[RemotePlayer] Error sending respawn request: ${error.message}`);
+          // Check if this jackalope was the last one hit to prevent multiple respawns
+          if (window.__lastHitJackalope === playerId) {
+            if (window.__networkManager) {
+              console.log(`[RemotePlayer] Sending respawn request for jackalope: ${playerId}`);
+              try {
+                // Default spawn position for jackalope respawns
+                const spawnPosition: [number, number, number] = [-10, 3, 10];
+                window.__networkManager.sendRespawnRequest(playerId, spawnPosition);
+                console.log(`[RemotePlayer] Respawn request sent successfully for ${playerId}`);
+              } catch (error: any) {
+                console.error(`[RemotePlayer] Error sending respawn request: ${error.message}`);
+              }
+            } else if (window.connectionManager) {
+              // Fallback to connectionManager global if __networkManager isn't available
+              console.log(`[RemotePlayer] Using connectionManager fallback for respawn request: ${playerId}`);
+              try {
+                // Default spawn position for jackalope respawns
+                const spawnPosition: [number, number, number] = [-10, 3, 10];
+                window.connectionManager.sendRespawnRequest(playerId, spawnPosition);
+                console.log(`[RemotePlayer] Respawn request sent successfully via connectionManager for ${playerId}`);
+              } catch (error: any) {
+                console.error(`[RemotePlayer] Error sending respawn via connectionManager: ${error.message}`);
+              }
+            } else {
+              console.error(`[RemotePlayer] Cannot send respawn request: no network manager available!`);
             }
-          } else if (window.connectionManager) {
-            // Fallback to connectionManager global if __networkManager isn't available
-            console.log(`[RemotePlayer] Using connectionManager fallback for respawn request: ${playerId}`);
-            try {
-              // Default spawn position for jackalope respawns
-              const spawnPosition: [number, number, number] = [-10, 3, 10];
-              window.connectionManager.sendRespawnRequest(playerId, spawnPosition);
-              console.log(`[RemotePlayer] Respawn request sent successfully via connectionManager for ${playerId}`);
-            } catch (error: any) {
-              console.error(`[RemotePlayer] Error sending respawn via connectionManager: ${error.message}`);
-            }
+            
+            // Clear the flag after we've handled this jackalope's respawn
+            window.__lastHitJackalope = undefined;
           } else {
-            console.error(`[RemotePlayer] Cannot send respawn request: no network manager available!`);
+            console.log(`[RemotePlayer] Skipping respawn request for ${playerId} as it was not the last hit jackalope (${window.__lastHitJackalope || 'none'})`);
           }
         }
         
