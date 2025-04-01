@@ -243,6 +243,49 @@ Our solution involves creating a centralized entity state tracking system that e
    - Test shooting events from all characters
    - Test movement audio (footsteps) for all character types
 
+## 2v2 Multiplayer Strategy
+
+We've implemented a structured 2v2 multiplayer strategy that ensures a balanced gameplay experience with consistent character assignments:
+
+### Player Assignment Rules
+- **Player 1**: Always assigned as a Jackalope (third-person view)
+- **Player 2**: Always assigned as a Merc (first-person view)
+- **Player 3**: Always assigned as a Jackalope (third-person view)
+- **Player 4**: Always assigned as a Merc (first-person view)
+- **Maximum Players**: The game enforces a 4-player limit for balanced 2v2 matches
+
+### Implementation Details
+1. **Player Counting**: The system uses `localStorage` to track the total number of connected players across browsers
+2. **Consistent Indexing**: Each player is assigned a unique index (0-3) that determines their character type
+3. **Character Assignment Logic**:
+   ```javascript
+   // Player index determines character type
+   if (index % 2 === 0) {
+     // Players 1 & 3 (index 0 & 2) = Jackalope in third-person
+     return { type: 'jackalope', thirdPerson: true };
+   } else {
+     // Players 2 & 4 (index 1 & 3) = Merc in first-person
+     return { type: 'merc', thirdPerson: false };
+   }
+   ```
+4. **Lobby Full Detection**: When the player count reaches 4, the system marks the lobby as full
+5. **New Connection Handling**: Players attempting to join after the 4-player limit is reached can be:
+   - Assigned to a spectator role (future enhancement)
+   - Redirected to another lobby
+   - Shown a "lobby full" message
+
+### Technical Implementation
+1. The `ConnectionManager.getPlayerCharacterType()` method handles assignment based on player index
+2. `localStorage` is used for cross-browser synchronization of player counts and assignments
+3. Character assignments are persisted to ensure consistency across page refreshes
+4. Error correction checks run periodically to ensure player types match their assigned indices
+
+### Benefits
+- **Balanced Teams**: Always maintains equal numbers of Mercs and Jackalopes
+- **Predictable Roles**: Players joining know which role they'll receive based on join order
+- **Persistent Identities**: Players maintain their assigned character type even after reconnecting
+- **Cross-Browser Compatibility**: Works across multiple browser windows and devices
+
 ## Character Model and Animation Improvements
 
 The character models have been significantly improved to enhance the multiplayer experience:

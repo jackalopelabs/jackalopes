@@ -1042,6 +1042,13 @@ export class ConnectionManager extends EventEmitter {
       if (!storedCount || parseInt(storedCount) < index) {
         localStorage.setItem('jackalopes_player_count', index.toString());
       }
+      
+      // Check if we've reached the player limit (4 players)
+      if (index >= 4) {
+        console.error(`⭐ Maximum player count reached (${index + 1}/4). New connections will not be assigned unique roles.`);
+        // Store a flag indicating the lobby is full
+        localStorage.setItem('jackalopes_lobby_full', 'true');
+      }
     } catch (e) {
       // Ignore localStorage errors
     }
@@ -1061,17 +1068,26 @@ export class ConnectionManager extends EventEmitter {
       // Ignore localStorage errors
     }
     
-    // Even indexes (0, 2, 4...) = Jackalope in third-person
-    // Odd indexes (1, 3, 5...) = Merc in first-person
+    // Check if we've reached the player limit (4 players)
+    if (index >= 4) {
+      console.error(`⭐ Player #${index} (player ${index + 1}) exceeds the 4 player limit. Assigning as spectator.`);
+      // For players beyond the 4-player limit, we could implement a spectator mode
+      // For now, just assign them as a jackalope (could be changed later)
+      return { type: 'jackalope', thirdPerson: true };
+    }
+    
+    // Implement 2v2 assignment strategy:
+    // Players 1 & 3 (index 0 & 2) = Jackalope in third-person
+    // Players 2 & 4 (index 1 & 3) = Merc in first-person
     if (index % 2 === 0) {
-      console.error(`⭐ Player #${index} (player ${index + 1}) assigned as JACKALOPE in 3rd-person view`);
+      console.error(`⭐ Player #${index} (player ${index + 1}/4) assigned as JACKALOPE in 3rd-person view`);
       
       // IMPROVEMENT: Persist this type to the instance
       this.playerType = 'jackalope';
       
       return { type: 'jackalope' as const, thirdPerson: true };
     } else {
-      console.error(`⭐ Player #${index} (player ${index + 1}) assigned as MERC in 1st-person view`);
+      console.error(`⭐ Player #${index} (player ${index + 1}/4) assigned as MERC in 1st-person view`);
       
       // IMPROVEMENT: Persist this type to the instance
       this.playerType = 'merc';
@@ -1333,5 +1349,26 @@ export class ConnectionManager extends EventEmitter {
   // Public accessor for connection status
   getConnectionStatus(): boolean {
     return this.isConnected;
+  }
+  
+  // Add a method to check if the lobby is full (4 players maximum)
+  isLobbyFull(): boolean {
+    // Check localStorage first as it's more reliable across multiple tabs/browsers
+    try {
+      const lobbyFullFlag = localStorage.getItem('jackalopes_lobby_full');
+      if (lobbyFullFlag === 'true') {
+        return true;
+      }
+      
+      const storedCount = localStorage.getItem('jackalopes_player_count');
+      if (storedCount && parseInt(storedCount) >= 3) { // Index is 0-based, so 3 = 4 players
+        return true;
+      }
+    } catch (e) {
+      // Ignore localStorage errors
+    }
+    
+    // Also check the static player count as fallback
+    return ConnectionManager.playerCount >= 3; // 0-based, so 3 = 4 players
   }
 } 

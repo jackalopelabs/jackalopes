@@ -3718,7 +3718,7 @@ export function App() {
     } as any; // Use type assertion to bypass type check
     
     // Create a jackalope spawn position manager
-    if (!window.jackalopesGame.spawnManager) {
+    if (typeof window !== 'undefined' && window.jackalopesGame && !window.jackalopesGame.spawnManager) {
         window.jackalopesGame.spawnManager = {
             baseSpawnX: -100,
             currentSpawnX: -100,
@@ -4153,6 +4153,32 @@ export function App() {
                     </p>
                     <p style={{ margin: '5px 0 0', fontSize: '12px' }}>
                         Cross-browser shots are enabled using localStorage
+                    </p>
+                </div>
+            )}
+            
+            {/* Lobby Full Notification */}
+            {enableMultiplayer && connectionManager?.isLobbyFull?.() && (
+                <div style={{
+                    position: 'fixed',
+                    top: showOfflineNotification ? '110px' : '50px',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    backgroundColor: '#ff9800',
+                    color: 'white',
+                    padding: '10px 15px',
+                    borderRadius: '4px',
+                    zIndex: 2000,
+                    fontSize: '14px',
+                    textAlign: 'center',
+                    boxShadow: '0 4px 8px rgba(0,0,0,0.2)',
+                    maxWidth: '80%'
+                }}>
+                    <p style={{ margin: '0', fontWeight: 'bold' }}>
+                        Lobby Full: Maximum of 4 players reached
+                    </p>
+                    <p style={{ margin: '5px 0 0', fontSize: '12px' }}>
+                        You can still play, but team balancing may be affected
                     </p>
                 </div>
             )}
