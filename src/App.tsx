@@ -2779,7 +2779,7 @@ export function App() {
                             playerCharacterInfo.type === 'merc' ? (
                                 <Player 
                                     ref={playerRef}
-                                    position={[0, 7, 10]}
+                                    position={[10, 7, 10]}
                                     walkSpeed={0.02}
                                     runSpeed={0.025}
                                     jumpForce={jumpForce * 0.7}
@@ -2802,7 +2802,7 @@ export function App() {
                             ) : (
                                 <Jackalope
                                     ref={playerRef}
-                                    position={[0, 7, 10]} // Increased height to start well above the ground
+                                    position={[-10, 7, 10]} // Different spawn position for jackalope
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}
@@ -2826,7 +2826,7 @@ export function App() {
                             characterType === 'merc' ? (
                                 <Player 
                                     ref={playerRef}
-                                    position={[0, 7, 10]}
+                                    position={[10, 7, 10]}
                                     walkSpeed={0.02}
                                     runSpeed={0.025}
                                     jumpForce={jumpForce * 0.7}
@@ -2849,7 +2849,7 @@ export function App() {
                             ) : (
                                 <Jackalope
                                     ref={playerRef}
-                                    position={[0, 7, 10]} // Increased height to start well above the ground
+                                    position={[-10, 7, 10]} // Different spawn position for jackalope
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}
