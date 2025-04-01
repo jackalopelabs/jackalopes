@@ -57,9 +57,6 @@ export class ConnectionManager extends EventEmitter {
   private offlineMode: boolean = false; // Track if we're in offline mode
   private connectionFailed: boolean = false; // Track if connection failed after attempts
   
-  // Add test player properties
-  private _testPlayers: Record<string, number> = {};
-  
   // Reconciliation metrics for debugging
   private _reconciliationMetrics = {
     totalCorrections: 0,
@@ -78,9 +75,6 @@ export class ConnectionManager extends EventEmitter {
   
   // For shot event tracking
   private lastShotEvents: Record<string, number> = {};
-  
-  // For testing with simulated players
-  private testPlayerIntervals: Record<string, number> = {};
   
   // Store player character type
   private playerType: 'merc' | 'jackalope' = 'merc';
