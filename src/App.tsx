@@ -1212,12 +1212,18 @@ export function App() {
     const [jackalopesScore, setJackalopesScore] = useState(0);
     const [mercsScore, setMercsScore] = useState(0);
     
+    // Host tracking for score and timer synchronization
+    const [isHost, setIsHost] = useState(false);
+    
     // Add a ref to track the last time a score was updated
     const lastScoreTime = useRef<number>(0);
     
     // Track which jackalopes have been hit to avoid double-counting
     // This is shared between both scoring mechanisms
     const scoredJackalopesRef = useRef(new Set<string>());
+    
+    // Track mercs that have been scored (for jackalope scoring)
+    const scoredMercsRef = useRef(new Set<string>());
     
     // Log current tracking state for debugging
     useEffect(() => {
@@ -1347,26 +1353,118 @@ export function App() {
         };
         
         const handleConnected = () => {
+            console.log('App received connected event, hiding notification');
             setIsOfflineMode(false);
-        };
-        
-        const handleDisconnected = () => {
-            // Only consider disconnected if we're not forcing offline mode
-            if (!connectionManager.isReadyToSend()) {
-                setIsOfflineMode(true);
+            setShowOfflineNotification(false);
+            
+            // Check if we should be the host
+            const clientId = connectionManager.getClientId();
+            const isFirstClient = connectionManager.isFirstClient();
+            
+            if (isFirstClient) {
+                console.log(`🎮 This client (${clientId}) is designated as the HOST`);
+                setIsHost(true);
+                // Mark as host in localStorage for cross-tab awareness
+                localStorage.setItem('jackalopes_host', 'true');
+                localStorage.setItem('jackalopes_host_timestamp', Date.now().toString());
+                localStorage.setItem('jackalopes_host_id', clientId || 'unknown');
+            } else {
+                console.log(`🎮 This client (${clientId}) is a regular CLIENT`);
+                setIsHost(false);
+                localStorage.removeItem('jackalopes_host');
             }
         };
         
+        const handleDisconnected = () => {
+            console.log('App received disconnected event');
+            // When disconnected, check if we should become host for local gameplay
+            const shouldBecomeHost = !localStorage.getItem('jackalopes_host') || 
+                Date.now() - parseInt(localStorage.getItem('jackalopes_host_timestamp') || '0', 10) > 10000;
+            
+            if (shouldBecomeHost) {
+                console.log('🎮 Becoming HOST in offline mode');
+                setIsHost(true);
+                localStorage.setItem('jackalopes_host', 'true');
+                localStorage.setItem('jackalopes_host_timestamp', Date.now().toString());
+            } else {
+                console.log('🎮 Another client is already HOST in offline mode');
+                setIsHost(false);
+            }
+        };
+        
+        // Add listeners for storage events to detect host changes across tabs
+        const handleStorageChange = (e: StorageEvent) => {
+            if (e.key === 'jackalopes_host_timestamp' && e.newValue) {
+                // Another tab declared itself host
+                const hostId = localStorage.getItem('jackalopes_host_id');
+                const myClientId = connectionManager.getClientId() || 'unknown';
+                
+                if (hostId && hostId !== myClientId) {
+                    console.log(`🎮 Another client (${hostId}) became host, I (${myClientId}) am now a client`);
+                    setIsHost(false);
+                }
+            }
+            
+            // Also watch for timer resets
+            if (e.key === 'timer_remaining' && e.newValue) {
+                // Check if this was from a host
+                const hostId = localStorage.getItem('timer_host_id');
+                if (hostId === 'host' && !isHost) {
+                    console.log('⏱️ Timer updated by host via localStorage');
+                }
+            }
+        };
+        
+        // Listen for storage events to detect host changes
+        window.addEventListener('storage', handleStorageChange);
+        
+        // Register connection manager event handlers
         connectionManager.on('server_unreachable', handleServerUnreachable);
         connectionManager.on('connected', handleConnected);
         connectionManager.on('disconnected', handleDisconnected);
         
+        // Check on component mount if we should be the host
+        if (connectionManager.isReadyToSend()) {
+            handleConnected();
+        } else {
+            handleDisconnected();
+        }
+        
         return () => {
+            window.removeEventListener('storage', handleStorageChange);
             connectionManager.off('server_unreachable', handleServerUnreachable);
             connectionManager.off('connected', handleConnected);
             connectionManager.off('disconnected', handleDisconnected);
         };
     }, [connectionManager]);
+    
+    // Listen for host death and takeover if needed
+    useEffect(() => {
+        const hostHeartbeatInterval = setInterval(() => {
+            if (isHost) {
+                // Update heartbeat as host
+                localStorage.setItem('jackalopes_host_timestamp', Date.now().toString());
+                localStorage.setItem('jackalopes_host_id', connectionManager.getClientId() || 'unknown');
+            } else {
+                // Check if current host is still alive
+                const lastHeartbeat = parseInt(localStorage.getItem('jackalopes_host_timestamp') || '0', 10);
+                const now = Date.now();
+                
+                // If no heartbeat for 10 seconds, take over as host
+                if (now - lastHeartbeat > 10000) {
+                    console.log('🎮 Current host appears inactive, taking over as new host');
+                    setIsHost(true);
+                    localStorage.setItem('jackalopes_host', 'true');
+                    localStorage.setItem('jackalopes_host_timestamp', now.toString());
+                    localStorage.setItem('jackalopes_host_id', connectionManager.getClientId() || 'unknown');
+                }
+            }
+        }, 5000);
+        
+        return () => {
+            clearInterval(hostHeartbeatInterval);
+        };
+    }, [isHost, connectionManager]);
     
     // Add multiplayer controls to Leva panel and track its state change
     const { enableMultiplayer } = useControls('Multiplayer', {
@@ -3578,6 +3676,42 @@ export function App() {
       };
     }, [jackalopesScore, mercsScore, enableMultiplayer, connectionManager]);
     
+    // Initialize scores from localStorage
+    useEffect(() => {
+        try {
+            const storedJackalopesScore = localStorage.getItem('jackalopes_score');
+            const storedMercsScore = localStorage.getItem('mercs_score');
+            
+            if (storedJackalopesScore) {
+                setJackalopesScore(parseInt(storedJackalopesScore, 10));
+            }
+            
+            if (storedMercsScore) {
+                setMercsScore(parseInt(storedMercsScore, 10));
+            }
+            
+            console.log(`📊 Loaded scores from localStorage: Jackalopes ${storedJackalopesScore || 0}, Mercs ${storedMercsScore || 0}`);
+        } catch (err) {
+            console.error('Error loading scores from localStorage:', err);
+        }
+        
+        // Add listeners for host-based score synchronization
+        const handleHostScoreUpdate = (e: CustomEvent) => {
+            if (!isHost) {
+                console.log('📊 Received score update from host:', e.detail);
+                setJackalopesScore(e.detail.jackalopesScore);
+                setMercsScore(e.detail.mercsScore);
+                lastScoreTime.current = e.detail.timestamp || Date.now();
+            }
+        };
+        
+        window.addEventListener('host_score_update', handleHostScoreUpdate as EventListener);
+        
+        return () => {
+            window.removeEventListener('host_score_update', handleHostScoreUpdate as EventListener);
+        };
+    }, [isHost]);
+    
     return (
         <>
             {/* Add styles to fix Leva panel positioning and prevent UI disruption */}
@@ -4067,7 +4201,8 @@ export function App() {
             {/* Replace HealthBar with ScoreDisplay */}
             <ScoreDisplay 
                 jackalopesScore={jackalopesScore} 
-                mercsScore={mercsScore} 
+                mercsScore={mercsScore}
+                isHost={isHost}
                 onReset={() => {
                     // Only reset scores if no scoring events in the last 3 seconds
                     // This prevents the timer from resetting scores that were just updated

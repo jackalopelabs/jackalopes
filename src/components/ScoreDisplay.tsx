@@ -5,6 +5,7 @@ interface ScoreDisplayProps {
   mercsScore: number;
   className?: string;
   onReset?: () => void; // Add callback for when timer reaches zero
+  isHost?: boolean; // Add prop to determine if this client is the host
 }
 
 /**
@@ -15,12 +16,22 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
   mercsScore = 0,
   className = '',
   onReset,
+  isHost = false, // Default to non-host
 }) => {
   // Add state to track score changes for animation
   const [lastJackalopesScore, setLastJackalopesScore] = useState(jackalopesScore);
   const [lastMercsScore, setLastMercsScore] = useState(mercsScore);
   const [jackalopesFlash, setJackalopesFlash] = useState(false);
   const [mercsFlash, setMercsFlash] = useState(false);
+  
+  // Host state tracking
+  const isHostRef = useRef(isHost);
+  
+  // Update host ref when prop changes
+  useEffect(() => {
+    isHostRef.current = isHost;
+    console.log(`⏱️ ScoreDisplay host status: ${isHost ? 'HOST' : 'CLIENT'}`);
+  }, [isHost]);
   
   // Add state for countdown timer (5 minutes = 300 seconds)
   const [timeRemaining, setTimeRemaining] = useState(() => {
@@ -75,6 +86,7 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
     try {
       localStorage.setItem('timer_remaining', time.toString());
       localStorage.setItem('timer_timestamp', Date.now().toString());
+      localStorage.setItem('timer_host_id', isHostRef.current ? 'host' : 'client');
       
       // Also save whether a recent score happened
       const lastScoreTime = localStorage.getItem('last_score_time');
@@ -84,6 +96,17 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
       } else {
         localStorage.setItem('timer_should_reset_scores', 'true');
       }
+      
+      // Broadcast timer update via custom event for other tabs/windows
+      if (isHostRef.current) {
+        window.dispatchEvent(new CustomEvent('host_timer_update', {
+          detail: {
+            timeRemaining: time,
+            timestamp: Date.now(),
+            hostId: 'host'
+          }
+        }));
+      }
     } catch (err) {
       console.error('Error saving timer to localStorage:', err);
     }
@@ -91,6 +114,12 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
   
   // Create a memoized reset function that only resets when timer reaches zero
   const resetTimer = useCallback(() => {
+    // Only host should initiate timer resets
+    if (!isHostRef.current && localStorage.getItem('timer_host_id') !== 'client') {
+      console.log('⏱️ Non-host client not initiating timer reset');
+      return;
+    }
+    
     // Prevent multiple resets within 3 seconds
     const now = Date.now();
     if (now - lastResetTime.current < 3000) {
@@ -115,12 +144,173 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
     } else if (onReset && !shouldResetScores) {
       console.log('⏱️ Skipping score reset because a score was updated recently');
     }
+    
+    // Broadcast reset to other clients with our host status
+    window.dispatchEvent(new CustomEvent('timer_reset', {
+      detail: {
+        timestamp: Date.now(),
+        id: `timer-reset-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        fromHost: isHostRef.current,
+        shouldResetScores
+      }
+    }));
   }, [onReset]);
+  
+  // Timer countdown effect
+  useEffect(() => {
+    // Create a custom event for broadcasting timer resets
+    const broadcastTimerReset = () => {
+      try {
+        window.dispatchEvent(new CustomEvent('timer_reset', {
+          detail: {
+            timestamp: Date.now(),
+            id: `timer-reset-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            fromHost: isHostRef.current
+          }
+        }));
+      } catch (err) {
+        console.error('Error broadcasting timer reset:', err);
+      }
+    };
+    
+    // Broadcast full timer update (not just reset)
+    const broadcastTimerState = (time: number) => {
+      if (isHostRef.current) {
+        try {
+          window.dispatchEvent(new CustomEvent('host_timer_full_sync', {
+            detail: {
+              timeRemaining: time,
+              timestamp: Date.now(),
+              fromHost: true
+            }
+          }));
+        } catch (err) {
+          console.error('Error broadcasting timer state:', err);
+        }
+      }
+    };
+    
+    // Only host should update the timer
+    let timerInterval: number | undefined;
+    
+    if (isHostRef.current) {
+      timerInterval = window.setInterval(() => {
+        setTimeRemaining(prev => {
+          if (!timerActiveRef.current) {
+            return prev; // Don't update if timer is paused
+          }
+          
+          const newTime = prev - 1;
+          
+          // Save timer state more frequently when we're the host
+          // On specific intervals to reduce performance impact
+          if (newTime % 5 === 0 || newTime <= 10) {
+            saveTimerState(newTime);
+          }
+          
+          // Do a full timer sync more often to prevent drift
+          if (newTime % 15 === 0 || newTime <= 30) {
+            broadcastTimerState(newTime);
+          }
+          
+          // Warn when approaching zero
+          if (newTime === 10) {
+            console.log('⏱️ Timer approaching zero - 10 seconds remaining');
+          }
+          
+          if (newTime <= 0) {
+            // Timer reached zero, reset scores
+            console.log('⏱️ Timer reached zero, resetting');
+            resetTimer();
+            broadcastTimerReset(); // Broadcast reset event
+            return 300;
+          }
+          return newTime;
+        });
+      }, 1000);
+    } else {
+      // Non-host clients also run a timer but only for display consistency
+      // They will get overridden by host broadcasts
+      timerInterval = window.setInterval(() => {
+        setTimeRemaining(prev => {
+          return Math.max(0, prev - 1);
+        });
+      }, 1000);
+    }
+    
+    // Listen for timer reset events from other sources
+    const handleTimerResetEvent = (e: CustomEvent) => {
+      console.log('⏱️ Received timer reset event:', e.detail);
+      
+      // If the reset came from the host, always process it
+      if (e.detail.fromHost && !isHostRef.current) {
+        console.log('⏱️ Processing timer reset from host');
+        setTimeRemaining(300);
+        
+        // If the host says to reset scores, do it
+        if (e.detail.shouldResetScores && onReset) {
+          onReset();
+        }
+        return;
+      }
+      
+      // Only process if it's been more than 3 seconds since our last reset
+      // and we're the host (non-hosts shouldn't reset unless from host)
+      const now = Date.now();
+      if (isHostRef.current && now - lastResetTime.current > 3000) {
+        resetTimer();
+      } else if (!isHostRef.current) {
+        console.log('⏱️ Non-host ignoring timer reset not from host');
+      } else {
+        console.log('⏱️ Ignoring timer reset event - too soon after our reset');
+      }
+    };
+    
+    // Handle full timer sync events (for fixing clock drift)
+    const handleFullTimerSync = (e: CustomEvent) => {
+      if (!isHostRef.current && e.detail.fromHost) {
+        console.log('⏱️ Received full timer sync from host:', e.detail);
+        // Always accept exact time from host to fix desynchronization
+        setTimeRemaining(e.detail.timeRemaining);
+      }
+    };
+    
+    window.addEventListener('timer_reset', handleTimerResetEvent as EventListener);
+    window.addEventListener('host_timer_full_sync', handleFullTimerSync as EventListener);
+    
+    // Force a full timer sync on component mount and when host state changes
+    if (isHostRef.current) {
+      broadcastTimerState(timeRemaining);
+    }
+    
+    return () => {
+      if (timerInterval) clearInterval(timerInterval);
+      window.removeEventListener('timer_reset', handleTimerResetEvent as EventListener);
+      window.removeEventListener('host_timer_full_sync', handleFullTimerSync as EventListener);
+    };
+  }, [resetTimer, isHost]);
+  
+  // Add an additional effect to force sync when host status changes
+  useEffect(() => {
+    console.log(`⏱️ Host status changed to: ${isHost ? 'HOST' : 'CLIENT'}`);
+    
+    // Force a timer sync whenever host status changes
+    if (isHost) {
+      // New host should broadcast current time immediately
+      window.dispatchEvent(new CustomEvent('host_timer_full_sync', {
+        detail: {
+          timeRemaining,
+          timestamp: Date.now(),
+          fromHost: true
+        }
+      }));
+    }
+  }, [isHost, timeRemaining]);
   
   // Initialize timer when component mounts
   useEffect(() => {
     if (isFirstMount.current) {
-      console.log('⏱️ ScoreDisplay mounted - initializing timer');
+      console.log(`⏱️ ScoreDisplay mounted - initializing timer (${isHost ? 'HOST' : 'CLIENT'})`);
       isFirstMount.current = false;
       
       // Check if scores were just reset recently
@@ -135,98 +325,57 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
     // Listen for timer sync events from other clients
     const handleTimerSync = (e: StorageEvent) => {
       if (e.key === 'timer_timestamp' && e.newValue) {
-        console.log('⏱️ Received timer sync from another client');
-        
-        try {
-          const savedTime = localStorage.getItem('timer_remaining');
-          if (savedTime) {
-            const elapsedSeconds = Math.floor((Date.now() - parseInt(e.newValue, 10)) / 1000);
-            const remainingTime = Math.max(0, parseInt(savedTime, 10) - elapsedSeconds);
-            
-            if (remainingTime > 0 && remainingTime <= 300 && Math.abs(remainingTime - timeRemaining) > 5) {
-              console.log(`⏱️ Syncing timer from localStorage: ${remainingTime}s remaining`);
-              setTimeRemaining(remainingTime);
+        // Only accept timer updates from host if we're not the host
+        const hostId = localStorage.getItem('timer_host_id');
+        if (!isHostRef.current && hostId === 'host') {
+          console.log('⏱️ Received timer sync from host via localStorage');
+          
+          try {
+            const savedTime = localStorage.getItem('timer_remaining');
+            if (savedTime) {
+              const elapsedSeconds = Math.floor((Date.now() - parseInt(e.newValue, 10)) / 1000);
+              const remainingTime = Math.max(0, parseInt(savedTime, 10) - elapsedSeconds);
+              
+              if (remainingTime > 0 && remainingTime <= 300 && Math.abs(remainingTime - timeRemaining) > 2) {
+                console.log(`⏱️ Syncing timer from host: ${remainingTime}s remaining`);
+                setTimeRemaining(remainingTime);
+              }
             }
+          } catch (err) {
+            console.error('Error syncing timer from localStorage:', err);
           }
-        } catch (err) {
-          console.error('Error syncing timer from localStorage:', err);
+        }
+      }
+    };
+    
+    // Handle direct host timer updates via custom event
+    const handleHostTimerUpdate = (e: CustomEvent) => {
+      if (!isHostRef.current) { // Only non-hosts should process these updates
+        console.log('⏱️ Received direct timer update from host:', e.detail);
+        
+        // Check if this update is significantly different from our current time
+        // This prevents minor drift corrections from being too jarring
+        const diff = Math.abs(timeRemaining - e.detail.timeRemaining);
+        
+        if (diff >= 2) { // Only update if 2 or more seconds difference
+          console.log(`⏱️ Correcting timer drift of ${diff} seconds`);
+          setTimeRemaining(e.detail.timeRemaining);
+        } else {
+          console.log(`⏱️ Ignoring minor drift correction of ${diff} seconds`);
         }
       }
     };
     
     window.addEventListener('storage', handleTimerSync);
+    window.addEventListener('host_timer_update', handleHostTimerUpdate as EventListener);
     
     return () => {
       // Save timer state when component unmounts
       saveTimerState(timeRemaining);
       window.removeEventListener('storage', handleTimerSync);
+      window.removeEventListener('host_timer_update', handleHostTimerUpdate as EventListener);
     };
-  }, [timeRemaining]);
-  
-  // Timer countdown effect
-  useEffect(() => {
-    // Create a custom event for broadcasting timer resets
-    const broadcastTimerReset = () => {
-      try {
-        window.dispatchEvent(new CustomEvent('timer_reset', {
-          detail: {
-            timestamp: Date.now(),
-            id: `timer-reset-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
-          }
-        }));
-      } catch (err) {
-        console.error('Error broadcasting timer reset:', err);
-      }
-    };
-    
-    const timerInterval = setInterval(() => {
-      setTimeRemaining(prev => {
-        if (!timerActiveRef.current) {
-          return prev; // Don't update if timer is paused
-        }
-        
-        const newTime = prev - 1;
-        // Save every 10 seconds
-        if (newTime % 10 === 0 || newTime <= 10) {
-          saveTimerState(newTime);
-        }
-        
-        // Warn when approaching zero
-        if (newTime === 10) {
-          console.log('⏱️ Timer approaching zero - 10 seconds remaining');
-        }
-        
-        if (newTime <= 0) {
-          // Timer reached zero, reset scores
-          console.log('⏱️ Timer reached zero, resetting');
-          resetTimer();
-          broadcastTimerReset(); // Broadcast reset event
-          return 300;
-        }
-        return newTime;
-      });
-    }, 1000);
-    
-    // Listen for timer reset events from other sources
-    const handleTimerResetEvent = (e: CustomEvent) => {
-      console.log('⏱️ Received timer reset event:', e.detail);
-      
-      // Only process if it's been more than 3 seconds since our last reset
-      const now = Date.now();
-      if (now - lastResetTime.current > 3000) {
-        resetTimer();
-      } else {
-        console.log('⏱️ Ignoring timer reset event - too soon after our reset');
-      }
-    };
-    
-    window.addEventListener('timer_reset', handleTimerResetEvent as EventListener);
-    
-    return () => {
-      clearInterval(timerInterval);
-      window.removeEventListener('timer_reset', handleTimerResetEvent as EventListener);
-    };
-  }, [resetTimer]);
+  }, [timeRemaining, isHost]);
   
   // Watch for score changes and trigger animation
   useEffect(() => {
@@ -236,9 +385,20 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
       
       // Update last score time in localStorage
       localStorage.setItem('last_score_time', Date.now().toString());
+      
+      // Broadcast score update if we're the host
+      if (isHostRef.current) {
+        window.dispatchEvent(new CustomEvent('host_score_update', {
+          detail: {
+            jackalopesScore,
+            mercsScore,
+            timestamp: Date.now()
+          }
+        }));
+      }
     }
     setLastJackalopesScore(jackalopesScore);
-  }, [jackalopesScore, lastJackalopesScore]);
+  }, [jackalopesScore, lastJackalopesScore, mercsScore]);
   
   useEffect(() => {
     if (mercsScore > lastMercsScore) {
@@ -247,9 +407,20 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
       
       // Update last score time in localStorage
       localStorage.setItem('last_score_time', Date.now().toString());
+      
+      // Broadcast score update if we're the host
+      if (isHostRef.current) {
+        window.dispatchEvent(new CustomEvent('host_score_update', {
+          detail: {
+            jackalopesScore,
+            mercsScore,
+            timestamp: Date.now()
+          }
+        }));
+      }
     }
     setLastMercsScore(mercsScore);
-  }, [mercsScore, lastMercsScore]);
+  }, [mercsScore, lastMercsScore, jackalopesScore]);
 
   // Styles for the score display
   const containerStyle: React.CSSProperties = {
@@ -302,11 +473,21 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
     transition: 'all 0.3s ease',
   };
 
+  // Add host indicator style
+  const hostIndicatorStyle: React.CSSProperties = {
+    fontSize: '12px',
+    color: isHost ? '#7fef7f' : 'transparent',
+    marginRight: '5px',
+  };
+
   return (
     <div 
       style={containerStyle} 
       className={`score-display ${className}`}
     >
+      {/* Add host indicator */}
+      <span style={hostIndicatorStyle}>●</span>
+      
       <span 
         style={jackalopesStyle}
         className={jackalopesFlash ? 'score-flash' : ''}

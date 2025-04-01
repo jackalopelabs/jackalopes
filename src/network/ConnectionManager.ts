@@ -1330,4 +1330,19 @@ export class ConnectionManager extends EventEmitter {
       });
     }
   }
+
+  // Get the client's ID
+  getClientId(): string {
+    return this.playerId || 'unknown';
+  }
+  
+  // Check if this is the first client to connect
+  isFirstClient(): boolean {
+    return this.playerIndex === 0;
+  }
+  
+  // Public accessor for connection status
+  getConnectionStatus(): boolean {
+    return this.isConnected;
+  }
 } 
