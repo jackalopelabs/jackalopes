@@ -9,7 +9,7 @@ import { useFrame, useThree } from '@react-three/fiber'
 import { CuboidCollider, Physics, RigidBody } from '@react-three/rapier'
 import { useControls, folder, Leva } from 'leva'
 import { useTexture } from '@react-three/drei'
-import { useRef, useEffect, useState, useMemo } from 'react'
+import { useRef, useEffect, useState, useMemo, useCallback } from 'react'
 import * as THREE from 'three'
 import { Player, PlayerControls } from './game/player'
 import { Jackalope } from './game/jackalope'
@@ -55,6 +55,7 @@ declare global {
         playerPositionTracker?: {
             updatePosition: (newPos: THREE.Vector3) => void;
         };
+        __extendJackalopeSpawnDistance?: () => void;
     }
 }
 
@@ -2648,6 +2649,28 @@ export function App() {
         return null;
     };
     
+    // Add jackalopeSpawnDistance state
+    const [jackalopeSpawnDistance, setJackalopeSpawnDistance] = useState(-100);
+
+    // Function to extend the jackalope spawn distance on respawn
+    const extendJackalopeSpawnDistance = useCallback(() => {
+        setJackalopeSpawnDistance(prevDistance => prevDistance - 50);
+        console.log('Extended jackalope spawn distance by -50');
+    }, []);
+
+    // Make the extension function available globally for other components to call
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            window.__extendJackalopeSpawnDistance = extendJackalopeSpawnDistance;
+        }
+        
+        return () => {
+            if (typeof window !== 'undefined') {
+                delete window.__extendJackalopeSpawnDistance;
+            }
+        };
+    }, [extendJackalopeSpawnDistance]);
+    
     return (
         <>
             {/* Add styles to fix Leva panel positioning and prevent UI disruption */}
@@ -2802,7 +2825,7 @@ export function App() {
                             ) : (
                                 <Jackalope
                                     ref={playerRef}
-                                    position={[-100, 7, 10]} // Much farther spawn position for jackalope in multiplayer
+                                    position={[jackalopeSpawnDistance, 7, 10]} // Use the dynamic spawn distance that extends on respawn
                                     walkSpeed={0.56}
                                     runSpeed={1.0}
                                     jumpForce={jumpForce * 0.8}

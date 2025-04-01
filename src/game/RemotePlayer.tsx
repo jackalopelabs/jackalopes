@@ -21,6 +21,7 @@ declare global {
     __networkManager?: {
       sendRespawnRequest: (playerId: string) => void;
     };
+    __extendJackalopeSpawnDistance?: () => void;
   }
 }
 
@@ -624,6 +625,12 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
               20, // Particles for spawn effect
               0.2 // Radius
             );
+          }
+          
+          // Call the global function to extend the jackalope spawn distance
+          if (typeof window !== 'undefined' && window.__extendJackalopeSpawnDistance) {
+            console.log('Extending jackalope spawn distance after respawn');
+            window.__extendJackalopeSpawnDistance();
           }
         }, 1500); // 1.5 seconds "dead" before respawning
       }, 200); // Short delay to allow the hit effect to be seen

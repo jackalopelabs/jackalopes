@@ -8,10 +8,12 @@ declare global {
     __playMercHitSound?: () => void;
     __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
     __disableStabilizationFor?: Record<string, boolean>;
+    __extendJackalopeSpawnDistance?: () => void;
+    __remoteJackalopeSpawnDistance?: number;
   }
 }
 
-import React, { useState, useEffect, useRef, useImperativeHandle, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useImperativeHandle, useMemo, useCallback } from 'react';
 import { useThree, useFrame } from '@react-three/fiber';
 import { ConnectionManager } from './ConnectionManager';
 import { RemotePlayer, RemotePlayerMethods } from '../game/RemotePlayer';
@@ -1473,6 +1475,48 @@ export const MultiplayerManager: React.FC<{
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [remotePlayers, setRemotePlayers] = useState<Record<string, RemotePlayerData>>({});
   
+  // Add state to track remote jackalope spawn distance
+  const [remoteJackalopeSpawnDistance, setRemoteJackalopeSpawnDistance] = useState(-100);
+  
+  // Make the distance available globally
+  useEffect(() => {
+    window.__remoteJackalopeSpawnDistance = remoteJackalopeSpawnDistance;
+    
+    return () => {
+      delete window.__remoteJackalopeSpawnDistance;
+    };
+  }, [remoteJackalopeSpawnDistance]);
+  
+  // Function to extend remote jackalope spawn distance
+  const extendRemoteJackalopeSpawnDistance = useCallback(() => {
+    setRemoteJackalopeSpawnDistance(prevDistance => prevDistance - 50);
+    console.log(`Extended remote jackalope spawn distance to ${remoteJackalopeSpawnDistance - 50}`);
+  }, [remoteJackalopeSpawnDistance]);
+  
+  // Listen for respawn events
+  useEffect(() => {
+    const handleRespawnEvent = () => {
+      extendRemoteJackalopeSpawnDistance();
+    };
+    
+    window.addEventListener('jackalope_respawn', handleRespawnEvent);
+    
+    // Also hook into the global extension function if it exists
+    const originalExtendFunction = window.__extendJackalopeSpawnDistance;
+    window.__extendJackalopeSpawnDistance = () => {
+      // Call the original function if it exists
+      if (originalExtendFunction) originalExtendFunction();
+      
+      // Also extend the remote spawn distance
+      extendRemoteJackalopeSpawnDistance();
+    };
+    
+    return () => {
+      window.removeEventListener('jackalope_respawn', handleRespawnEvent);
+      window.__extendJackalopeSpawnDistance = originalExtendFunction;
+    };
+  }, [extendRemoteJackalopeSpawnDistance]);
+  
   // For rate limiting player updates
   const playerUpdateThrottleRef = useRef<Record<string, { lastTime: number, minInterval: number }>>({});
   
@@ -1592,7 +1636,7 @@ export const MultiplayerManager: React.FC<{
         // Convert position and rotation to the format expected by RemotePlayer
         const position = data.state?.position 
           ? arrayToObjectPosition(data.state.position) 
-          : playerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -100, y: 7, z: 10 };
+          : playerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: remoteJackalopeSpawnDistance, y: 7, z: 10 };
           
         const rotation = data.state?.rotation 
           ? quaternionToAngle(data.state.rotation) 
@@ -1665,7 +1709,7 @@ export const MultiplayerManager: React.FC<{
           // Convert position and rotation
           const position = data.position 
             ? arrayToObjectPosition(data.position) 
-            : newPlayerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: -100, y: 7, z: 10 };
+            : newPlayerType === 'merc' ? { x: 10, y: 7, z: 10 } : { x: remoteJackalopeSpawnDistance, y: 7, z: 10 };
             
           const rotation = data.rotation 
             ? quaternionToAngle(data.rotation) 
@@ -1852,7 +1896,7 @@ export const MultiplayerManager: React.FC<{
       connectionManager.off('connected', handleConnected);
       connectionManager.off('initialized', handleInitialized);
     };
-  }, [connectionManager]);
+  }, [connectionManager, remoteJackalopeSpawnDistance]);
   
   // Set up position update interval
   useEffect(() => {

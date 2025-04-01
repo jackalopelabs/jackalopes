@@ -23,6 +23,7 @@ declare global {
         playerPositionTracker?: {
             updatePosition: (position: THREE.Vector3) => void;
         };
+        __extendJackalopeSpawnDistance?: () => void;
     }
 }
 
@@ -543,6 +544,29 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             }
         }
     }, [thirdPersonView, updateCameraPosition]);
+
+    // Add a respawn event listener
+    useEffect(() => {
+        // Listen for respawn requests from the server
+        const handleRespawnRequest = (event: any) => {
+            if (event.detail?.playerId) {
+                console.log(`[JACKALOPE] Received respawn request for player ${event.detail.playerId}`);
+                
+                // Call the global function to extend spawn distance
+                if (typeof window !== 'undefined' && window.__extendJackalopeSpawnDistance) {
+                    console.log('[JACKALOPE] Extending spawn distance after respawn request');
+                    window.__extendJackalopeSpawnDistance();
+                }
+            }
+        };
+        
+        // Listen for both direct calls and custom events
+        window.addEventListener('jackalope_respawn_request', handleRespawnRequest);
+        
+        return () => {
+            window.removeEventListener('jackalope_respawn_request', handleRespawnRequest);
+        };
+    }, []);
 
     return (
         <>
