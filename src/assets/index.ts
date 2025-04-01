@@ -194,7 +194,11 @@ export const resolveBestModelPath = (characterType: 'merc' | 'jackalope') => {
   const defaultPath = characterType === 'merc' ? MercModelPath : JackalopeModelPath;
   
   // Use in-memory models when possible
-  if (window.__fallbackModels && window.__fallbackModels[characterType === 'merc' ? 'red' : 'blue']) {
+  if (typeof window !== 'undefined' && 
+      'fallbackModels' in window && 
+      window.hasOwnProperty('__fallbackModels') && 
+      (window as any).__fallbackModels && 
+      (window as any).__fallbackModels[characterType === 'merc' ? 'red' : 'blue']) {
     console.log(`Using in-memory model for ${characterType}`);
     return defaultPath; // Return default path, but code will actually use the in-memory model
   }
@@ -203,10 +207,9 @@ export const resolveBestModelPath = (characterType: 'merc' | 'jackalope') => {
   return defaultPath;
 };
 
-// Character Models - using direct THREE.js geometry instead of GLB models now
-// But keeping these constants for backward compatibility with existing code
-export const MercModelPath = '#merc-direct-geometry'; // Not a real path - using direct geometry
-export const JackalopeModelPath = '#jackalope-direct-geometry'; // Not a real path - using direct geometry
+// Character Models - using proper GLB models now instead of direct geometry
+export const MercModelPath = 'src/assets/characters/merc.glb';
+export const JackalopeModelPath = 'src/assets/characters/jackalope.glb';
 
 /**
  * Usage Example:

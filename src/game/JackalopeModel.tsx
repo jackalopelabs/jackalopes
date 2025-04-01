@@ -1,20 +1,26 @@
-import React, { useRef } from 'react'
+import React, { useRef, useState, useEffect } from 'react'
 import * as THREE from 'three'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 
-// Simple Jackalope character model using basic THREE.js geometry
+// Updated JackalopeModel that uses proper GLB model with animations
 export const JackalopeModel = ({ 
+  animation = 'idle',
   visible = true, 
   position = [0, 0, 0] as [number, number, number],
   rotation = [0, 0, 0] as [number, number, number],
   scale = [1, 1, 1] as [number, number, number]
 }: {
-  animation?: string; // Keep parameter for compatibility
+  animation?: string;
   visible?: boolean;
   position?: [number, number, number] | THREE.Vector3;
   rotation?: [number, number, number] | THREE.Euler;
   scale?: [number, number, number];
 }) => {
   const group = useRef<THREE.Group>(null);
+  const [animationClips, setAnimationClips] = useState<Record<string, THREE.AnimationClip>>({});
+  const [modelLoaded, setModelLoaded] = useState(false);
+  const [modelError, setModelError] = useState(false);
   
   // Determine final position and rotation format
   const finalPosition = position instanceof THREE.Vector3 
@@ -25,6 +31,165 @@ export const JackalopeModel = ({
     ? [rotation.x, rotation.y, rotation.z] as [number, number, number] 
     : rotation;
   
+  // Load the jackalope.glb model
+  useEffect(() => {
+    try {
+      const loader = new GLTFLoader();
+      loader.load(
+        'src/assets/characters/jackalope.glb', 
+        (gltf: any) => {
+          if (group.current) {
+            // Clear existing children
+            while (group.current.children.length) {
+              group.current.remove(group.current.children[0]);
+            }
+            
+            // Add the model to the group
+            gltf.scene.traverse((child: any) => {
+              if (child instanceof THREE.Mesh) {
+                child.castShadow = true;
+                child.receiveShadow = true;
+              }
+            });
+            
+            // Add the loaded model to our group
+            group.current.add(gltf.scene);
+            
+            // If there are animations in the GLB, store them
+            if (gltf.animations && gltf.animations.length > 0) {
+              const clips: Record<string, THREE.AnimationClip> = {};
+              gltf.animations.forEach((clip: THREE.AnimationClip) => {
+                clips[clip.name] = clip;
+              });
+              setAnimationClips(clips);
+              console.log('Loaded animations from jackalope.glb:', Object.keys(clips).join(', '));
+            }
+            
+            setModelLoaded(true);
+          }
+        },
+        // Progress callback
+        (xhr: any) => {
+          console.log(`Loading jackalope.glb: ${(xhr.loaded / xhr.total) * 100}% loaded`);
+        },
+        // Error callback
+        (error: any) => {
+          console.error('Error loading jackalope.glb model:', error);
+          setModelError(true);
+        }
+      );
+      
+    } catch (error) {
+      console.error('Error in Jackalope model loading:', error);
+      setModelError(true);
+    }
+  }, []);
+  
+  // Handle animations
+  useEffect(() => {
+    if (!group.current || !animationClips || Object.keys(animationClips).length === 0) return;
+    
+    // Create mixer
+    const mixer = new THREE.AnimationMixer(group.current);
+    let currentAction: THREE.AnimationAction | null = null;
+    
+    // If we have the requested animation
+    if (animation && animationClips[animation]) {
+      currentAction = mixer.clipAction(animationClips[animation]);
+      currentAction.play();
+    } else if (animationClips['idle']) {
+      // Fall back to idle if available and requested animation doesn't exist
+      currentAction = mixer.clipAction(animationClips['idle']);
+      currentAction.play();
+    }
+    
+    // Animation loop
+    const clock = new THREE.Clock();
+    const animateModel = () => {
+      if (mixer) {
+        mixer.update(clock.getDelta());
+      }
+      requestAnimationFrame(animateModel);
+    };
+    
+    // Start animation loop
+    const animationId = requestAnimationFrame(animateModel);
+    
+    // Cleanup
+    return () => {
+      cancelAnimationFrame(animationId);
+      if (currentAction) currentAction.stop();
+      mixer.stopAllAction();
+      if (group.current) {
+        mixer.uncacheRoot(group.current);
+      }
+    };
+  }, [animation, animationClips, modelLoaded]);
+  
+  // If there was an error loading the model, show a simplified version as fallback
+  if (modelError) {
+    return (
+      <group 
+        ref={group} 
+        visible={visible}
+        name="jackalope-fallback"
+        position={finalPosition}
+        rotation={finalRotation}
+        scale={scale}
+      >
+        {/* Body */}
+        <mesh castShadow receiveShadow>
+          <boxGeometry args={[0.6, 1.4, 0.4]} />
+          <meshStandardMaterial color="#4682B4" /> {/* Blue color for jackalope */}
+        </mesh>
+        
+        {/* Head */}
+        <mesh castShadow receiveShadow position={[0, 0.9, 0]}>
+          <boxGeometry args={[0.35, 0.35, 0.35]} />
+          <meshStandardMaterial color="#4682B4" />
+        </mesh>
+        
+        {/* Antlers/Ears */}
+        <group position={[0.15, 1.2, 0]} rotation={[0, 0, Math.PI/6]}>
+          <mesh castShadow>
+            <cylinderGeometry args={[0.05, 0.05, 0.4]} />
+            <meshStandardMaterial color="#6495ED" />
+          </mesh>
+        </group>
+        
+        <group position={[-0.15, 1.2, 0]} rotation={[0, 0, -Math.PI/6]}>
+          <mesh castShadow>
+            <cylinderGeometry args={[0.05, 0.05, 0.4]} />
+            <meshStandardMaterial color="#6495ED" />
+          </mesh>
+        </group>
+        
+        {/* Arms */}
+        <mesh castShadow receiveShadow position={[0.4, 0.5, 0]}>
+          <boxGeometry args={[0.15, 0.7, 0.15]} />
+          <meshStandardMaterial color="#4169E1" />
+        </mesh>
+        
+        <mesh castShadow receiveShadow position={[-0.4, 0.5, 0]}>
+          <boxGeometry args={[0.15, 0.7, 0.15]} />
+          <meshStandardMaterial color="#4169E1" />
+        </mesh>
+        
+        {/* Legs */}
+        <mesh castShadow receiveShadow position={[0.2, -0.5, 0]}>
+          <boxGeometry args={[0.2, 0.7, 0.2]} />
+          <meshStandardMaterial color="#4169E1" />
+        </mesh>
+        
+        <mesh castShadow receiveShadow position={[-0.2, -0.5, 0]}>
+          <boxGeometry args={[0.2, 0.7, 0.2]} />
+          <meshStandardMaterial color="#4169E1" />
+        </mesh>
+      </group>
+    );
+  }
+  
+  // Return the group that will hold the loaded model
   return (
     <group 
       ref={group} 
@@ -33,52 +198,7 @@ export const JackalopeModel = ({
       position={finalPosition}
       rotation={finalRotation}
       scale={scale}
-    >
-      {/* Body */}
-      <mesh castShadow receiveShadow>
-        <boxGeometry args={[0.6, 1.6, 0.4]} />
-        <meshStandardMaterial color="#6495ED" /> {/* Blue color for jackalope */}
-      </mesh>
-      
-      {/* Head */}
-      <mesh castShadow receiveShadow position={[0, 1.0, 0]}>
-        <boxGeometry args={[0.4, 0.4, 0.4]} />
-        <meshStandardMaterial color="#6495ED" />
-      </mesh>
-      
-      {/* Ears/Antlers - characteristic of a jackalope */}
-      <mesh castShadow position={[0.15, 1.3, 0]}>
-        <cylinderGeometry args={[0.05, 0.05, 0.4]} />
-        <meshStandardMaterial color="#4169E1" />
-      </mesh>
-      
-      <mesh castShadow position={[-0.15, 1.3, 0]}>
-        <cylinderGeometry args={[0.05, 0.05, 0.4]} />
-        <meshStandardMaterial color="#4169E1" />
-      </mesh>
-      
-      {/* Arms */}
-      <mesh castShadow receiveShadow position={[0.4, 0.6, 0]}>
-        <boxGeometry args={[0.2, 0.8, 0.2]} />
-        <meshStandardMaterial color="#4682B4" />
-      </mesh>
-      
-      <mesh castShadow receiveShadow position={[-0.4, 0.6, 0]}>
-        <boxGeometry args={[0.2, 0.8, 0.2]} />
-        <meshStandardMaterial color="#4682B4" />
-      </mesh>
-      
-      {/* Legs */}
-      <mesh castShadow receiveShadow position={[0.2, -0.6, 0]}>
-        <boxGeometry args={[0.2, 0.8, 0.2]} />
-        <meshStandardMaterial color="#4682B4" />
-      </mesh>
-      
-      <mesh castShadow receiveShadow position={[-0.2, -0.6, 0]}>
-        <boxGeometry args={[0.2, 0.8, 0.2]} />
-        <meshStandardMaterial color="#4682B4" />
-      </mesh>
-    </group>
+    />
   );
 };
 

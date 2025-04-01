@@ -184,69 +184,48 @@ Keeping track of remote shots state consistently across clients.
 - Implemented polling mechanisms to regularly check for updates from other sources
 - Added reference tracking to ensure state updates properly reflect the latest data
 
+## Character Models and Animations
+
+The game features two main character types:
+
+### Character Models
+- **Merc**: Humanoid soldier character with red color scheme
+- **Jackalope**: Rabbit-like character with blue color scheme
+
+Character models are 3D GLB files stored in `src/assets/characters/`:
+- `merc.glb` - The humanoid merc character model with embedded animations
+- `jackalope.glb` - The jackalope character model with embedded animations
+
+### Animation System
+
+Characters support various animations including:
+- `idle` - Default standing pose
+- `walk` - Walking animation
+- `run` - Running animation
+- `jump` - Jumping animation
+- `shoot` - Shooting animation
+
+The animation system uses THREE.js AnimationMixer to blend between different animation states. Animation clips are loaded from:
+1. Embedded animations within the GLB model files
+2. External FBX animation files in `src/assets/characters/animations/` (legacy support)
+
+### Animation Loading Process
+
+The character model components (`MercModel.tsx` and `JackalopeModel.tsx`) handle:
+1. Loading the GLB model with GLTFLoader
+2. Extracting and cataloging embedded animations
+3. Creating an AnimationMixer to play animations
+4. Switching animations based on character state (walking, running, etc.)
+
+### Model Fallbacks
+
+To ensure the game always works even if model loading fails:
+- Each character has a geometric fallback model created with THREE.js primitives
+- The fallback uses the same color scheme as the full model (red for Merc, blue for Jackalope)
+- The ModelLoader component preloads models at startup to minimize loading times
+
 ## Building for Production
 
 ```
 npm run build
-```
-
-The built files will be in the `dist` directory.
-
-## Physics System
-
-The game uses Rapier's kinematic character controller for player movement with:
-- Auto-stepping for navigating small obstacles
-- Sliding along walls
-- Ground snapping
-- Jump mechanics with variable height based on button press duration
-
-## Project Structure
-
-- `src/` - Source code
-  - `game/` - Game-specific components
-    - `player.tsx` - Player controller and movement
-    - `ball.tsx` - Physics-based ball object
-    - `sphere-tool.tsx` - Projectile shooting mechanics
-    - `platforms.tsx` - Level platforms
-  - `common/` - Shared components and hooks
-  - `network/` - Multiplayer networking components
-    - `ConnectionManager.ts` - WebSocket client for server communication
-    - `MultiplayerManager.tsx` - React components for multiplayer state management
-  - `App.tsx` - Main application component
-- `jackalopes-server/` - WordPress plugin for multiplayer server
-  - `includes/` - Core WordPress plugin functions
-  - `admin/` - Admin interface components
-  - `src/` - Autoloaded server classes (PSR-4)
-  - `bin/` - Command-line utilities
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Asset Management
-
-We've implemented a new approach to asset management for better organization and build optimization:
-
-- Assets are now stored in the `src/assets` directory, organized by type
-- A centralized asset index at `src/assets/index.ts` manages all asset references
-- This allows Vite to properly optimize and bundle assets during builds
-
-For complete details on the new asset management system, see [ASSET_MANAGEMENT.md](./ASSET_MANAGEMENT.md).
-
-### Quick Migration Guide
-
-To move existing assets from the public directory to the new assets structure:
-
-```
-node move-assets.js
-```
-
-Then, update your imports to use the asset index:
-
-```diff
-- // Old way - hardcoded paths
-- const modelPath = '/src/game/characters/merc.glb';
-- 
-+ // New way - centralized asset management
-+ import { MercModelPath } from '../assets';
 ```

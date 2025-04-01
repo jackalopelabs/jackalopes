@@ -243,6 +243,48 @@ Our solution involves creating a centralized entity state tracking system that e
    - Test shooting events from all characters
    - Test movement audio (footsteps) for all character types
 
+## Character Model and Animation Improvements
+
+The character models have been significantly improved to enhance the multiplayer experience:
+
+### GLB Model Integration
+
+We've replaced the geometric models with proper GLB models:
+- `src/assets/characters/merc.glb` - The humanoid mercenary character
+- `src/assets/characters/jackalope.glb` - The rabbit-like jackalope character
+
+These models provide:
+- Higher visual fidelity for all players
+- Support for animated movements
+- Consistent character representation
+
+### Animation System
+
+The animation system now supports:
+1. **Animation State Management**:
+   - Each character state (idle, walking, running, etc.) maps to a specific animation
+   - Remote players display animations matching their movement states
+
+2. **Animation Synchronization**:
+   - Player movements automatically trigger appropriate animations
+   - Animation states are synchronized across the network
+   - Remote players show the correct animations based on their actions
+
+3. **Fallback Handling**:
+   - If models fail to load, geometric fallbacks ensure players remain visible
+   - Consistent visual identification (red for Merc, blue for Jackalope) even in fallback mode
+   - Console logging of model loading issues for easier debugging
+
+### Implementation
+
+The animation implementation:
+1. Uses THREE.js AnimationMixer for smooth animation blending
+2. Supports animations embedded in GLB files
+3. Has legacy support for external FBX animation files
+4. Handles animation transitions with proper fade in/out
+
+This animation system provides a more immersive multiplayer experience by making remote players' movements more realistic and responsive.
+
 ## Phase 5: Optimization and Polish (Future)
 
 ### Enhanced Gameplay
