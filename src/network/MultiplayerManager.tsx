@@ -42,6 +42,7 @@ type RemotePlayerData = {
   isMoving?: boolean;  // Flag to indicate if player is moving
   isRunning?: boolean; // Added flag to indicate if player is running
   isShooting?: boolean; // Added flag to indicate if player is shooting
+  flashlightOn?: boolean; // Added flag to indicate if flashlight is on
 };
 
 // Interface for RemotePlayer props
@@ -508,7 +509,8 @@ export const useMultiplayer = (
             playerType: playerType as 'merc' | 'jackalope',
             isMoving: false, // Start as idle
             isRunning: false, // Start as not running
-            isShooting: false // Start as not shooting
+            isShooting: false, // Start as not shooting
+            flashlightOn: data.state?.flashlightOn || false // Track flashlight state
           }
         };
       });
@@ -582,7 +584,8 @@ export const useMultiplayer = (
               playerType: newPlayerType,
               isMoving: false,
               isRunning: false,
-              isShooting: false
+              isShooting: false,
+              flashlightOn: data.state?.flashlightOn || false // Track flashlight state
             }
           };
         }
@@ -607,7 +610,11 @@ export const useMultiplayer = (
         const rotation = data.rotation 
           ? quaternionToAngle(data.rotation) 
           : existingPlayer.rotation;
-
+        
+        // Get flashlight state from update
+        const flashlightOn = data.state?.flashlightOn !== undefined ? 
+          data.state.flashlightOn : existingPlayer.flashlightOn;
+        
         // Detect movement by calculating position change
         let isMoving = false;
         let isRunning = false;
@@ -684,7 +691,8 @@ export const useMultiplayer = (
             isMoving,
             isRunning,
             // Explicitly preserve the existing player type
-            playerType: existingPlayerType
+            playerType: existingPlayerType,
+            flashlightOn
           }
         };
       });
@@ -1476,6 +1484,7 @@ export const RemotePlayers = React.memo(({
           isMoving={playerData.isMoving}
           isRunning={playerData.isRunning}
           isShooting={playerData.isShooting}
+          flashlightOn={playerData.flashlightOn}
         />
       ))}
     </>
@@ -1644,7 +1653,8 @@ export const MultiplayerManager: React.FC<{
             playerType: playerType as 'merc' | 'jackalope',
             isMoving: false, // Start as idle
             isRunning: false, // Start as not running
-            isShooting: false // Start as not shooting
+            isShooting: false, // Start as not shooting
+            flashlightOn: data.state?.flashlightOn || false // Track flashlight state
           }
         };
       });
@@ -1718,15 +1728,23 @@ export const MultiplayerManager: React.FC<{
               playerType: newPlayerType,
               isMoving: false,
               isRunning: false,
-              isShooting: false
+              isShooting: false,
+              flashlightOn: data.state?.flashlightOn || false // Track flashlight state
             }
           };
         }
         
-        // For existing players, always use their existing playerType
+        // For existing players, ALWAYS use their existing playerType
         // This prevents flashing between character types
         const existingPlayer = prev[data.id];
-        const existingPlayerType = existingPlayer.playerType || 'merc';
+        const existingPlayerType = existingPlayer.playerType;
+        
+        // Log if there's an attempt to change player type
+        if ((data.playerType || data.state?.playerType) && 
+            data.playerType !== existingPlayerType && 
+            data.state?.playerType !== existingPlayerType) {
+          console.log(`⚠️ Ignoring player type change for ${data.id}: Network wants to change from ${existingPlayerType} to ${data.playerType || data.state?.playerType}`);
+        }
         
         // Convert position and rotation
         const position = data.position 
@@ -1736,7 +1754,11 @@ export const MultiplayerManager: React.FC<{
         const rotation = data.rotation 
           ? quaternionToAngle(data.rotation) 
           : existingPlayer.rotation;
-
+        
+        // Get flashlight state from update
+        const flashlightOn = data.state?.flashlightOn !== undefined ? 
+          data.state.flashlightOn : existingPlayer.flashlightOn;
+        
         // Detect movement by calculating position change
         let isMoving = false;
         let isRunning = false;
@@ -1813,7 +1835,8 @@ export const MultiplayerManager: React.FC<{
             isMoving,
             isRunning,
             // Explicitly preserve the existing player type
-            playerType: existingPlayerType
+            playerType: existingPlayerType,
+            flashlightOn
           }
         };
       });

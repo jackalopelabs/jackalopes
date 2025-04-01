@@ -17,6 +17,7 @@ type GameState = {
     rotation: [number, number, number, number];
     health: number;
     playerType: 'merc' | 'jackalope';
+    flashlightOn: boolean;
   }>;
 };
 
@@ -35,6 +36,7 @@ interface PlayerSnapshot {
   velocity?: [number, number, number];
   health: number;
   playerType: 'merc' | 'jackalope';
+  flashlightOn: boolean;
 }
 
 export class ConnectionManager extends EventEmitter {
@@ -579,41 +581,31 @@ export class ConnectionManager extends EventEmitter {
     this.playerType = type;
   }
   
-  // New version of sendPlayerUpdate that accepts a single updateData object
+  // Update the sendPlayerUpdate method to include flashlight state
   sendPlayerUpdate(updateData: {
     position: [number, number, number],
     rotation: [number, number, number, number],
     velocity?: [number, number, number],
     sequence?: number,
-    playerType?: 'merc' | 'jackalope' // Add optional playerType parameter
+    playerType?: 'merc' | 'jackalope', // Add optional playerType parameter
+    flashlightOn?: boolean // Add optional flashlight state
   }): void {
     if (!this.isReadyToSend()) {
-      this.log(LogLevel.INFO, 'Cannot send player update: not connected to server or not authenticated yet');
+      this.log(LogLevel.WARN, 'Cannot send player update, WebSocket not ready');
       return;
     }
     
-    // Use explicitly provided playerType or default to this.playerType
-    // IMPROVEMENT: Ensure we always send a valid player type, never undefined
-    const typeToSend = updateData.playerType || this.playerType || this.getAssignedPlayerType();
+    // Determine which playerType to send
+    const typeToSend = updateData.playerType || this.playerType || 'merc';
     
-    // Update EntityStateObserver with our position
-    if (this.playerId) {
-      entityStateObserver.updateEntity({
-        id: this.playerId,
-        type: typeToSend,
-        position: updateData.position,
-        rotation: updateData.rotation,
-        isMoving: updateData.velocity ? (
-          Math.abs(updateData.velocity[0]) > 0.01 || 
-          Math.abs(updateData.velocity[2]) > 0.01
-        ) : false,
-        isRunning: updateData.velocity ? (
-          Math.sqrt(
-            updateData.velocity[0] * updateData.velocity[0] + 
-            updateData.velocity[2] * updateData.velocity[2]
-          ) > 0.2
-        ) : false
-      });
+    // Get flashlight state from global state if not provided
+    const flashlightState = updateData.flashlightOn !== undefined ? 
+      updateData.flashlightOn : 
+      (window.jackalopesGame?.flashlightOn || false);
+    
+    // Only log position updates at verbose level to reduce noise
+    if (this.logLevel >= LogLevel.VERBOSE) {
+      this.log(LogLevel.VERBOSE, `Sending player update: pos=${updateData.position.join(',')}, rot=${updateData.rotation.join(',')}, type=${typeToSend}, flashlight=${flashlightState}`);
     }
     
     if (!this.offlineMode) { 
@@ -625,7 +617,8 @@ export class ConnectionManager extends EventEmitter {
           rotation: updateData.rotation,
           velocity: updateData.velocity || [0, 0, 0],
           sequence: updateData.sequence || Date.now(),
-          playerType: typeToSend // Use explicit or default playerType
+          playerType: typeToSend, // Use explicit or default playerType
+          flashlightOn: flashlightState // Include flashlight state
         }
       });
     } else {
@@ -637,12 +630,14 @@ export class ConnectionManager extends EventEmitter {
             position: updateData.position,
             rotation: updateData.rotation,
             health: 100,
-            playerType: typeToSend // Use explicit or default playerType
+            playerType: typeToSend, // Use explicit or default playerType
+            flashlightOn: flashlightState // Include flashlight state
           };
         } else {
           this.gameState.players[this.playerId].position = updateData.position;
           this.gameState.players[this.playerId].rotation = updateData.rotation;
           this.gameState.players[this.playerId].playerType = typeToSend; // Use explicit or default playerType
+          this.gameState.players[this.playerId].flashlightOn = flashlightState; // Include flashlight state
         }
       }
     }

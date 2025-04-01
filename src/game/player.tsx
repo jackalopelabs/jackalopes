@@ -708,7 +708,8 @@ export const Player = forwardRef<EntityType, PlayerProps>(({ onMove, walkSpeed =
                 rotation: [rotationQuat.x, rotationQuat.y, rotationQuat.z, rotationQuat.w],
                 velocity: [velocity.x, velocity.y, velocity.z],
                 sequence: Date.now(),
-                playerType: playerType // Use the playerType prop when sending updates
+                playerType: playerType, // Use the playerType prop when sending updates
+                flashlightOn: flashlightOn // Include flashlight state
             });
         }
 

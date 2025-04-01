@@ -35,6 +35,7 @@ interface RemotePlayerData {
   isMoving?: boolean;
   isRunning?: boolean;
   isShooting?: boolean;
+  flashlightOn?: boolean; // Add flashlight state
 }
 
 // Interface for RemotePlayer props
@@ -46,6 +47,7 @@ export interface RemotePlayerProps {
   isMoving?: boolean;
   isRunning?: boolean;
   isShooting?: boolean;
+  flashlightOn?: boolean; // Add flashlight state
   audioListener?: THREE.AudioListener;
   // Add any other props needed
 }
@@ -154,7 +156,7 @@ const PilotLight = () => {
 
 // Remote Player Component
 export const RemotePlayer: React.FC<RemotePlayerProps> = ({ 
-  playerId, position, rotation, playerType = 'merc', isMoving, isRunning, isShooting, audioListener
+  playerId, position, rotation, playerType = 'merc', isMoving, isRunning, isShooting, flashlightOn, audioListener
 }) => {
   // Add debug logging for player type
   if (isDebugEnabled(DEBUG_LEVELS.INFO)) {
@@ -530,6 +532,35 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
             rotation={[0, 0, 0]} 
             scale={[5, 5, 5]} // Increase the scale to make the merc appear much larger
           />
+          
+          {/* Add remote player flashlight when enabled */}
+          {flashlightOn && (
+            <group position={[0, 8, 0]}>
+              {/* Flashlight spot light */}
+              <spotLight
+                color={0xffffdd} // Slightly yellowish light
+                intensity={10} // Lower intensity for remote players to avoid washing out the scene
+                distance={40} // Slightly shorter distance than local player
+                angle={0.6} // Same angle as local player
+                penumbra={0.7} // Same soft edge
+                decay={1.5}
+                castShadow
+                position={[2, 1, 0]} // Position the light on the player's chest/shoulder
+                rotation={[0, 0, 0]}
+              />
+              
+              {/* Visual flashlight indicator */}
+              <mesh position={[2, 1, 0]} scale={[0.5, 0.5, 0.5]}>
+                <sphereGeometry args={[0.2, 8, 8]} />
+                <meshStandardMaterial 
+                  color="#ffffdd" 
+                  emissive="#ffffff" 
+                  emissiveIntensity={2} 
+                  toneMapped={false}
+                />
+              </mesh>
+            </group>
+          )}
         </RigidBody>
         {/* Player ID tag - positioned higher for the taller merc model */}
         <Html position={[position?.x || 0, (position?.y || 0) + 12, position?.z || 0]} center>
