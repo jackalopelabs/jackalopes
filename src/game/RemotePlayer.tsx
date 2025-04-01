@@ -10,6 +10,14 @@ import { RigidBody, CapsuleCollider, BallCollider, CuboidCollider } from '@react
 import { MercModel } from './MercModel';
 import { JackalopeModel } from './JackalopeModel';
 
+// Add window type declaration at the top of the file with all custom properties
+declare global {
+  interface Window {
+    __fallbackModels?: Record<string, THREE.Object3D>;
+    __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
+  }
+}
+
 // Define the RemotePlayerData interface locally to match MultiplayerManager
 interface RemotePlayerData {
   playerId: string;
@@ -461,11 +469,11 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
     />
   );
 
-  // Update the getFallbackModel function to make it more reliable
+  // Update the getFallbackModel function to use the correct window typing
   const getFallbackModel = (type: 'merc' | 'jackalope'): THREE.Object3D => {
     // 1. Try to get from window.__fallbackModels
     const color = type === 'merc' ? 'red' : 'blue';
-    if (window.__fallbackModels && window.__fallbackModels[color]) {
+    if (typeof window !== 'undefined' && window.__fallbackModels && window.__fallbackModels[color]) {
       console.log(`Using global fallback model for ${type}`);
       return window.__fallbackModels[color].clone();
     }
@@ -499,30 +507,30 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
           ccd={true} // Add continuous collision detection
           collisionGroups={0xFFFFFFFF} // Collide with everything
         >
-          {/* Use multiple colliders for better hit detection */}
-          <CapsuleCollider args={[1.5, 0.8]} position={[0, 1.5, 0]} sensor={false} />
+          {/* Use multiple colliders for better hit detection - scale up for larger model */}
+          <CapsuleCollider args={[7.5, 4]} position={[0, 7.5, 0]} sensor={false} />
           
           {/* Add a box collider to ensure hits register */}
-          <CuboidCollider args={[0.8, 1.5, 0.8]} position={[0, 1.5, 0]} sensor={false} />
+          <CuboidCollider args={[4, 7.5, 4]} position={[0, 7.5, 0]} sensor={false} />
           
           {/* Add a collider for the head area */}
-          <BallCollider args={[0.6]} position={[0, 2.5, 0]} sensor={false} />
+          <BallCollider args={[3]} position={[0, 12.5, 0]} sensor={false} />
           
           {/* Use primitive for the model */}
           <MercModel 
             position={[0, 0, 0]} 
             rotation={[0, 0, 0]} 
-            scale={[1, 1, 1]} 
+            scale={[5, 5, 5]} // Increase the scale to make the merc appear much larger
           />
         </RigidBody>
         {/* Player ID tag - positioned higher for the taller merc model */}
-        <Html position={[position?.x || 0, (position?.y || 0) + 6, position?.z || 0]} center>
+        <Html position={[position?.x || 0, (position?.y || 0) + 12, position?.z || 0]} center>
           <div style={{ 
             background: 'rgba(0,0,0,0.5)', 
             padding: '2px 6px', 
             borderRadius: '4px', 
             color: 'white',
-            fontSize: '12px',
+            fontSize: '14px', // Slightly smaller font to match 5x scale
             fontFamily: 'Arial, sans-serif'
           }}>
             {playerId?.split('-')[0]}
@@ -721,13 +729,13 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
     return new THREE.Color(`rgb(${r}, ${g}, ${b})`);
   }, [playerId]);
 
-  // Near the top of the component
+  // Fix the useEffect that checks for fallback models
   useEffect(() => {
     // Debug log when component mounts
     console.log(`RemotePlayer ${playerId} mounted with type: ${playerType}`);
     
     // Check if fallback models are available
-    if (window.__fallbackModels) {
+    if (typeof window !== 'undefined' && window.__fallbackModels) {
       console.log(`Fallback models available: ${Object.keys(window.__fallbackModels).join(', ')}`);
     } else {
       console.warn(`No fallback models available for player ${playerId}`);
@@ -757,7 +765,7 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
       <mesh
         ref={meshRef}
         position={[0, playerType === 'jackalope' ? -0.9 : 0, 0]}
-        scale={playerType === 'jackalope' ? [0.9, 0.9, 0.9] : [1, 1, 1]}
+        scale={playerType === 'jackalope' ? [0.9, 0.9, 0.9] : [5, 5, 5]} // Match 5x scale
         castShadow
         receiveShadow
         frustumCulled={false}
@@ -766,7 +774,7 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
           <MercModel 
             position={[0, 0, 0]} 
             rotation={[0, 0, 0]} 
-            scale={[1, 1, 1]} 
+            scale={[5, 5, 5]} // Use consistent 5x scale
           />
         ) : (
           <JackalopeModel 
@@ -779,14 +787,14 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
       
       {/* Character nameplate */}
       <Billboard
-        position={[0, 2.2, 0]}
+        position={[0, playerType === 'merc' ? 7 : 2.2, 0]} // Adjust based on player type
         follow={true}
         lockX={false}
         lockY={false}
         lockZ={false}
       >
         <Text
-          fontSize={0.2}
+          fontSize={playerType === 'merc' ? 0.5 : 0.2} // Larger text for merc to be readable
           color="#ffffff"
           anchorX="center"
           anchorY="middle"
@@ -810,11 +818,4 @@ const compareRemotePlayers = (prevProps: RemotePlayerData, nextProps: RemotePlay
   return prevProps.playerId === nextProps.playerId;
 };
 
-export const RemotePlayerMemo = React.memo(RemotePlayer, compareRemotePlayers);
-
-// Add type declaration for window.__jackalopeAttachmentHandlers
-declare global {
-  interface Window {
-    __jackalopeAttachmentHandlers?: Record<string, (projectileData: {id: string, position: THREE.Vector3}) => boolean>;
-  }
-} 
+export const RemotePlayerMemo = React.memo(RemotePlayer, compareRemotePlayers); 
