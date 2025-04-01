@@ -2,6 +2,22 @@
 
 This guide explains how to transfer the existing Jackalopes ThreeJS game into this WordPress plugin.
 
+## Current Progress
+
+### Completed Steps
+- ✅ Created utilities for WordPress integration (`assetLoader.ts`)
+- ✅ Implemented WebSocket connection manager (`connectionManager.ts`)
+- ✅ Added React hooks for connections (`useConnection.ts`)
+- ✅ Created shared type definitions
+- ✅ Updated entry point for WordPress compatibility
+- ✅ Implemented cross-browser communication
+- ✅ Added global debug helpers
+
+### Next Steps
+- [ ] Transfer full game components
+- [ ] Implement complete gameplay mechanics
+- [ ] Copy assets to the public directory
+
 ## Step 1: Transfer Game Files
 
 Copy the following files/directories from the existing game to the plugin:
@@ -10,78 +26,73 @@ Copy the following files/directories from the existing game to the plugin:
 # Source: Original Jackalopes Game
 # Destination: jackalopes-wp/game/src/
 
-src/App.tsx         -> game/src/App.tsx
-src/components/     -> game/src/components/
-src/hooks/          -> game/src/hooks/
-src/utils/          -> game/src/utils/
-src/types/          -> game/src/types/
+src/App.tsx         -> game/src/App.tsx (already adapted)
+src/components/     -> game/src/components/ (basic components already created)
+src/hooks/          -> game/src/hooks/ (integration hooks created)
+src/utils/          -> game/src/utils/ (connection utilities created)
+src/types/          -> game/src/types/ (type definitions created)
 src/assets/         -> game/public/assets/ (static assets)
 ```
 
-## Step 2: Update Entry Point
+## Step 2: Asset Setup
 
-Modify the main.tsx file to align with WordPress integration:
+Ensure the following asset structure is set up:
 
-1. Keep the existing `window.initJackalopesGame` function
-2. Update the App component props to include the proper WordPress settings:
-
-```typescript
-<App 
-  serverUrl={serverUrl}
-  isFullscreen={isFullscreen}
-  isWordPress={true}
-  assetsUrl={wpSettings.assetsUrl || ''}
-/>
+```
+game/public/assets/
+├── models/          # 3D models (GLB/GLTF files)
+├── textures/        # Texture images
+├── sounds/          # Audio files
+├── images/          # UI and other images
 ```
 
-## Step 3: Update Asset Paths
+## Step 3: Update Entry Point
 
-Update asset loading paths to use WordPress URLs:
-
-```typescript
-// Change from
-import modelFile from './assets/model.glb';
-
-// To
-const getAssetPath = (path: string) => {
-  return window.jackalopesGameSettings?.assetsUrl 
-    ? window.jackalopesGameSettings.assetsUrl + path
-    : './assets/' + path;
-};
-
-const modelFile = getAssetPath('model.glb');
-```
+The main.tsx file has been updated to:
+1. Provide WordPress integration via `window.initJackalopesGame`
+2. Set up global debug helpers
+3. Handle both WordPress and standalone development modes
+4. Support cross-browser session management
 
 ## Step 4: Update WebSocket Connection Logic
 
-Modify the connection logic to use WordPress-provided server URL:
-
-```typescript
-// In your ConnectionManager or similar component:
-const serverUrl = props.serverUrl || 
-                 window.jackalopesGameSettings?.serverUrl || 
-                 'ws://localhost:8082';
-```
+The connection manager has been created to:
+1. Use the WordPress-provided server URL
+2. Implement proper connection events
+3. Handle authentication and session joining
+4. Provide shot and respawn events
 
 ## Step 5: Add WordPress-Specific Features
 
-Add WordPress-specific features and optimizations:
+WordPress integration features implemented:
+1. Fullscreen toggle functionality
+2. Asset path resolution for WordPress
+3. Server URL configuration
+4. Debug level control
 
-1. Add fullscreen toggle functionality
-2. Add responsive container sizing
-3. Add WordPress admin settings integration
+## Step 6: Testing
 
-## Step 6: Build and Test
+To test the WordPress plugin:
 
-Build the game for WordPress:
+### 1. Local Testing
+```bash
+# Start the PHP server
+php -S localhost:8000 serve.php
 
+# Open in browser
+open http://localhost:8000
+```
+
+### 2. Building for WordPress
 ```bash
 cd jackalopes-wp/game
-npm install
 npm run build
 ```
 
-Test the WordPress plugin by activating it and using the `[jackalopes]` shortcode.
+### 3. WordPress Installation
+1. Place the plugin in WordPress plugins directory
+2. Activate via WordPress admin
+3. Add shortcode to a page: `[jackalopes]`
 
 ## Troubleshooting
 
