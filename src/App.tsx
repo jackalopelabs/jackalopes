@@ -2850,29 +2850,10 @@ export function App() {
               // Use the updated method with spawn position
               connectionManager.sendRespawnRequest(playerId, finalSpawnPosition);
               
-              // If this is from a merc hitting a jackalope, increment merc score
+              // Log that we're respawning the jackalope but don't update score here
+              // Score was already updated when the jackalope was hit by the projectile
               const localPlayerType = window.jackalopesGame?.playerType;
               console.log(`[App] Checking scoring: Local player type: ${localPlayerType}, Merc hit Jackalope: ${playerId}`);
-              
-              if (localPlayerType === 'merc') {
-                // Since we just cleared the tracking, this should now score appropriately
-                const newScore = mercsScore + 1;
-                setMercsScore(newScore);
-                // Update last score time to prevent timer resets from overriding
-                lastScoreTime.current = Date.now();
-                console.log(`🎯 Merc scored a point! Current score: ${mercsScore}, updating to: ${newScore}`);
-                
-                // Save updated list to localStorage
-                saveScoredJackalopes();
-                
-                // Store the updated score in localStorage
-                try {
-                  localStorage.setItem('mercs_score', String(newScore));
-                  localStorage.setItem('scores_last_updated', String(Date.now()));
-                } catch (err) {
-                  console.error('Error storing score in localStorage:', err);
-                }
-              }
               
               // Clear the last hit jackalope flag after processing
               window.__lastHitJackalope = undefined;
