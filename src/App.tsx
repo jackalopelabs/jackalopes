@@ -1097,12 +1097,18 @@ const StatsDisplay = () => {
         textures: 0
     });
     
+    // Get the showFpsCounter setting
+    const { showFpsCounter } = useControls('Performance', {}) as { showFpsCounter: boolean };
+    
     useEffect(() => {
         // Subscribe to performance updates
         return performanceState.subscribe(data => {
             setStats(data);
         });
     }, []);
+    
+    // Don't render if showFpsCounter is false
+    if (!showFpsCounter) return null;
     
     return (
         <div style={{
@@ -2016,6 +2022,10 @@ export function App() {
                     window.__setGraphicsQuality(value);
                 }
             }
+        },
+        showFpsCounter: {
+            value: false,
+            label: 'Show FPS Counter'
         }
     }, {
         collapsed: true,
