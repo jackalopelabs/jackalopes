@@ -1367,7 +1367,44 @@ export function App() {
     // Use a ref to track if shoot is on cooldown
     const shootCooldownRef = useRef(false);
     
-    // Create a helper component to handle useFrame inside Canvas
+    // Detect mobile devices on component mount
+    useEffect(() => {
+        // Check for mobile devices
+        const checkMobile = () => {
+            const userAgent = navigator.userAgent.toLowerCase();
+            const isMobileDevice = /android|webos|iphone|ipad|ipod|blackberry|iemobile|opera mini|mobile/i.test(userAgent);
+            const hasTouchScreen = navigator.maxTouchPoints > 0 || 'ontouchstart' in window;
+            
+            // Set mobile status
+            const isOnMobile = isMobileDevice || hasTouchScreen;
+            console.log(`Mobile device detected: ${isOnMobile ? 'Yes' : 'No'}`);
+            setIsMobile(isOnMobile);
+            
+            // Auto-show gamepad for mobile devices
+            if (isOnMobile) {
+                setShowVirtualGamepad(true);
+                
+                // Also update Leva control if available
+                try {
+                    // This is just a best-effort approach - don't rely on it
+                    if (window && (window as any).__leva && (window as any).__leva.virtualGamepad !== undefined) {
+                        (window as any).__leva.virtualGamepad = true;
+                    }
+                } catch (e) {
+                    // Ignore errors
+                }
+            }
+        };
+        
+        checkMobile();
+        
+        // Resize listener to handle orientation changes
+        window.addEventListener('resize', checkMobile);
+        return () => {
+            window.removeEventListener('resize', checkMobile);
+        };
+    }, []);
+    
     // Auto-show gamepad on mobile devices
     useEffect(() => {
         if (isMobile) {
@@ -1715,8 +1752,14 @@ export function App() {
     
     // Update virtual gamepad visibility based on the control panel toggle
     useEffect(() => {
-        setShowVirtualGamepad(virtualGamepad);
-    }, [virtualGamepad]);
+        // On mobile devices, always show virtual gamepad regardless of toggle setting
+        if (isMobile) {
+            setShowVirtualGamepad(true);
+        } else {
+            // On desktop, follow the control panel setting
+            setShowVirtualGamepad(virtualGamepad);
+        }
+    }, [virtualGamepad, isMobile]);
     
     // Handle virtual gamepad inputs
     const handleVirtualMove = (x: number, y: number) => {
@@ -4364,8 +4407,20 @@ export function App() {
                 }}
             />
 
-            {/* Add AudioToggleButton for easy audio control */}
-            <AudioToggleButton position="bottom-right" />
+            {/* Add AudioToggleButton for easy audio control - custom positioning when virtual gamepad is shown */}
+            {showVirtualGamepad ? (
+                <div style={{
+                    position: 'fixed',
+                    right: '5px',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    zIndex: 1000
+                }}>
+                    <AudioToggleButton />
+                </div>
+            ) : (
+                <AudioToggleButton position="bottom-right" />
+            )}
 
             {/* Jackalope Logo Link */}
             <a 
