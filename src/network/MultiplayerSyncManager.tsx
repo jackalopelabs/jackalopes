@@ -193,32 +193,74 @@ export const MultiplayerSyncManager: React.FC<MultiplayerSyncManagerProps> = ({
       else if (event.event_type === 'player_respawn') {
         const respawnPlayerId = event.player_id;
         
+        console.log(`🔄 [SyncManager] Received respawn event for player ${respawnPlayerId}:`, event);
+        
         // Skip if it's not for an entity we're tracking
         if (!entityStateObserver.getEntity(respawnPlayerId)) {
-          return;
+          console.log(`🔄 [SyncManager] Cannot process respawn for unknown entity: ${respawnPlayerId}`);
+          // Try to create the entity if it doesn't exist yet
+          try {
+            console.log(`🔄 [SyncManager] Creating missing entity for respawn: ${respawnPlayerId}`);
+            entityStateObserver.updateEntity({
+              id: respawnPlayerId,
+              type: 'jackalope', // Assume jackalope since only they respawn
+              position: event.spawnPosition || [-10, 3, 10],
+              rotation: 0,
+              isMoving: false,
+              isRunning: false,
+              isShooting: false,
+              health: 100,
+              isRespawning: true
+            });
+          } catch (err) {
+            console.error(`🔄 [SyncManager] Error creating entity for respawn:`, err);
+          }
         }
         
-        console.log('🔄 Processing player respawn event:', event);
-        
         // Get the assigned spawn position from the event
-        const spawnPosition = event.spawnPosition || [0, 3, 0];
+        const spawnPosition = event.spawnPosition || [-10, 3, 10]; // Default jackalope spawn
+        
+        console.log(`🔄 [SyncManager] Setting respawn position to: [${spawnPosition.join(', ')}]`);
         
         // Update entity state with new position
-        entityStateObserver.updateEntity({
-          id: respawnPlayerId,
-          position: spawnPosition,
-          isRespawning: true
-        });
+        try {
+          entityStateObserver.updateEntity({
+            id: respawnPlayerId,
+            position: spawnPosition,
+            isRespawning: true,
+            health: 100 // Reset health on respawn
+          });
+          console.log(`🔄 [SyncManager] Updated entity ${respawnPlayerId} to respawn state with position [${spawnPosition.join(', ')}]`);
+        } catch (err) {
+          console.error(`🔄 [SyncManager] Error updating entity state:`, err);
+        }
         
         // If this is for our own player, handle our local respawn
-        if (respawnPlayerId === connectionManager.getPlayerId()) {
-          console.log(`[SyncManager] Dispatching local player_respawned event for ${respawnPlayerId}`);
+        const localPlayerId = connectionManager.getPlayerId();
+        console.log(`🔄 [SyncManager] Local player ID: ${localPlayerId}, Respawning player: ${respawnPlayerId}`);
+        
+        if (respawnPlayerId === localPlayerId) {
+          console.log(`🔄 [SyncManager] Dispatching local player_respawned event for ${respawnPlayerId}`);
           
-          // Dispatch a local event to trigger respawn effects
-          const respawnEvent = new CustomEvent('player_respawned', {
-            detail: { position: spawnPosition }
-          });
-          window.dispatchEvent(respawnEvent);
+          try {
+            // Dispatch a local event to trigger respawn effects
+            const respawnEvent = new CustomEvent('player_respawned', {
+              detail: { position: spawnPosition }
+            });
+            window.dispatchEvent(respawnEvent);
+            console.log(`🔄 [SyncManager] Successfully dispatched respawn event for local player ${respawnPlayerId}`);
+            
+            // Also try direct communication with the player entity if available
+            if (window.jackalopesGame) {
+              // Use a safer approach that doesn't require changing the type definition
+              (window.jackalopesGame as any)._lastRespawnTime = Date.now();
+              (window.jackalopesGame as any)._lastRespawnPosition = spawnPosition;
+            }
+          } catch (err) {
+            console.error(`🔄 [SyncManager] Error dispatching respawn event:`, err);
+          }
+        } else {
+          console.log(`🔄 [SyncManager] Remote player ${respawnPlayerId} will respawn, not dispatching local event`);
         }
       }
     };

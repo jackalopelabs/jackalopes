@@ -205,23 +205,70 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
     useEffect(() => {
         const handleRespawn = (event: CustomEvent) => {
             const localPlayerId = connectionManager?.getPlayerId();
-            const propPlayerId = (props as any).playerId;
-            console.log(`[Jackalope] Received player_respawned event. Local ID: ${localPlayerId}, Prop ID: ${propPlayerId}, Event Detail:`, event.detail);
+            
+            // IMPORTANT: In some cases propPlayerId might be undefined, but we should still handle
+            // respawn for our local player
+            console.log(`[Jackalope] Received player_respawned event. Local ID: ${localPlayerId}, Event Detail:`, event.detail);
 
-            if (!localPlayerId || localPlayerId !== propPlayerId) {
-                // Only handle respawn for the correct local player
-                return;
+            // If this was sent for our player ID, handle the respawn
+            // Skip the propPlayerId check as it's causing problems
+            if (localPlayerId) {
+                console.log('🐰 Jackalope processing respawn event', event.detail);
+                
+                // Extract spawn position from event and store it
+                const spawnCoords = event.detail?.position || [-10, 3, 10]; // Default jackalope spawn
+                console.log(`🐰 Spawn coordinates: [${spawnCoords.join(', ')}]`);
+                
+                // Create a new THREE.Vector3 from spawn coordinates
+                respawnTargetPosition.current = new THREE.Vector3(spawnCoords[0], spawnCoords[1], spawnCoords[2]);
+                
+                // IMPORTANT: Apply the respawn position IMMEDIATELY
+                // Don't wait for useFrame, directly set the position
+                if (jackalopeRef.current?.rigidBody) {
+                    console.log(`🐰 Immediately setting position to [${spawnCoords.join(', ')}]`);
+                    
+                    // Update our tracked position
+                    position.current.set(spawnCoords[0], spawnCoords[1], spawnCoords[2]);
+                    
+                    // Direct teleport
+                    jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current);
+                    jackalopeRef.current.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true); // Reset velocity
+                }
+                
+                // Also update character controller if available
+                if (characterController.current) {
+                    characterController.current.setTranslation({
+                        x: spawnCoords[0],
+                        y: spawnCoords[1],
+                        z: spawnCoords[2]
+                    });
+                }
+                
+                // Set respawning state 
+                setIsRespawning(true);
+                respawnEffectRef.current = true; // Trigger visual effect
+                
+                // Create spawn effect immediately
+                if (typeof window !== 'undefined' && window.__createSpawnEffect) {
+                    window.__createSpawnEffect(
+                        new THREE.Vector3(spawnCoords[0], spawnCoords[1], spawnCoords[2]),
+                        '#4682B4', // Blue color for Jackalope
+                        20, // Particles for spawn effect
+                        0.2 // Radius
+                    );
+                }
+                
+                // Set invulnerable state after a short delay
+                setTimeout(() => {
+                    setIsRespawning(false);
+                    setIsInvulnerable(true);
+                    
+                    // Remove invulnerability after 3 seconds
+                    setTimeout(() => {
+                        setIsInvulnerable(false);
+                    }, 3000);
+                }, 300);
             }
-            
-            console.log('🐰 Jackalope received respawn event', event.detail);
-            
-            // Extract spawn position from event and store it
-            const spawnCoords = event.detail?.position || [0, 3, 0];
-            respawnTargetPosition.current = new THREE.Vector3(spawnCoords[0], spawnCoords[1], spawnCoords[2]);
-            
-            // Set respawning state (will be processed in useFrame)
-            setIsRespawning(true);
-            respawnEffectRef.current = true; // Trigger visual effect
         };
         
         // Add event listener
@@ -230,47 +277,35 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
         return () => {
             window.removeEventListener('player_respawned', handleRespawn as EventListener);
         };
-    }, [connectionManager, (props as any).playerId]);
+    }, [connectionManager]);
+    
+    // Process respawn in useFrame
+    useEffect(() => {
+        if (isRespawning && respawnTargetPosition.current) {
+            console.log(`[Jackalope] Processing respawn to position:`, respawnTargetPosition.current);
+            
+            // Teleport to respawn position again in case the first attempt failed
+            if (jackalopeRef.current?.rigidBody) {
+                position.current.copy(respawnTargetPosition.current);
+                jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current);
+                jackalopeRef.current.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true);
+            }
+            
+            // Use the character controller to teleport to the respawn position
+            if (characterController.current) {
+                characterController.current.setTranslation({
+                    x: respawnTargetPosition.current.x,
+                    y: respawnTargetPosition.current.y,
+                    z: respawnTargetPosition.current.z
+                });
+            }
+        }
+    }, [isRespawning, respawnTargetPosition.current]);
     
     // Main update - directly updates both the visual model and physics
     useFrame((state, delta) => {
         // Early return if refs aren't ready
         if (!jackalopeRef.current?.rigidBody) return
-
-        // --- Respawn Processing (High Priority) ---
-        if (isRespawning && respawnTargetPosition.current) {
-            console.log('🐰 Applying respawn position:', respawnTargetPosition.current);
-            
-            // Apply the target position
-            position.current.copy(respawnTargetPosition.current);
-            
-            // Reset velocity immediately
-            velocity.current.set(0, 0, 0);
-            
-            // Update the physics body immediately
-            jackalopeRef.current.rigidBody.setNextKinematicTranslation(position.current);
-            jackalopeRef.current.rigidBody.setLinvel({ x: 0, y: 0, z: 0 }, true); // Also reset linear velocity
-            
-            // Clear the target position and respawn state
-            respawnTargetPosition.current = null;
-            
-            // Schedule end of respawn state and start of invulnerability
-            setTimeout(() => {
-                setIsRespawning(false);
-                setIsInvulnerable(true);
-                
-                // Clear invulnerability after 3 seconds
-                setTimeout(() => {
-                    setIsInvulnerable(false);
-                }, 3000);
-            }, 100); // Short delay before invulnerability starts
-            
-            // --- EARLY RETURN AFTER RESPAWN ---
-            // Skip the rest of the movement logic for this frame
-            // to ensure the respawn position sticks.
-            return; 
-        }
-        // --- End Respawn Processing ---
 
         // Check for respawn effect visual trigger
         if (respawnEffectRef.current) {

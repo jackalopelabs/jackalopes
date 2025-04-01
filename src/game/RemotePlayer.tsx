@@ -20,7 +20,7 @@ declare global {
     __createExplosionEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
     __createSpawnEffect?: (position: THREE.Vector3, color: string, particleCount: number, radius: number) => void;
     __networkManager?: {
-      sendRespawnRequest: (playerId: string) => void;
+      sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => void;
     };
   }
 }
@@ -570,25 +570,36 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
     // Function to handle when a jackalope is hit by a projectile
     const handleJackalopeHit = useCallback((projectileId: string, shooterId: string): boolean => {
       // Only process if not already hit or invulnerable
-      if (isHit || isRespawning || isInvulnerable) return false;
+      if (isHit || isRespawning || isInvulnerable) {
+        console.log(`[RemotePlayer] Jackalope ${playerId} already hit or invulnerable - skipping hit`);
+        return false;
+      }
       
-      console.log(`Jackalope ${playerId} hit by projectile ${projectileId} from ${shooterId}`);
+      console.log(`[RemotePlayer] Jackalope ${playerId} hit by projectile ${projectileId} from ${shooterId}`);
       
       // Set hit state to trigger vanishing effect
       setIsHit(true);
       
       // Play hit sound
-      const hitSound = new Audio('/src/assets/audio/jackalope-hit.mp3');
-      hitSound.play().catch(err => console.error('Error playing hit sound:', err));
+      try {
+        const hitSound = new Audio('/src/assets/audio/jackalope-hit.mp3');
+        hitSound.play().catch(err => console.error('Error playing hit sound:', err));
+      } catch (err) {
+        console.error('Error playing hit sound:', err);
+      }
       
       // Create particles at position before vanishing
       if (typeof window !== 'undefined' && window.__createExplosionEffect && position) {
-        window.__createExplosionEffect(
-          new THREE.Vector3(position.x, position.y, position.z),
-          '#4682B4', // Blue color for Jackalope
-          30, // More particles for a bigger effect
-          0.3 // Larger explosion radius
-        );
+        try {
+          window.__createExplosionEffect(
+            new THREE.Vector3(position.x, position.y, position.z),
+            '#4682B4', // Blue color for Jackalope
+            30, // More particles for a bigger effect
+            0.3 // Larger explosion radius
+          );
+        } catch (err) {
+          console.error('Error creating explosion effect:', err);
+        }
       }
       
       // After a short delay, trigger respawn
@@ -597,8 +608,31 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
         setIsRespawning(true);
         
         // Tell the server we need to respawn this jackalope
-        if (typeof window !== 'undefined' && window.__networkManager) {
-          window.__networkManager.sendRespawnRequest(playerId);
+        if (typeof window !== 'undefined') {
+          if (window.__networkManager) {
+            console.log(`[RemotePlayer] Sending respawn request for jackalope: ${playerId}`);
+            try {
+              // Default spawn position for jackalope respawns
+              const spawnPosition: [number, number, number] = [-10, 3, 10];
+              window.__networkManager.sendRespawnRequest(playerId, spawnPosition);
+              console.log(`[RemotePlayer] Respawn request sent successfully for ${playerId}`);
+            } catch (error: any) {
+              console.error(`[RemotePlayer] Error sending respawn request: ${error.message}`);
+            }
+          } else if (window.connectionManager) {
+            // Fallback to connectionManager global if __networkManager isn't available
+            console.log(`[RemotePlayer] Using connectionManager fallback for respawn request: ${playerId}`);
+            try {
+              // Default spawn position for jackalope respawns
+              const spawnPosition: [number, number, number] = [-10, 3, 10];
+              window.connectionManager.sendRespawnRequest(playerId, spawnPosition);
+              console.log(`[RemotePlayer] Respawn request sent successfully via connectionManager for ${playerId}`);
+            } catch (error: any) {
+              console.error(`[RemotePlayer] Error sending respawn via connectionManager: ${error.message}`);
+            }
+          } else {
+            console.error(`[RemotePlayer] Cannot send respawn request: no network manager available!`);
+          }
         }
         
         // For demo/testing, we'll just simulate a respawn after a delay
@@ -619,12 +653,16 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
           
           // Create spawn effect at new position
           if (typeof window !== 'undefined' && window.__createSpawnEffect && position) {
-            window.__createSpawnEffect(
-              new THREE.Vector3(position.x, position.y, position.z),
-              '#4682B4', // Blue color for Jackalope
-              20, // Particles for spawn effect
-              0.2 // Radius
-            );
+            try {
+              window.__createSpawnEffect(
+                new THREE.Vector3(position.x, position.y, position.z),
+                '#4682B4', // Blue color for Jackalope
+                20, // Particles for spawn effect
+                0.2 // Radius
+              );
+            } catch (err) {
+              console.error('Error creating spawn effect:', err);
+            }
           }
         }, 1500); // 1.5 seconds "dead" before respawning
       }, 200); // Short delay to allow the hit effect to be seen

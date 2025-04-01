@@ -43,6 +43,9 @@ declare global {
         __setDebugLevel?: (level: number) => void; // Add debug level control
         __toggleNetworkLogs?: (verbose: boolean) => string; // Add network log control
         connectionManager?: any; // Make ConnectionManager accessible globally
+        __networkManager?: {
+            sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => void;
+        };
         jackalopesGame?: {
             playerType?: 'merc' | 'jackalope';
             levaPanelState?: 'open' | 'closed';
@@ -50,7 +53,6 @@ declare global {
             debugLevel?: number; // Store debug level
             // Add other global game properties as needed
         };
-        __playMercShot?: () => void; // Add weapon sound function
         playerPositionTracker?: {
             updatePosition: (newPos: THREE.Vector3) => void;
         };
@@ -2664,9 +2666,25 @@ export function App() {
       if (connectionManager) {
         window.connectionManager = connectionManager;
         
+        // Also set window.__networkManager for respawn functionality
+        window.__networkManager = {
+          sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => {
+            if (connectionManager) {
+              console.log(`[App] Sending respawn request for player ${playerId} with default spawn position [-10, 3, 10]`);
+              
+              // Default spawn position for jackalope
+              const spawnPosition: [number, number, number] = [-10, 3, 10];
+              
+              // Use the updated method with spawn position
+              connectionManager.sendRespawnRequest(playerId, spawnPosition);
+            }
+          }
+        };
+        
         // Clean up on unmount
         return () => {
           delete window.connectionManager;
+          delete window.__networkManager;
         };
       }
     }, [connectionManager]);

@@ -695,7 +695,7 @@ export class ConnectionManager extends EventEmitter {
   }
 
   // Send a respawn request for a player (usually a jackalope hit by a projectile)
-  sendRespawnRequest(playerId: string): void {
+  sendRespawnRequest(playerId: string, spawnPosition?: [number, number, number]): void {
     if (!this.isReadyToSend()) {
       this.log(LogLevel.WARN, 'Cannot send respawn request, WebSocket not ready');
       return;
@@ -703,6 +703,9 @@ export class ConnectionManager extends EventEmitter {
     
     // Generate a unique ID for this respawn based on timestamp and random number
     const respawnId = `respawn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Default spawn position for jackalope if not provided
+    const defaultPosition: [number, number, number] = [-10, 3, 10];
     
     // Create respawn event data
     const respawnData = {
@@ -712,11 +715,13 @@ export class ConnectionManager extends EventEmitter {
         respawnId,
         player_id: playerId, // The player who needs to respawn
         requestedBy: this.playerId, // Who requested the respawn
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        // Include spawn position if provided, otherwise use default
+        spawnPosition: spawnPosition || defaultPosition
       }
     };
     
-    this.log(LogLevel.INFO, `Sending respawn request for player ${playerId}, ID: ${respawnId}`);
+    this.log(LogLevel.INFO, `Sending respawn request for player ${playerId}, ID: ${respawnId}, position: ${respawnData.event.spawnPosition.join(',')}`);
     
     // Send to server
     this.send(respawnData);

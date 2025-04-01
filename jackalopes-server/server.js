@@ -231,6 +231,11 @@ function handleClientMessage(clientId, message) {
                 handleLeaveSession(clientId);
                 break;
                 
+            case 'keepalive':
+                // Just silently acknowledge keepalive messages
+                // No need to respond or log an error
+                break;
+                
             default:
                 sendToClient(clientId, {
                     type: 'error',
