@@ -437,40 +437,41 @@ export const ScoreDisplay: React.FC<ScoreDisplayProps> = ({
     justifyContent: 'center',
     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.5)',
     zIndex: 1000,
-    border: '1px solid rgba(255, 255, 255, 0.3)',
+    border: 'none',
     color: 'white',
-    fontFamily: 'monospace',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
     userSelect: 'none',
     gap: '20px',
     transition: 'all 0.3s ease-in-out',
   };
 
   const scoreStyle: React.CSSProperties = {
-    fontSize: '18px',
+    fontSize: '16px',
     fontWeight: 'bold',
     textShadow: '1px 1px 2px rgba(0, 0, 0, 0.8)',
     transition: 'all 0.3s ease',
+    color: '#ffffff',
   };
 
   const jackalopesStyle: React.CSSProperties = {
     ...scoreStyle,
-    color: jackalopesFlash ? '#ffffff' : '#4682B4', // Blue for Jackalopes
+    color: jackalopesFlash ? '#ffffff' : '#ffffff', // Changed to white
     textShadow: jackalopesFlash ? '0 0 15px #4682B4, 0 0 10px #4682B4, 0 0 5px #4682B4' : '1px 1px 2px rgba(0, 0, 0, 0.8)',
-    fontSize: jackalopesFlash ? '22px' : '18px',
+    fontSize: jackalopesFlash ? '20px' : '16px', // Reduced from 22px/18px
   };
 
   const mercsStyle: React.CSSProperties = {
     ...scoreStyle,
-    color: mercsFlash ? '#ffffff' : '#ff4500', // Red-orange for Mercs
+    color: mercsFlash ? '#ffffff' : '#ffffff', // Changed to white
     textShadow: mercsFlash ? '0 0 15px #ff4500, 0 0 10px #ff4500, 0 0 5px #ff4500' : '1px 1px 2px rgba(0, 0, 0, 0.8)',
-    fontSize: mercsFlash ? '22px' : '18px',
+    fontSize: mercsFlash ? '20px' : '16px', // Reduced from 22px/18px
   };
   
   // Style for timer
   const timerStyle: React.CSSProperties = {
     ...scoreStyle,
-    color: timeRemaining <= 60 ? '#ff3333' : '#ffffff', // Red when less than a minute
-    fontSize: timeRemaining <= 10 ? '20px' : '16px',
+    color: timeRemaining <= 60 ? '#ff3333' : '#ffffff', // Red when less than a minute, white otherwise
+    fontSize: timeRemaining <= 10 ? '18px' : '14px', // Reduced from 20px/16px
     transition: 'all 0.3s ease',
   };
 
