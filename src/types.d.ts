@@ -6,17 +6,33 @@ interface Window {
   __playMercShot?: () => void;
   __playerShots?: Record<string, () => boolean>;
   __triggerShot?: (id?: string) => string;
+  __toggleNetworkLogs?: (verbose: boolean) => string;
+  connectionManager?: any;
+  __networkManager?: {
+    sendRespawnRequest: (playerId: string, spawnPosition?: [number, number, number]) => void;
+  };
   
   jackalopesGame?: {
     playerType?: 'merc' | 'jackalope';
     levaPanelState?: 'open' | 'closed';
     flashlightOn?: boolean;
     debugLevel?: number;
+    spawnManager?: {
+      baseSpawnX: number;
+      currentSpawnX: number;
+      stepSize: number;
+      minX: number;
+      getNextSpawnPoint: () => [number, number, number];
+      resetSpawnPoints: () => [number, number, number];
+      getSpawnPoint: () => [number, number, number];
+    };
   };
   
   playerPositionTracker?: {
     updatePosition: (newPos: THREE.Vector3) => void;
   };
+  
+  __lastHitJackalope?: string;
 }
 
 // Add colored console functionality
