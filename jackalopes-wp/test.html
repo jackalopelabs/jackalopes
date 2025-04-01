@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Jackalopes WordPress Plugin Test</title>
+  <link rel="stylesheet" href="game/dist/assets/main.css">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+      background-color: #f0f2f5;
+      margin: 0;
+      padding: 20px;
+      color: #333;
+    }
+    
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #fff;
+      border-radius: 5px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+    
+    h1 {
+      color: #23282d;
+      font-size: 24px;
+      margin-bottom: 20px;
+    }
+    
+    .game-container {
+      width: 100%;
+      height: 600px;
+      position: relative;
+      overflow: hidden;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      margin-bottom: 20px;
+    }
+    
+    .panel {
+      margin-top: 20px;
+      padding: 15px;
+      background-color: #f8f9fa;
+      border-left: 4px solid #0073aa;
+      margin-bottom: 20px;
+    }
+    
+    button {
+      background-color: #0073aa;
+      color: white;
+      border: none;
+      padding: 8px 12px;
+      border-radius: 3px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    
+    button:hover {
+      background-color: #006291;
+    }
+    
+    .jackalopes-loading {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background-color: #242424;
+      z-index: 100;
+    }
+    
+    .jackalopes-loading-spinner {
+      width: 50px;
+      height: 50px;
+      border: 5px solid rgba(255, 255, 255, 0.1);
+      border-radius: 50%;
+      border-top-color: #0070f3;
+      animation: spin 1s ease-in-out infinite;
+      margin-bottom: 20px;
+    }
+    
+    .jackalopes-loading-message {
+      color: white;
+      font-size: 16px;
+      text-align: center;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Jackalopes WordPress Plugin Test</h1>
+    <p>This page simulates how the plugin will work when embedded using the <code>[jackalopes]</code> shortcode.</p>
+    
+    <div class="panel">
+      <h3>Game Settings</h3>
+      <div>
+        <button id="fullscreenToggle">Toggle Fullscreen</button>
+        <button id="debugToggle">Toggle Debug Stats</button>
+      </div>
+    </div>
+    
+    <div id="jackalopes-game-container" class="game-container" data-fullscreen="false" data-server="">
+      <div class="jackalopes-loading">
+        <div class="jackalopes-loading-spinner"></div>
+        <div class="jackalopes-loading-message">Loading Jackalopes...</div>
+      </div>
+    </div>
+    
+    <div class="panel">
+      <h3>WordPress Integration Test</h3>
+      <p>This simulates the <code>[jackalopes]</code> shortcode with the following attributes:</p>
+      <pre><code>[jackalopes width="100%" height="600px" fullscreen="false" server="ws://localhost:8082"]</code></pre>
+    </div>
+  </div>
+  
+  <script>
+    // Mock WordPress settings
+    window.jackalopesGameSettings = {
+      ajaxUrl: '/wp-admin/admin-ajax.php',
+      pluginUrl: './',
+      assetsUrl: './game/dist/assets/',
+      serverUrl: 'ws://localhost:8082',
+      debug: true,
+      nonce: 'test-nonce'
+    };
+    
+    // Load the game script
+    const script = document.createElement('script');
+    script.src = 'game/dist/assets/index.js';
+    script.type = 'module';
+    script.onload = function() {
+      // Initialize the game once the script is loaded
+      if (typeof window.initJackalopesGame === 'function') {
+        window.initJackalopesGame('jackalopes-game-container', {
+          fullscreen: false,
+          server: 'ws://localhost:8082'
+        });
+      } else {
+        console.error('Game initialization function not found');
+      }
+    };
+    document.body.appendChild(script);
+    
+    // Handle fullscreen toggle
+    document.getElementById('fullscreenToggle').addEventListener('click', function() {
+      const container = document.getElementById('jackalopes-game-container');
+      
+      if (container.style.position === 'fixed') {
+        // Exit fullscreen
+        container.style.position = 'relative';
+        container.style.width = '100%';
+        container.style.height = '600px';
+        container.style.top = 'auto';
+        container.style.left = 'auto';
+        container.style.zIndex = 'auto';
+      } else {
+        // Enter fullscreen
+        container.style.position = 'fixed';
+        container.style.width = '100vw';
+        container.style.height = '100vh';
+        container.style.top = '0';
+        container.style.left = '0';
+        container.style.zIndex = '9999';
+      }
+    });
+    
+    // Handle debug toggle
+    document.getElementById('debugToggle').addEventListener('click', function() {
+      // Simulate F3 key press
+      const event = new KeyboardEvent('keydown', { key: 'F3' });
+      window.dispatchEvent(event);
+    });
+  </script>
+</body>
+</html> 

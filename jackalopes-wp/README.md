@@ -70,6 +70,46 @@ You can customize the game display with these attributes:
 - `fullscreen`: Enable fullscreen mode (default: false)
 - `server`: Specify a custom WebSocket server URL (optional)
 
+## Testing and Development
+
+### Local Testing Without WordPress
+
+For quick testing without a WordPress environment:
+
+1. Build the game:
+   ```bash
+   cd game
+   npm install
+   npm run build
+   ```
+
+2. Start the test server:
+   ```bash
+   php -S localhost:8000 serve.php
+   ```
+
+3. Open your browser and navigate to `http://localhost:8000`
+
+### Game Development
+
+1. Make changes to the game source in `game/src/`
+2. For development mode with hot reloading:
+   ```bash
+   cd game
+   npm run dev
+   ```
+3. For WordPress testing, build the game:
+   ```bash
+   npm run build
+   ```
+
+### Game Controls
+
+- Press `F3` to toggle FPS and debug stats
+- Use WASD to move (in full implementation)
+- Mouse to look (in full implementation)
+- Click to shoot (in full implementation)
+
 ## Multiplayer Functionality
 
 For multiplayer functionality, you'll need to install the [Jackalopes Server](https://github.com/yourusername/jackalopes-server) plugin. Once installed:
@@ -93,30 +133,12 @@ This plugin is designed to work seamlessly with Sage 11 themes. When using Blade
 {!! do_shortcode('[jackalopes]') !!}
 ```
 
-## Development
-
-If you want to modify the game:
-
-1. Clone the repository
-2. Install dependencies:
-   ```bash
-   cd jackalopes-wp/game
-   npm install
-   ```
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-4. Build for production:
-   ```bash
-   npm run build
-   ```
-
 ## Troubleshooting
 
 - **Game doesn't appear**: Check if your browser supports WebGL. Try a different browser.
 - **Multiplayer not working**: Verify that the WebSocket server is running and accessible.
 - **Performance issues**: Adjust game quality settings in the admin interface.
+- **Asset loading errors**: Check browser console for 404 errors on game assets.
 
 ## License
 
