@@ -58,7 +58,8 @@ function jackalopes_wp_game_shortcode($atts = []) {
         </div>
     </div>
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        // Wait for the module to be fully loaded
+        setTimeout(function() {
             // Initialize the game when the DOM is fully loaded
             if (typeof window.initJackalopesGame === 'function') {
                 window.initJackalopesGame('<?php echo esc_js($game_id); ?>', {
@@ -68,7 +69,7 @@ function jackalopes_wp_game_shortcode($atts = []) {
             } else {
                 console.error('Jackalopes game initialization function not found. Make sure all assets are properly loaded.');
             }
-        });
+        }, 100);
     </script>
     <?php
     

@@ -1,6 +1,153 @@
 # Jackalopes WordPress Plugin
 
-A WordPress plugin that integrates the Jackalopes 3D first-person shooter game into WordPress sites.
+A WordPress plugin that integrates the Jackalopes 3D first-person shooter game into any WordPress site using a simple shortcode.
+
+## Features
+
+- Easy integration into any WordPress site using a shortcode
+- Seamless integration with the jackalopes-server for multiplayer functionality
+- Responsive design that works on mobile and desktop
+- Configuration options through shortcode attributes
+- Performance optimizations for WordPress environments
+
+## Installation
+
+### Method 1: Build from Source
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/jackalopes.git
+   cd jackalopes/jackalopes-wp
+   ```
+
+2. Install dependencies:
+   ```bash
+   cd game
+   npm install
+   cd ..
+   ```
+
+3. Build and deploy:
+   ```bash
+   # Option 1: Build only
+   ./build.sh
+   
+   # Option 2: Build and copy to WordPress plugins directory
+   ./build.sh /path/to/wordpress/wp-content/plugins/jackalopes-wp
+   ```
+
+4. Activate the plugin in your WordPress admin panel.
+
+5. Add the shortcode to any page or post:
+   ```
+   [jackalopes]
+   ```
+
+### Method 2: Manual Installation
+
+1. Download the latest release zip file.
+2. In your WordPress admin, go to Plugins > Add New > Upload Plugin.
+3. Upload the zip file and activate the plugin.
+4. Add the shortcode `[jackalopes]` to any page or post.
+
+## Usage
+
+### Basic Usage
+
+Simply add the shortcode to any page or post:
+
+```
+[jackalopes]
+```
+
+### Advanced Usage
+
+The shortcode accepts optional attributes to customize the game:
+
+```
+[jackalopes width="800px" height="600px" fullscreen="true" server="ws://your-server.com/websocket/"]
+```
+
+#### Available Attributes
+
+| Attribute | Description | Default |
+|-----------|-------------|---------|
+| width | Width of the game container | 100% |
+| height | Height of the game container | 600px |
+| fullscreen | Enable fullscreen mode | false |
+| server | WebSocket server URL | Auto-detected |
+
+## Troubleshooting
+
+### Missing Asset Files
+
+If you encounter 404 errors for assets (like models, textures, etc.), you need to ensure all assets are correctly copied to the plugin directory:
+
+1. Run the asset fixer script:
+   ```bash
+   ./fix-assets.sh
+   ```
+
+2. Make sure the original game's public directory structure is accessible to copy assets from:
+   ```
+   ../public/
+   ```
+
+### WebSocket Connection Issues
+
+If you're having issues with the multiplayer functionality:
+
+1. Ensure the jackalopes-server plugin is installed and activated.
+2. Verify the WebSocket server is running.
+3. Check for any firewall or proxy configuration that might block WebSocket connections.
+
+## Development
+
+### Local Testing
+
+You can test the plugin locally using the included development server:
+
+```bash
+cd jackalopes-wp
+php -S localhost:8000 serve.php
+```
+
+Then open your browser to http://localhost:8000
+
+### Building for Development
+
+During development, you can use the Vite development server for faster iteration:
+
+```bash
+cd game
+npm run dev
+```
+
+## Integration with Trellis/Sage/Bedrock
+
+For integration with a Roots stack (Trellis/Sage/Bedrock):
+
+1. Add the plugin to your Bedrock composer.json:
+   ```json
+   "repositories": [
+     {
+       "type": "vcs",
+       "url": "https://github.com/yourusername/jackalopes"
+     }
+   ],
+   "require": {
+     "yourusername/jackalopes-wp": "dev-main"
+   }
+   ```
+
+2. Deploy using Trellis:
+   ```bash
+   trellis deploy production
+   ```
+
+## License
+
+GPL-2.0-or-later
 
 ## Current Implementation Status
 
@@ -178,13 +325,6 @@ For multiplayer functionality, you'll need to install the [Jackalopes Server](ht
 2. Open multiple browser tabs to test multiplayer
 3. Each tab will be assigned a different player type (jackalope/merc)
 
-## Troubleshooting
-
-- **Game doesn't appear**: Check if your browser supports WebGL. Try a different browser.
-- **Multiplayer not working**: Verify that the WebSocket server is running and accessible.
-- **Performance issues**: Use the console commands to lower graphics quality.
-- **Asset loading errors**: Check browser console for 404 errors on game assets.
-
 ## Implementation Notes
 
 This plugin uses a modern architecture with:
@@ -195,10 +335,6 @@ This plugin uses a modern architecture with:
 - Vite for frontend builds
 
 The game is implemented as a standalone React application that is integrated into WordPress via a shortcode system and asset loading utilities.
-
-## License
-
-GPL-2.0-or-later
 
 ## Credits
 

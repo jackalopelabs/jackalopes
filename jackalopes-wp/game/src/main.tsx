@@ -18,7 +18,7 @@ import { JackalopesGameSettings, JackalopesGameOptions } from './types/wordpress
 setupWPGameIntegration();
 
 // Initialize the game when called from WordPress
-window.initJackalopesGame = (containerId: string, options: JackalopesGameOptions = {}) => {
+export const initJackalopesGame = (containerId: string, options: JackalopesGameOptions = {}) => {
   const container = document.getElementById(containerId);
   
   if (!container) {
@@ -73,6 +73,9 @@ window.initJackalopesGame = (containerId: string, options: JackalopesGameOptions
   console.log(`Server URL: ${serverUrl}`);
   console.log(`Session Key: ${sessionKey}`);
 };
+
+// Expose the initialization function globally
+window.initJackalopesGame = initJackalopesGame;
 
 // If not in a WordPress environment (standalone development), initialize immediately
 if (!window.jackalopesGameSettings && process.env.NODE_ENV === 'development') {

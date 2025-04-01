@@ -17,7 +17,7 @@ function jackalopes_wp_register_assets() {
     // Register main game styles
     wp_register_style(
         'jackalopes-game',
-        JACKALOPES_WP_PLUGIN_URL . 'game/dist/assets/index.css',
+        JACKALOPES_WP_PLUGIN_URL . 'game/dist/assets/main.css',
         [],
         JACKALOPES_WP_VERSION
     );
@@ -25,11 +25,19 @@ function jackalopes_wp_register_assets() {
     // Register main game script
     wp_register_script(
         'jackalopes-game',
-        JACKALOPES_WP_PLUGIN_URL . 'game/dist/assets/index.js',
+        JACKALOPES_WP_PLUGIN_URL . 'game/dist/assets/main.js',
         [],
         JACKALOPES_WP_VERSION,
         true
     );
+    
+    // Add script attributes for module type
+    add_filter('script_loader_tag', function($tag, $handle) {
+        if ('jackalopes-game' === $handle) {
+            return str_replace('<script ', '<script type="module" ', $tag);
+        }
+        return $tag;
+    }, 10, 2);
     
     // Add dynamic game settings
     wp_localize_script(

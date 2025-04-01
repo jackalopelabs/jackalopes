@@ -14,10 +14,23 @@ export const getAssetPath = (path: string): string => {
   // Remove leading slash if present
   const cleanPath = path.startsWith('/') ? path.substring(1) : path;
   
+  // Debug logs to help troubleshoot path resolution
+  console.log(`[ASSET] Original path: ${path}`);
+  
   // If running in WordPress, use the assets URL from WordPress settings
   if (window.jackalopesGameSettings?.assetsUrl) {
-    // For WordPress mode
-    return `${window.jackalopesGameSettings.assetsUrl}${cleanPath}`;
+    // Handle WordPress mode
+    const wpUrl = window.jackalopesGameSettings.assetsUrl;
+    
+    // Fix double "assets" in the path
+    let finalPath = cleanPath;
+    if (finalPath.startsWith('assets/') && wpUrl.includes('/assets/')) {
+      finalPath = finalPath.substring(7); // Remove the leading "assets/"
+    }
+
+    const fullPath = `${wpUrl}${finalPath}`;
+    console.log(`[ASSET] WordPress path resolved: ${fullPath}`);
+    return fullPath;
   }
   
   // In development mode, use the relative path
@@ -26,7 +39,9 @@ export const getAssetPath = (path: string): string => {
     return `./${cleanPath}`;
   }
   
-  return `./assets/${cleanPath}`;
+  const devPath = `./assets/${cleanPath}`;
+  console.log(`[ASSET] Development path resolved: ${devPath}`);
+  return devPath;
 };
 
 /**
