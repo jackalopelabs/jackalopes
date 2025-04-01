@@ -165,11 +165,17 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
   
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
+  const spotlightRef = useRef<THREE.SpotLight>(null);
+  const spotlightTargetRef = useRef<THREE.Object3D>(null);
+  const flashlightGroupRef = useRef<THREE.Group>(null);
   const lastAnimationChangeTime = useRef<number>(Date.now());
   const pendingAnimationChange = useRef<string | null>(null);
   const lastPosition = useRef<THREE.Vector3 | null>(null);
   const lastMoveTimestamp = useRef<number>(Date.now());
   const currentAnimation = useRef("idle"); // Default to idle
+  
+  // Add ref to track when to log flashlight debug info
+  const lastFlashlightLogTime = useRef<number>(0);
   
   // Add reference for smooth rotation
   const currentRotation = useRef<number>(rotation || 0);
@@ -179,6 +185,13 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
   // Inside the RemotePlayer component, add better error handling
   // Add a state to track model loading errors
   const [modelError, setModelError] = useState(false);
+  
+  // Add effect for flashlight rotation debugging
+  useEffect(() => {
+    if (playerType === 'merc' && flashlightOn && rotation !== undefined && Math.random() < 0.05) {
+      console.log(`🔦 Flashlight rotation: ${rotation?.toFixed(2)}, sin=${Math.sin(rotation || 0).toFixed(2)}, cos=${Math.cos(rotation || 0).toFixed(2)}`);
+    }
+  }, [rotation, flashlightOn, playerType]);
   
   // Determine player color based on type
   const playerColor = useMemo(() => {
@@ -467,6 +480,85 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
     }
   });
 
+  // Initialize flashlight when component mounts or flashlight state changes
+  useEffect(() => {
+    if (playerType === 'merc' && flashlightOn) {
+      // Ensure refs are available in the next frame
+      requestAnimationFrame(() => {
+        if (spotlightRef.current && spotlightTargetRef.current) {
+          // Initialize the spotlight target
+          const normalizedRotation = ((rotation || 0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+          const dirX = Math.sin(normalizedRotation);
+          const dirZ = Math.cos(normalizedRotation);
+          
+          // Position the target for initial setup
+          spotlightTargetRef.current.position.set(
+            position.x + dirX * 30, 
+            position.y - 2, 
+            position.z + dirZ * 30
+          );
+          spotlightTargetRef.current.updateMatrixWorld();
+          
+          // Ensure the spotlight is pointing at the target
+          spotlightRef.current.target = spotlightTargetRef.current;
+          
+          console.log(`🔦 Flashlight initialized for ${playerId} at rotation ${normalizedRotation.toFixed(2)}`);
+        }
+      });
+    }
+  }, [playerType, flashlightOn, playerId, position, rotation]);
+
+  // Add frame handler to update spotlight target
+  useFrame(() => {
+    // Update spotlight target position if available
+    if (playerType === 'merc' && flashlightOn && 
+        spotlightRef.current && spotlightTargetRef.current) {
+      
+      // Create a normalized direction vector from the rotation angle
+      // Normalize angle to [0, 2π) range to avoid issues with negative angles
+      const normalizedRotation = ((rotation || 0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+      
+      // Calculate forward vector from normalized rotation
+      const dirX = Math.sin(normalizedRotation);
+      const dirZ = Math.cos(normalizedRotation);
+      
+      // Extend the direction vector to get target position
+      const targetDistance = 30; // Keep long distance for better visibility
+      const targetX = dirX * targetDistance;
+      const targetZ = dirZ * targetDistance;
+      
+      // Update the flashlight group rotation directly
+      if (flashlightGroupRef.current) {
+        flashlightGroupRef.current.rotation.y = normalizedRotation;
+      }
+      
+      // Add a slight vertical offset for better illumination (pointing slightly downward)
+      // Position the target relative to the player's position for more accurate targeting
+      spotlightTargetRef.current.position.set(
+        position.x + targetX, 
+        position.y - 2, 
+        position.z + targetZ
+      );
+      spotlightTargetRef.current.updateMatrixWorld();
+      
+      // Ensure the spotlight is pointing at the target
+      spotlightRef.current.target = spotlightTargetRef.current;
+      
+      // Log debug info occasionally (every 2 seconds)
+      const now = Date.now();
+      if (now - lastFlashlightLogTime.current > 2000) {
+        console.log(`🔦 Flashlight for ${playerId} (${playerType}):
+  Original Rotation: ${rotation?.toFixed(2)}
+  Normalized Rotation: ${normalizedRotation.toFixed(2)}
+  Direction Vector: [${dirX.toFixed(2)}, 0, ${dirZ.toFixed(2)}]
+  Player Position: [${position?.x.toFixed(2)}, ${position?.y.toFixed(2)}, ${position?.z.toFixed(2)}]
+  Target Position: [${(position.x + targetX).toFixed(2)}, ${(position.y - 2).toFixed(2)}, ${(position.z + targetZ).toFixed(2)}]`);
+        
+        lastFlashlightLogTime.current = now;
+      }
+    }
+  });
+
   // Common component for all player types with explicit states
   const audioComponent = (
     <RemotePlayerAudio
@@ -535,31 +627,58 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
           
           {/* Add remote player flashlight when enabled */}
           {flashlightOn && (
-            <group position={[0, 8, 0]}>
-              {/* Flashlight spot light */}
-              <spotLight
-                color={0xffffdd} // Slightly yellowish light
-                intensity={10} // Lower intensity for remote players to avoid washing out the scene
-                distance={40} // Slightly shorter distance than local player
-                angle={0.6} // Same angle as local player
-                penumbra={0.7} // Same soft edge
-                decay={1.5}
-                castShadow
-                position={[2, 1, 0]} // Position the light on the player's chest/shoulder
-                rotation={[0, 0, 0]}
-              />
-              
-              {/* Visual flashlight indicator */}
-              <mesh position={[2, 1, 0]} scale={[0.5, 0.5, 0.5]}>
-                <sphereGeometry args={[0.2, 8, 8]} />
-                <meshStandardMaterial 
-                  color="#ffffdd" 
-                  emissive="#ffffff" 
-                  emissiveIntensity={2} 
-                  toneMapped={false}
+            <>
+              <group 
+                ref={flashlightGroupRef}
+                position={[0, 8, 0]} 
+                rotation={[0, rotation || 0, 0]}
+              >
+                {/* Flashlight spot light */}
+                <spotLight
+                  ref={spotlightRef}
+                  color={0xffffee} // Slightly warmer light
+                  intensity={20} // Increased intensity for better visibility
+                  distance={70} // Increased distance for better reach
+                  angle={0.5} // Slightly tighter beam
+                  penumbra={0.7} // Same soft edge
+                  decay={1.5}
+                  castShadow
+                  position={[2, 1, 0]} // Position the light on the player's chest/shoulder
                 />
-              </mesh>
-            </group>
+                
+                {/* Visual flashlight indicator - larger and brighter */}
+                <mesh position={[2.5, 1, 0]} scale={[0.6, 0.6, 0.6]}>
+                  <sphereGeometry args={[0.2, 8, 8]} />
+                  <meshStandardMaterial 
+                    color="#ffffcc" 
+                    emissive="#ffffcc" 
+                    emissiveIntensity={3} 
+                    toneMapped={false}
+                  />
+                </mesh>
+                
+                {/* Flashlight beam visual helper */}
+                <mesh position={[10, 0.5, 0]} rotation={[0, 0, 0]}>
+                  <cylinderGeometry args={[0.5, 3, 15, 8]} />
+                  <meshBasicMaterial 
+                    color="#ffffcc"
+                    transparent={true}
+                    opacity={0.1}
+                    side={THREE.DoubleSide}
+                  />
+                </mesh>
+              </group>
+              
+              {/* Separate target object for the spotlight */}
+              <object3D 
+                ref={spotlightTargetRef} 
+                position={[
+                  position.x + Math.sin(rotation || 0) * 30, 
+                  position.y - 2, 
+                  position.z + Math.cos(rotation || 0) * 30
+                ]} 
+              />
+            </>
           )}
         </RigidBody>
         {/* Player ID tag - positioned higher for the taller merc model */}
