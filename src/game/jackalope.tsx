@@ -236,12 +236,14 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
                 }
                 
                 // Also update character controller if available
-                if (characterController.current) {
+                if (characterController.current && typeof characterController.current.setTranslation === 'function') {
                     characterController.current.setTranslation({
                         x: spawnCoords[0],
                         y: spawnCoords[1],
                         z: spawnCoords[2]
                     });
+                } else {
+                    console.log(`🐰 Character controller not available or doesn't have setTranslation method`);
                 }
                 
                 // Set respawning state 
@@ -292,7 +294,7 @@ export const Jackalope = forwardRef<EntityType, JackalopeProps>(({
             }
             
             // Use the character controller to teleport to the respawn position
-            if (characterController.current) {
+            if (characterController.current && typeof characterController.current.setTranslation === 'function') {
                 characterController.current.setTranslation({
                     x: respawnTargetPosition.current.x,
                     y: respawnTargetPosition.current.y,

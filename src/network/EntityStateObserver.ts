@@ -174,6 +174,50 @@ class EntityStateObserver extends EventEmitter {
         this.emit('entityHealthChanged', updatedState);
       }
     }
+
+    // Add this special handling for respawn updates
+    if (state.isRespawning) {
+      console.log(`🔄 EntityStateObserver: Entity ${state.id} is respawning`, state);
+      
+      // Special handling for respawn events
+      const entity = this.entities[state.id];
+      if (entity) {
+        // Set respawning flag first
+        entity.isRespawning = true;
+        
+        // Save the target respawn position for later
+        if (state.position) {
+          entity._respawnPosition = state.position;
+          console.log(`🔄 EntityStateObserver: Saved respawn position for ${state.id}:`, state.position);
+        }
+        
+        // Notify listeners
+        this.emit('entityRespawning', entity);
+        
+        // After a short delay, update position and clear respawning flag
+        setTimeout(() => {
+          if (this.entities[state.id]) {
+            const entity = this.entities[state.id]!;
+            
+            // Apply the saved respawn position if it exists
+            if (entity._respawnPosition) {
+              entity.position = entity._respawnPosition;
+              delete entity._respawnPosition;
+            }
+            
+            // Clear respawning flag
+            entity.isRespawning = false;
+            
+            console.log(`🔄 EntityStateObserver: Entity ${state.id} respawn complete`, entity);
+            
+            // Notify listeners of the completed respawn
+            this.emit('entityRespawned', entity);
+          }
+        }, 500);
+        
+        return;
+      }
+    }
   }
   
   /**

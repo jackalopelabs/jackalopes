@@ -126,6 +126,31 @@ export const JackalopeModel = ({
     };
   }, [animation, animationClips, modelLoaded]);
   
+  // If you're inside the JackalopeModel component
+  // Add better error logging and handling
+  useEffect(() => {
+    // Log when the component mounts
+    console.log("JackalopeModel component mounted");
+    
+    // Check if model is loaded
+    const checkModelLoaded = () => {
+      if (group.current) {
+        console.log("Loading jackalope.glb: 100% loaded");
+      } else {
+        console.warn("JackalopeModel not loaded yet, retrying...");
+        // Try again in a short while
+        setTimeout(checkModelLoaded, 500);
+      }
+    };
+    
+    // Start checking if model is loaded
+    checkModelLoaded();
+    
+    return () => {
+      console.log("JackalopeModel component unmounted");
+    };
+  }, []);
+  
   // If there was an error loading the model, show a simplified version as fallback
   if (modelError) {
     return (

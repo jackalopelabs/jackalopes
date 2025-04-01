@@ -714,6 +714,25 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
             
             // For demo/testing, we'll just simulate a respawn after a delay
             setTimeout(() => {
+              // IMPORTANT: Get updated position from entity state
+              const updatedEntity = entityStateObserver.getEntity(playerId);
+              
+              // Get position for respawn
+              let newX = position?.x || 0;
+              let newY = position?.y || 0;
+              let newZ = position?.z || 0;
+              
+              if (updatedEntity && updatedEntity.position) {
+                // Use spawn position from entity state if available
+                console.log(`🔄 Using respawn position from entity: [${updatedEntity.position.join(', ')}]`);
+                newX = updatedEntity.position[0];
+                newY = updatedEntity.position[1];
+                newZ = updatedEntity.position[2];
+              } else {
+                console.log(`🔄 No updated position in entity, using default respawn position`);
+              }
+              
+              // Clear respawning state
               setIsRespawning(false);
               setIsInvulnerable(true);
               
@@ -728,15 +747,15 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
               }, 3000); // 3 seconds of invulnerability
               
               // Create spawn effect at new position
-              if (typeof window !== 'undefined' && window.__createSpawnEffect && position) {
+              if (typeof window !== 'undefined' && window.__createSpawnEffect) {
                 window.__createSpawnEffect(
-                  new THREE.Vector3(position.x, position.y, position.z),
+                  new THREE.Vector3(newX, newY, newZ),
                   '#4682B4', // Blue color for Jackalope
                   20, // Particles for spawn effect
                   0.2 // Radius
                 );
               }
-            }, 1500); // 1.5 seconds "dead" before respawning
+            }, 500); // Reduced from 1500ms to 500ms for faster respawn visibility
           }, 200); // Short delay to allow the hit effect to be seen 
         }
       };
@@ -745,7 +764,7 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
       checkForRespawnEvent();
       
       // Create an interval to check periodically
-      const intervalId = setInterval(checkForRespawnEvent, 1000);
+      const intervalId = setInterval(checkForRespawnEvent, 500); // More frequent checks (500ms instead of 1000ms)
       
       return () => clearInterval(intervalId);
     }, [playerId, position, isHit, isRespawning]);
@@ -835,7 +854,7 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
           restitution={0.1} // Make collisions less bouncy
         >
           {/* Only render mesh contents when not hit/respawning */}
-          {!isHit && !isRespawning && (
+          {!isHit && (
             <>
               {/* Use multiple colliders to ensure good collision detection */}
               {/* Main body collider - enlarged for better hit detection */}

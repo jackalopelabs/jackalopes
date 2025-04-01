@@ -222,14 +222,29 @@ export const MultiplayerSyncManager: React.FC<MultiplayerSyncManagerProps> = ({
         
         console.log(`🔄 [SyncManager] Setting respawn position to: [${spawnPosition.join(', ')}]`);
         
-        // Update entity state with new position
+        // IMPORTANT: Send an immediate position update for this entity
+        // This ensures all clients see the new position right away
         try {
+          // First set respawning flag to trigger death effect
           entityStateObserver.updateEntity({
             id: respawnPlayerId,
-            position: spawnPosition,
             isRespawning: true,
             health: 100 // Reset health on respawn
           });
+          
+          // Then after a short delay, update position and clear respawning flag
+          setTimeout(() => {
+            entityStateObserver.updateEntity({
+              id: respawnPlayerId,
+              position: spawnPosition,
+              isRespawning: false,
+              isMoving: false,
+              isRunning: false,
+              health: 100
+            });
+            console.log(`🔄 [SyncManager] Updated entity ${respawnPlayerId} final position to [${spawnPosition.join(', ')}]`);
+          }, 300);
+          
           console.log(`🔄 [SyncManager] Updated entity ${respawnPlayerId} to respawn state with position [${spawnPosition.join(', ')}]`);
         } catch (err) {
           console.error(`🔄 [SyncManager] Error updating entity state:`, err);
@@ -238,6 +253,28 @@ export const MultiplayerSyncManager: React.FC<MultiplayerSyncManagerProps> = ({
         // If this is for our own player, handle our local respawn
         const localPlayerId = connectionManager.getPlayerId();
         console.log(`🔄 [SyncManager] Local player ID: ${localPlayerId}, Respawning player: ${respawnPlayerId}`);
+        
+        // IMPORTANT: Also broadcast the respawn via an additional immediate update message
+        // This helps ensure the respawn is seen by all clients
+        if (connectionManager && !event.noBroadcast) {
+          try {
+            // Send an immediate position update to ensure everyone sees the new position
+            connectionManager.sendMessage({
+              type: 'player_update',
+              state: {
+                position: spawnPosition,
+                rotation: 0,
+                sequence: Date.now(),
+                isRespawning: false,
+                playerType: 'jackalope'
+              },
+              player_id: respawnPlayerId
+            });
+            console.log(`🔄 [SyncManager] Sent immediate position update for respawned player ${respawnPlayerId}`);
+          } catch (e) {
+            console.error(`🔄 [SyncManager] Failed to send immediate update for respawn:`, e);
+          }
+        }
         
         if (respawnPlayerId === localPlayerId) {
           console.log(`🔄 [SyncManager] Dispatching local player_respawned event for ${respawnPlayerId}`);
