@@ -669,22 +669,22 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
         >
           {/* Use multiple colliders to ensure good collision detection */}
           {/* Main body collider - enlarged for better hit detection */}
-          <CapsuleCollider args={[1.2, 1.0]} position={[0, 0.6, 0]} sensor={false} friction={1} restitution={0.1} />
+          <CapsuleCollider args={[2.4, 2.0]} position={[0, 1.2, 0]} sensor={false} friction={1} restitution={0.1} />
           
           {/* Add a box collider to ensure hits register */}
-          <CuboidCollider args={[1.0, 1.0, 1.0]} position={[0, 0.6, 0]} sensor={false} friction={1} restitution={0.1} />
+          <CuboidCollider args={[2.0, 2.0, 2.0]} position={[0, 1.2, 0]} sensor={false} friction={1} restitution={0.1} />
           
           {/* Add a collider for the head area */}
-          <BallCollider args={[0.7]} position={[0, 1.5, 0]} sensor={false} friction={1} restitution={0.1} />
+          <BallCollider args={[1.4]} position={[0, 3.0, 0]} sensor={false} friction={1} restitution={0.1} />
           
           {/* Extra collider to catch projectiles */}
-          <BallCollider args={[1.2]} position={[0, 0.8, 0]} sensor={false} friction={1} restitution={0.1} />
+          <BallCollider args={[2.4]} position={[0, 1.6, 0]} sensor={false} friction={1} restitution={0.1} />
           
           {/* Use primitive for the model */}
           <JackalopeModel 
             position={[0, -0.9, 0]} 
             rotation={[0, 0, 0]} 
-            scale={[0.9, 0.9, 0.9]} 
+            scale={[2, 2, 2]} // Increase the scale to make the jackalope appear larger
           />
           
           {/* Render all attached projectiles directly as children of the jackalope */}
@@ -692,13 +692,13 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
         </RigidBody>
         
         {/* Player ID tag */}
-        <Html position={[position?.x || 0, (position?.y || 0) + 2.5, position?.z || 0]} center>
+        <Html position={[position?.x || 0, (position?.y || 0) + 5, position?.z || 0]} center>
           <div style={{ 
             background: 'rgba(0,0,0,0.5)', 
             padding: '2px 6px', 
             borderRadius: '4px', 
             color: 'white',
-            fontSize: '10px',
+            fontSize: '12px', // Larger font to match the increased size
             fontFamily: 'Arial, sans-serif'
           }}>
             {playerId?.split('-')[0]}
@@ -765,7 +765,7 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
       <mesh
         ref={meshRef}
         position={[0, playerType === 'jackalope' ? -0.9 : 0, 0]}
-        scale={playerType === 'jackalope' ? [0.9, 0.9, 0.9] : [5, 5, 5]} // Match 5x scale
+        scale={playerType === 'jackalope' ? [2, 2, 2] : [5, 5, 5]} // Increase jackalope scale to 2x
         castShadow
         receiveShadow
         frustumCulled={false}
@@ -780,7 +780,7 @@ export const RemotePlayer: React.FC<RemotePlayerProps> = ({
           <JackalopeModel 
             position={[0, -0.9, 0]} 
             rotation={[0, 0, 0]} 
-            scale={[0.9, 0.9, 0.9]} 
+            scale={[2, 2, 2]} // Increase to 2x scale
           />
         )}
       </mesh>
